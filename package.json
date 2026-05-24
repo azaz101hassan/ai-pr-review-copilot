@@ -1,0 +1,24 @@
+{
+  "name": "ai-pr-review-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI PR Review Copilot — RAG + agentic LLM that reviews GitHub PRs against a team knowledge base",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/azaz101hassan/ai-pr-review-copilot.git"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "dev:api": "npm run start:dev --workspace apps/api",
+    "dev:web": "npm run dev --workspace apps/web"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

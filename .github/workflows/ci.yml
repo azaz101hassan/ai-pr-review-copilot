@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs for the same PR/branch when a new commit lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Node 22 LTS — broad prebuilt coverage for better-sqlite3. Local
+          # dev uses Node 24; bump here once Node 24 prebuilds settle.
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests across workspaces
+        run: npm test --workspaces --if-present
+
+      - name: Build apps/web (smoke-test Next.js scaffold)
+        run: npm run build --workspace apps/web
