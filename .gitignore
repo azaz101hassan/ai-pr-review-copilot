@@ -39,6 +39,16 @@ pnpm-debug.log*
 *.swp
 *.swo
 
+# Local agent / tooling settings (shared base files like CLAUDE.md / AGENTS.md
+# are checked in; `.local` overrides are personal and never shipped)
+.claude/
+.cursor/
+.aider*
+CLAUDE.local.md
+AGENTS.local.md
+GEMINI.local.md
+.codex/
+
 # Coverage / test artifacts
 coverage/
 .nyc_output/
