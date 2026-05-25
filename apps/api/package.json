@@ -6,7 +6,7 @@
   "scripts": {
     "build": "nest build",
     "start": "nest start",
-    "start:dev": "nest start --watch",
+    "start:dev": "nest start --watch --preserveWatchOutput",
     "start:prod": "node dist/main",
     "test": "jest --passWithNoTests",
     "db:generate": "drizzle-kit generate",

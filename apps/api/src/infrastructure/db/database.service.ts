@@ -59,14 +59,35 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
     this.rawDb.pragma('foreign_keys = ON');
 
     // Wrap the raw connection in Drizzle, then apply pending migrations.
-    // The migrations folder is co-located with the schema and ships
-    // with the dist build (jest reads them directly via __dirname).
     this.drizzleDb = drizzle(this.rawDb, { schema });
     migrate(this.drizzleDb, {
-      migrationsFolder: path.join(__dirname, 'migrations'),
+      migrationsFolder: this.resolveMigrationsFolder(),
     });
 
     this.logger.log(`SQLite ready at ${this.dbPath}`);
+  }
+
+  // Locate the migrations folder by trying the colocated path first
+  // (dist when compiled, src under ts-jest) and falling back to the
+  // workspace src path. The fallback exists because `nest start --watch`
+  // boots dist/main.js before its asset-copy step finishes, so on a
+  // first run dist/infrastructure/db/migrations/ is briefly empty. The
+  // fallback finds the source migrations next to the schema files and
+  // unblocks startup; production builds never hit it.
+  private resolveMigrationsFolder(): string {
+    const candidates = [
+      path.join(__dirname, 'migrations'),
+      path.resolve(process.cwd(), 'src/infrastructure/db/migrations'),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(path.join(candidate, 'meta', '_journal.json'))) {
+        return candidate;
+      }
+    }
+    throw new Error(
+      `Drizzle migrations folder not found. Looked in:\n  - ${candidates.join('\n  - ')}\n` +
+        `Did \`drizzle-kit generate\` run? Are migration assets copied into dist? See nest-cli.json's \`assets\` glob.`,
+    );
   }
 
   onApplicationShutdown(): void {
