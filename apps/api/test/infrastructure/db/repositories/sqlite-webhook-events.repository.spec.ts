@@ -17,8 +17,8 @@ function makePr(overrides: Partial<PullRequestRecord> = {}): PullRequestRecord {
     head_sha: 'a'.repeat(40),
     base_sha: 'b'.repeat(40),
     author_login: 'octocat',
-    created_at: '2026-05-25T10:00:00Z',
-    updated_at: '2026-05-25T10:00:00Z',
+    created_at: new Date('2026-05-25T10:00:00Z'),
+    updated_at: new Date('2026-05-25T10:00:00Z'),
     raw_payload: JSON.stringify({ pull_request: { number: 42 } }),
     ...overrides,
   };
@@ -32,7 +32,7 @@ function makeEvent(
     event_name: 'pull_request',
     action: 'opened',
     pull_request_node_id: 'PR_kwDOABCDEFG',
-    received_at: '2026-05-25T10:00:01Z',
+    received_at: new Date('2026-05-25T10:00:01Z'),
     raw_payload: JSON.stringify({ action: 'opened' }),
     ...overrides,
   };

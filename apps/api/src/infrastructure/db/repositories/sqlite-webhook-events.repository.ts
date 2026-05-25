@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
 import { DatabaseService } from '../database.service';
+import { webhookEvents } from '../schema';
 import { IWebhookEventRepository } from '@/modules/webhooks/types/webhook-event.repository';
 import { WebhookEventRecord } from '@/modules/webhooks/types/webhook-event.types';
 
@@ -8,22 +10,14 @@ export class SqliteWebhookEventsRepository implements IWebhookEventRepository {
   constructor(private readonly db: DatabaseService) {}
 
   insert(event: WebhookEventRecord): void {
-    this.db
-      .getDb()
-      .prepare(
-        `INSERT INTO webhook_events
-         (delivery_id, event_name, action, pull_request_node_id,
-          received_at, raw_payload)
-         VALUES (@delivery_id, @event_name, @action, @pull_request_node_id,
-                 @received_at, @raw_payload)`,
-      )
-      .run(event);
+    this.db.drizzle.insert(webhookEvents).values(event).run();
   }
 
   findByDeliveryId(deliveryId: string): WebhookEventRecord | undefined {
-    return this.db
-      .getDb()
-      .prepare('SELECT * FROM webhook_events WHERE delivery_id = ?')
-      .get(deliveryId) as WebhookEventRecord | undefined;
+    return this.db.drizzle
+      .select()
+      .from(webhookEvents)
+      .where(eq(webhookEvents.delivery_id, deliveryId))
+      .get();
   }
 }

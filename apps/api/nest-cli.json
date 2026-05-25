@@ -5,7 +5,8 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "assets": [
-      { "include": "**/*.sql", "outDir": "dist" }
+      { "include": "**/*.sql", "outDir": "dist" },
+      { "include": "infrastructure/db/migrations/meta/**/*", "outDir": "dist" }
     ],
     "watchAssets": true
   }

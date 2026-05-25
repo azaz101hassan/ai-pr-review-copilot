@@ -230,7 +230,8 @@ describe('WebhookService', () => {
       // PR row title NOT updated by the duplicate.
       expect(prs.findByNodeId('PR_kwDOTEST')?.title).toBe('Test PR');
       // Event row received_at NOT changed.
-      expect(events.findByDeliveryId('d-replay')?.received_at).toBe(firstReceivedAt);
+      // Date objects: .toEqual compares by value (epoch ms), not identity.
+      expect(events.findByDeliveryId('d-replay')?.received_at).toEqual(firstReceivedAt);
     });
   });
 });

@@ -6,20 +6,28 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import Database from 'better-sqlite3';
+import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ConfigService } from '@/config';
+import * as schema from './schema';
 
-// Owns the SQLite connection lifecycle ONLY — open, close, transaction,
-// and schema bootstrap. Per-table queries live in repository classes that
-// inject this service and call getDb() to reach the underlying handle.
-// Splitting CRUD out of this class keeps it stable as we add tables and
-// gives modules a single seam to swap (postgres, libsql, …) by binding
-// a different repository implementation in their module providers.
+export type DrizzleDb = BetterSQLite3Database<typeof schema>;
+
+// Owns the SQLite connection lifecycle — open, close, transaction, and
+// schema bootstrap via Drizzle migrations. Per-table queries live in
+// repository classes that inject this service and call `drizzle` (the
+// typed Drizzle client) for their queries; `db` (the raw better-sqlite3
+// handle) remains exposed for pragmas and the lifecycle test surface.
+//
+// Swapping persistence engines means swapping the repository
+// implementations, not this class.
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(DatabaseService.name);
-  private db!: Database.Database;
+  private rawDb!: Database.Database;
+  private drizzleDb!: DrizzleDb;
   private dbPath!: string;
 
   // @Optional() so unit tests can construct DatabaseService standalone
@@ -46,17 +54,24 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
       }
     }
 
-    this.db = new Database(this.dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
+    this.rawDb = new Database(this.dbPath);
+    this.rawDb.pragma('journal_mode = WAL');
+    this.rawDb.pragma('foreign_keys = ON');
 
-    this.db.exec(this.loadSchema());
+    // Wrap the raw connection in Drizzle, then apply pending migrations.
+    // The migrations folder is co-located with the schema and ships
+    // with the dist build (jest reads them directly via __dirname).
+    this.drizzleDb = drizzle(this.rawDb, { schema });
+    migrate(this.drizzleDb, {
+      migrationsFolder: path.join(__dirname, 'migrations'),
+    });
+
     this.logger.log(`SQLite ready at ${this.dbPath}`);
   }
 
   onApplicationShutdown(): void {
-    if (this.db && this.db.open) {
-      this.db.close();
+    if (this.rawDb && this.rawDb.open) {
+      this.rawDb.close();
     }
   }
 
@@ -64,13 +79,14 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
   // when a domain operation needs >1 row to land atomically — e.g. a PR
   // upsert + event insert must succeed together or not at all so a crash
   // between the two doesn't leave a PR row in the table with no audit
-  // event.
+  // event. better-sqlite3's transaction works on the underlying handle
+  // regardless of whether queries inside are issued via Drizzle or raw.
   transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+    return this.rawDb.transaction(fn)();
   }
 
   hasTable(name: string): boolean {
-    const row = this.db
+    const row = this.rawDb
       .prepare(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
       )
@@ -78,12 +94,16 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
     return !!row;
   }
 
-  getDb(): Database.Database {
-    return this.db;
+  // Typed Drizzle client. Repositories depend on this — the schema
+  // generic gives them inferred row types for every table.
+  get drizzle(): DrizzleDb {
+    return this.drizzleDb;
   }
 
-  private loadSchema(): string {
-    const schemaPath = path.join(__dirname, 'schema.sql');
-    return fs.readFileSync(schemaPath, 'utf8');
+  // Raw better-sqlite3 handle. Kept for lifecycle tests (pragma checks)
+  // and any one-off escape hatches. Repositories should prefer
+  // `drizzle` above.
+  getDb(): Database.Database {
+    return this.rawDb;
   }
 }

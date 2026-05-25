@@ -29,7 +29,9 @@ export class WebhookService {
 
   handleDelivery(input: WebhookDelivery): { status: WebhookHandlerStatus } {
     const { event, delivery, action, payload, rawPayload } = input;
-    const receivedAt = new Date().toISOString();
+    // received_at is server-controlled; created_at/updated_at come from
+    // GitHub as ISO 8601 strings and convert to Date for the DB.
+    const receivedAt = new Date();
 
     // Idempotency: GitHub retries failed deliveries and the "Redeliver"
     // button in the App's settings reuses the same X-GitHub-Delivery
@@ -58,12 +60,17 @@ export class WebhookService {
             repo_full_name: payload.repository?.full_name ?? 'unknown/unknown',
             number: pr.number,
             title: pr.title,
-            state: pr.state,
+            // payload.pull_request.state is a free string in the
+            // GithubWebhookPayload type, but GitHub only emits
+            // 'open' or 'closed' for this field. Cast narrows it to
+            // match the Drizzle schema's enum (TS-side only — SQLite
+            // doesn't enforce text-enums at the DB layer).
+            state: pr.state as 'open' | 'closed',
             head_sha: pr.head.sha,
             base_sha: pr.base.sha,
             author_login: pr.user.login,
-            created_at: pr.created_at,
-            updated_at: pr.updated_at,
+            created_at: new Date(pr.created_at),
+            updated_at: new Date(pr.updated_at),
             raw_payload: JSON.stringify(pr),
           });
           this.events.insert({
