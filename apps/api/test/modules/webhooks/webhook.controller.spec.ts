@@ -4,12 +4,12 @@ import {
   RawBodyRequest,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { WebhookController } from '../../src/webhooks/webhook.controller';
 import {
   GithubWebhookPayload,
+  WebhookController,
   WebhookHandlerStatus,
   WebhookService,
-} from '../../src/webhooks/webhook.service';
+} from '@/modules/webhooks';
 
 function makeService() {
   const handleDelivery = jest.fn(

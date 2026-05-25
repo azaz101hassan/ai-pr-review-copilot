@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { ConfigService } from '@/config';
 
 const PREFIX = 'sha256=';
 const HEX_DIGEST_LENGTH = 64; // SHA-256 produces 32 bytes => 64 hex chars
@@ -18,16 +19,18 @@ export class GithubSignatureGuard implements CanActivate {
   private readonly logger = new Logger(GithubSignatureGuard.name);
   private readonly secret: string;
 
-  // @Optional() tells NestJS DI not to look for a String provider; we
-  // fall back to process.env.GITHUB_WEBHOOK_SECRET when no value is
-  // explicitly passed (e.g., in unit tests).
-  constructor(@Optional() secret?: string) {
-    const resolved = secret ?? process.env.GITHUB_WEBHOOK_SECRET;
-    // Reject the truthy-but-broken cases too: literal "undefined"/"null"
-    // (common from `${VAR:-undefined}` templating or `String(undef)`),
-    // and anything shorter than 16 chars (`openssl rand -hex 32`
-    // produces 64). The bar isn't strong-secret enforcement; it's
-    // catching obvious misconfigs before they authenticate strangers.
+  // @Optional() so tests can construct the guard with a raw secret string
+  // instead of standing up the full ConfigService. Validation runs
+  // regardless of source — ConfigService already validated, but tests
+  // exercise the construction-time error path by passing raw strings.
+  constructor(@Optional() configOrSecret?: ConfigService | string) {
+    const resolved =
+      typeof configOrSecret === 'string'
+        ? configOrSecret
+        : configOrSecret
+          ? configOrSecret.githubWebhookSecret
+          : process.env.GITHUB_WEBHOOK_SECRET;
+
     if (
       !resolved ||
       resolved === 'undefined' ||

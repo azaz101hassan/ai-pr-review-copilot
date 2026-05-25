@@ -1,6 +1,6 @@
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
-import { GithubSignatureGuard } from '../../src/webhooks/signature-verification.guard';
+import { GithubSignatureGuard } from '@/guards';
 
 const SECRET = 'super-secret-day-1';
 

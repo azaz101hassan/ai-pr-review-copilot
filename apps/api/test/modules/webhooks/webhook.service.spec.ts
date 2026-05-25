@@ -1,11 +1,13 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DatabaseService } from '../../src/db/database.service';
+import { DatabaseService } from '@/infrastructure/db';
+import { SqlitePullRequestsRepository } from '../../../src/infrastructure/db/repositories/sqlite-pull-requests.repository';
+import { SqliteWebhookEventsRepository } from '../../../src/infrastructure/db/repositories/sqlite-webhook-events.repository';
 import {
   GithubWebhookPayload,
   WebhookService,
-} from '../../src/webhooks/webhook.service';
+} from '@/modules/webhooks';
 
 function makePrPayload(
   action: string,
@@ -32,13 +34,17 @@ function makePrPayload(
 describe('WebhookService', () => {
   let tmpDir: string;
   let db: DatabaseService;
+  let prs: SqlitePullRequestsRepository;
+  let events: SqliteWebhookEventsRepository;
   let service: WebhookService;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webhook-svc-'));
     db = new DatabaseService();
     db.open(path.join(tmpDir, 'test.sqlite'));
-    service = new WebhookService(db);
+    prs = new SqlitePullRequestsRepository(db);
+    events = new SqliteWebhookEventsRepository(db);
+    service = new WebhookService(db, prs, events);
   });
 
   afterEach(() => {
@@ -58,12 +64,12 @@ describe('WebhookService', () => {
       });
 
       expect(res.status).toBe('processed');
-      const pr = db.findPullRequest('PR_kwDOTEST');
+      const pr = prs.findByNodeId('PR_kwDOTEST');
       expect(pr).toBeDefined();
       expect(pr?.repo_full_name).toBe('octocat/hello-world');
       expect(pr?.title).toBe('Test PR');
       expect(pr?.state).toBe('open');
-      const evt = db.findWebhookEvent('d-open');
+      const evt = events.findByDeliveryId('d-open');
       expect(evt?.pull_request_node_id).toBe('PR_kwDOTEST');
       expect(evt?.event_name).toBe('pull_request');
       expect(evt?.action).toBe('opened');
@@ -82,7 +88,7 @@ describe('WebhookService', () => {
       });
 
       expect(res.status).toBe('processed');
-      expect(db.findPullRequest('PR_kwDOTEST')?.title).toBe('Test PR');
+      expect(prs.findByNodeId('PR_kwDOTEST')?.title).toBe('Test PR');
     });
 
     it('updates PR fields on second synchronize after opened', () => {
@@ -107,7 +113,7 @@ describe('WebhookService', () => {
         rawPayload: JSON.stringify(synced),
       });
 
-      const pr = db.findPullRequest('PR_kwDOTEST');
+      const pr = prs.findByNodeId('PR_kwDOTEST');
       expect(pr?.title).toBe('Updated title');
       expect(pr?.head_sha).toBe('c'.repeat(40));
     });
@@ -137,10 +143,10 @@ describe('WebhookService', () => {
       });
 
       expect(res.status).toBe('ignored-action');
-      const pr = db.findPullRequest('PR_kwDOTEST');
+      const pr = prs.findByNodeId('PR_kwDOTEST');
       expect(pr?.title).toBe('Original');
       expect(pr?.state).toBe('open');
-      expect(db.findWebhookEvent('d-close')?.pull_request_node_id).toBe(
+      expect(events.findByDeliveryId('d-close')?.pull_request_node_id).toBe(
         'PR_kwDOTEST',
       );
     });
@@ -156,8 +162,8 @@ describe('WebhookService', () => {
       });
 
       expect(res.status).toBe('ignored-action');
-      expect(db.findWebhookEvent('d-orphan')?.pull_request_node_id).toBeNull();
-      expect(db.findPullRequest('PR_kwDOTEST')).toBeUndefined();
+      expect(events.findByDeliveryId('d-orphan')?.pull_request_node_id).toBeNull();
+      expect(prs.findByNodeId('PR_kwDOTEST')).toBeUndefined();
     });
   });
 
@@ -176,7 +182,7 @@ describe('WebhookService', () => {
       });
 
       expect(res.status).toBe('ignored-event');
-      const evt = db.findWebhookEvent('d-push');
+      const evt = events.findByDeliveryId('d-push');
       expect(evt?.event_name).toBe('push');
       expect(evt?.pull_request_node_id).toBeNull();
     });
@@ -191,7 +197,7 @@ describe('WebhookService', () => {
       });
 
       expect(res.status).toBe('ignored-event');
-      expect(db.findWebhookEvent('d-ping')).toBeDefined();
+      expect(events.findByDeliveryId('d-ping')).toBeDefined();
     });
   });
 
@@ -206,7 +212,7 @@ describe('WebhookService', () => {
         rawPayload: JSON.stringify(payload),
       });
       expect(first.status).toBe('processed');
-      const eventAfterFirst = db.findWebhookEvent('d-replay');
+      const eventAfterFirst = events.findByDeliveryId('d-replay');
       expect(eventAfterFirst).toBeDefined();
       const firstReceivedAt = eventAfterFirst!.received_at;
 
@@ -222,9 +228,9 @@ describe('WebhookService', () => {
       });
       expect(replayed.status).toBe('duplicate');
       // PR row title NOT updated by the duplicate.
-      expect(db.findPullRequest('PR_kwDOTEST')?.title).toBe('Test PR');
+      expect(prs.findByNodeId('PR_kwDOTEST')?.title).toBe('Test PR');
       // Event row received_at NOT changed.
-      expect(db.findWebhookEvent('d-replay')?.received_at).toBe(firstReceivedAt);
+      expect(events.findByDeliveryId('d-replay')?.received_at).toBe(firstReceivedAt);
     });
   });
 });

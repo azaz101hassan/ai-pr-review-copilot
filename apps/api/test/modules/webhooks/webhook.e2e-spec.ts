@@ -5,8 +5,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import request from 'supertest';
-import { AppModule } from '../../src/app.module';
-import { DatabaseService } from '../../src/db/database.service';
+import { AppModule } from '@/app.module';
+import { SqlitePullRequestsRepository } from '../../../src/infrastructure/db/repositories/sqlite-pull-requests.repository';
+import { SqliteWebhookEventsRepository } from '../../../src/infrastructure/db/repositories/sqlite-webhook-events.repository';
+import {
+  PULL_REQUEST_REPOSITORY,
+  WEBHOOK_EVENT_REPOSITORY,
+} from '@/modules/webhooks';
 
 const SECRET = 'webhook-secret-e2e';
 
@@ -34,7 +39,8 @@ function prPayload(action: string) {
 
 describe('POST /webhooks/github (e2e)', () => {
   let app: INestApplication;
-  let db: DatabaseService;
+  let prs: SqlitePullRequestsRepository;
+  let events: SqliteWebhookEventsRepository;
   let tmpDir: string;
   const prevSecret = process.env.GITHUB_WEBHOOK_SECRET;
   const prevDbPath = process.env.DATABASE_PATH;
@@ -50,7 +56,8 @@ describe('POST /webhooks/github (e2e)', () => {
 
     app = moduleRef.createNestApplication({ rawBody: true });
     await app.init();
-    db = app.get(DatabaseService);
+    prs = app.get(PULL_REQUEST_REPOSITORY);
+    events = app.get(WEBHOOK_EVENT_REPOSITORY);
   });
 
   afterAll(async () => {
@@ -82,8 +89,8 @@ describe('POST /webhooks/github (e2e)', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('processed');
-    expect(db.findPullRequest('PR_kwDOEND2END')).toBeDefined();
-    expect(db.findWebhookEvent('d-e2e-opened')?.pull_request_node_id).toBe(
+    expect(prs.findByNodeId('PR_kwDOEND2END')).toBeDefined();
+    expect(events.findByDeliveryId('d-e2e-opened')?.pull_request_node_id).toBe(
       'PR_kwDOEND2END',
     );
   });
@@ -101,7 +108,7 @@ describe('POST /webhooks/github (e2e)', () => {
       .send(body);
 
     expect(res.status).toBe(401);
-    expect(db.findWebhookEvent('d-e2e-badsig')).toBeUndefined();
+    expect(events.findByDeliveryId('d-e2e-badsig')).toBeUndefined();
   });
 
   it('returns 401 with missing signature', async () => {
@@ -116,7 +123,7 @@ describe('POST /webhooks/github (e2e)', () => {
       .send(body);
 
     expect(res.status).toBe(401);
-    expect(db.findWebhookEvent('d-e2e-nosig')).toBeUndefined();
+    expect(events.findByDeliveryId('d-e2e-nosig')).toBeUndefined();
   });
 
   it('returns 400 when X-GitHub-Event header is missing (after sig passes)', async () => {
@@ -149,7 +156,7 @@ describe('POST /webhooks/github (e2e)', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ignored-event');
-    expect(db.findWebhookEvent('d-e2e-push')?.pull_request_node_id).toBeNull();
+    expect(events.findByDeliveryId('d-e2e-push')?.pull_request_node_id).toBeNull();
   });
 
   it('records the ping event sent by GitHub on webhook setup', async () => {

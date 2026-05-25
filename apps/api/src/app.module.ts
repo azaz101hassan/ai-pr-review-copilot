@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
-import { DatabaseModule } from './db/database.module';
-import { HealthController } from './health/health.controller';
-import { WebhookModule } from './webhooks/webhook.module';
+import { ConfigModule } from '@/config';
+import { DatabaseModule } from '@/infrastructure/db';
+import { WebhookModule } from '@/modules/webhooks';
+import { HealthController } from '@/system';
 
 @Module({
-  imports: [DatabaseModule, WebhookModule],
+  imports: [ConfigModule, DatabaseModule, WebhookModule],
   controllers: [HealthController],
 })
 export class AppModule {}

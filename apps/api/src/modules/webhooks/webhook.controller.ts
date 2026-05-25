@@ -11,8 +11,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { GithubSignatureGuard } from './signature-verification.guard';
-import { GithubWebhookPayload, WebhookService } from './webhook.service';
+import { GithubSignatureGuard } from '@/guards';
+import { WebhookService } from './webhook.service';
+import { GithubWebhookPayload } from './types/github-webhook-payload.types';
 
 @Controller('webhooks')
 export class WebhookController {

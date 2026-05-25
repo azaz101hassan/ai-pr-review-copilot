@@ -1,37 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { DatabaseService } from '../db/database.service';
-
-export type WebhookHandlerStatus =
-  | 'processed'
-  | 'ignored-action'
-  | 'ignored-event'
-  | 'duplicate';
-
-export interface WebhookDelivery {
-  event: string;
-  delivery: string;
-  action: string | null;
-  payload: GithubWebhookPayload;
-  rawPayload: string;
-}
-
-export interface GithubWebhookPayload {
-  action?: string;
-  pull_request?: {
-    node_id: string;
-    number: number;
-    title: string;
-    state: string;
-    head: { sha: string };
-    base: { sha: string };
-    user: { login: string };
-    created_at: string;
-    updated_at: string;
-  };
-  repository?: {
-    full_name: string;
-  };
-}
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { DatabaseService } from '@/infrastructure/db';
+import {
+  IPullRequestRepository,
+  PULL_REQUEST_REPOSITORY,
+} from './types/pull-request.repository';
+import {
+  IWebhookEventRepository,
+  WEBHOOK_EVENT_REPOSITORY,
+} from './types/webhook-event.repository';
+import {
+  WebhookDelivery,
+  WebhookHandlerStatus,
+} from './types/webhook-delivery.types';
 
 const ACTIONS_THAT_PROGRESS_PIPELINE = new Set(['opened', 'synchronize']);
 
@@ -39,7 +19,13 @@ const ACTIONS_THAT_PROGRESS_PIPELINE = new Set(['opened', 'synchronize']);
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    @Inject(PULL_REQUEST_REPOSITORY)
+    private readonly pullRequests: IPullRequestRepository,
+    @Inject(WEBHOOK_EVENT_REPOSITORY)
+    private readonly events: IWebhookEventRepository,
+  ) {}
 
   handleDelivery(input: WebhookDelivery): { status: WebhookHandlerStatus } {
     const { event, delivery, action, payload, rawPayload } = input;
@@ -51,7 +37,7 @@ export class WebhookService {
     // on webhook_events.delivery_id and return 500, contradicting the
     // setup docs (which tell operators that 200 = stored). Returning
     // 'duplicate' is a successful no-op from GitHub's perspective.
-    if (this.db.findWebhookEvent(delivery)) {
+    if (this.events.findByDeliveryId(delivery)) {
       this.logger.log(
         `duplicate delivery ${delivery} (${event}.${action ?? 'unknown'}) — no-op`,
       );
@@ -67,7 +53,7 @@ export class WebhookService {
         // would then walk the PR forward (title/state churn) without
         // recording the delivery either.
         this.db.transaction(() => {
-          this.db.insertOrReplacePullRequest({
+          this.pullRequests.save({
             node_id: pr.node_id,
             repo_full_name: payload.repository?.full_name ?? 'unknown/unknown',
             number: pr.number,
@@ -80,7 +66,7 @@ export class WebhookService {
             updated_at: pr.updated_at,
             raw_payload: JSON.stringify(pr),
           });
-          this.db.insertWebhookEvent({
+          this.events.insert({
             delivery_id: delivery,
             event_name: event,
             action,
@@ -100,8 +86,8 @@ export class WebhookService {
       // touching the PR row. Defensive FK: if the PR is unknown (we
       // missed the opened delivery), keep the FK null instead of
       // exploding with a constraint error.
-      const existing = this.db.findPullRequest(pr.node_id);
-      this.db.insertWebhookEvent({
+      const existing = this.pullRequests.findByNodeId(pr.node_id);
+      this.events.insert({
         delivery_id: delivery,
         event_name: event,
         action: action ?? null,
@@ -116,7 +102,7 @@ export class WebhookService {
     }
 
     // Any non-pull_request event — just persist for later analysis.
-    this.db.insertWebhookEvent({
+    this.events.insert({
       delivery_id: delivery,
       event_name: event,
       action: action ?? null,
@@ -128,3 +114,11 @@ export class WebhookService {
     return { status: 'ignored-event' };
   }
 }
+
+// Re-exports so existing callers (controller, tests) can import these
+// from the service module without knowing the types/ subfolder layout.
+export {
+  WebhookDelivery,
+  WebhookHandlerStatus,
+} from './types/webhook-delivery.types';
+export { GithubWebhookPayload } from './types/github-webhook-payload.types';

@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
+import { AppModule } from '@/app.module';
 
 describe('Health (e2e)', () => {
   let app: INestApplication;
