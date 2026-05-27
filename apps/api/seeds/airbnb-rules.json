@@ -1,0 +1,405 @@
+{
+  "source": {
+    "id": "airbnb-eslint",
+    "name": "Airbnb ESLint",
+    "description": "Curated subset of Airbnb's JavaScript style guide rules, hand-enriched with descriptions and bad/good examples for embedding signal."
+  },
+  "rules": [
+    {
+      "id": "no-var",
+      "severity": "error",
+      "language": "javascript",
+      "category": "variables",
+      "title": "Use let or const, never var",
+      "description": "var declarations are function-scoped and hoisted in confusing ways. let and const are block-scoped and behave predictably. Prefer const by default and let only when reassignment is required.",
+      "examples": {
+        "bad": "var count = 0;\nfor (var i = 0; i < items.length; i++) {\n  count += items[i];\n}",
+        "good": "let count = 0;\nfor (const item of items) {\n  count += item;\n}"
+      }
+    },
+    {
+      "id": "prefer-const",
+      "severity": "error",
+      "language": "javascript",
+      "category": "variables",
+      "title": "Use const for variables that are never reassigned",
+      "description": "If a binding is never reassigned, declare it const. const signals intent and prevents accidental reassignment that breaks the reader's mental model.",
+      "examples": {
+        "bad": "let MAX_RETRIES = 3;\nlet config = loadConfig();",
+        "good": "const MAX_RETRIES = 3;\nconst config = loadConfig();"
+      }
+    },
+    {
+      "id": "eqeqeq",
+      "severity": "error",
+      "language": "javascript",
+      "category": "best-practices",
+      "title": "Use === and !==, never == or !=",
+      "description": "Loose equality performs type coercion that hides bugs (\"0\" == false, null == undefined, etc.). Always use strict equality. The single exception some teams allow is `x == null` to check for null OR undefined; even that is clearer as `x === null || x === undefined`.",
+      "examples": {
+        "bad": "if (count == 0) doSomething();\nif (value != null) process(value);",
+        "good": "if (count === 0) doSomething();\nif (value !== null && value !== undefined) process(value);"
+      }
+    },
+    {
+      "id": "no-unused-vars",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "variables",
+      "title": "Remove unused variables and imports",
+      "description": "Unused declarations are dead code that confuses readers and bloats diff review. Delete them. The exception is function parameters required by an interface — prefix those with _ to opt out of the lint warning.",
+      "examples": {
+        "bad": "import { foo, bar, baz } from './utils';\n// only `foo` is used below\nconst x = foo();",
+        "good": "import { foo } from './utils';\nconst x = foo();"
+      }
+    },
+    {
+      "id": "no-shadow",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "variables",
+      "title": "Do not shadow variables from outer scopes",
+      "description": "Re-declaring an outer variable in an inner scope makes the inner declaration silently mask the outer one. When the reader sees the name later they assume it refers to the outer binding. Rename one of them.",
+      "examples": {
+        "bad": "const user = getCurrentUser();\nitems.forEach((item) => {\n  const user = item.author; // shadows outer `user`\n  log(user);\n});",
+        "good": "const currentUser = getCurrentUser();\nitems.forEach((item) => {\n  const author = item.author;\n  log(author);\n});"
+      }
+    },
+    {
+      "id": "no-param-reassign",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "best-practices",
+      "title": "Do not reassign function parameters",
+      "description": "Reassigning parameters mutates the caller's object (for object params) or makes the function's behavior depend on whether the parameter was used. Treat parameters as immutable; assign to a new local if you need to transform.",
+      "examples": {
+        "bad": "function normalize(name) {\n  name = name.trim().toLowerCase();\n  return name;\n}",
+        "good": "function normalize(name) {\n  const cleaned = name.trim().toLowerCase();\n  return cleaned;\n}"
+      }
+    },
+    {
+      "id": "prefer-template",
+      "severity": "error",
+      "language": "javascript",
+      "category": "strings",
+      "title": "Use template literals instead of string concatenation",
+      "description": "Template literals (backticks) are easier to read, support multi-line, and handle interpolation without the + operator scattering casts. Use them whenever you would otherwise concatenate.",
+      "examples": {
+        "bad": "const greeting = 'Hello, ' + user.name + '! You have ' + count + ' messages.';",
+        "good": "const greeting = `Hello, ${user.name}! You have ${count} messages.`;"
+      }
+    },
+    {
+      "id": "prefer-arrow-callback",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "functions",
+      "title": "Use arrow functions for callbacks",
+      "description": "Arrow functions inherit `this` from the surrounding scope, which is almost always what callbacks want. They are also shorter for one-liners. Reserve `function` for top-level definitions and methods.",
+      "examples": {
+        "bad": "items.map(function (item) {\n  return item.value;\n});",
+        "good": "items.map((item) => item.value);"
+      }
+    },
+    {
+      "id": "arrow-body-style",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "functions",
+      "title": "Use concise arrow body when the function only returns an expression",
+      "description": "When an arrow function's body is a single return statement, drop the braces and the `return` keyword. The expression-bodied form makes the data flow obvious at a glance.",
+      "examples": {
+        "bad": "const double = (x) => { return x * 2; };",
+        "good": "const double = (x) => x * 2;"
+      }
+    },
+    {
+      "id": "prefer-destructuring",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "destructuring",
+      "title": "Use destructuring to pull values out of objects and arrays",
+      "description": "Destructuring makes the data the function depends on visible at the top of the function and avoids the noise of repeated `obj.field` accesses. It also enables default values inline.",
+      "examples": {
+        "bad": "function greet(user) {\n  const name = user.name;\n  const role = user.role || 'guest';\n  return `Hi ${name} (${role})`;\n}",
+        "good": "function greet({ name, role = 'guest' }) {\n  return `Hi ${name} (${role})`;\n}"
+      }
+    },
+    {
+      "id": "object-shorthand",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "objects",
+      "title": "Use shorthand for object properties and methods",
+      "description": "When the property key matches the value variable name, use the shorthand. Same for methods: drop the colon and `function` keyword. The result is shorter and emphasizes intent.",
+      "examples": {
+        "bad": "const user = { name: name, age: age, greet: function () { return 'hi'; } };",
+        "good": "const user = { name, age, greet() { return 'hi'; } };"
+      }
+    },
+    {
+      "id": "no-else-return",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "control-flow",
+      "title": "Omit else when the if branch returns",
+      "description": "When the `if` branch returns, the `else` is redundant — every line after the if-block is effectively in the else branch already. Removing it flattens nesting and lets the happy path live at the outer indentation level.",
+      "examples": {
+        "bad": "function classify(n) {\n  if (n < 0) {\n    return 'negative';\n  } else {\n    return 'non-negative';\n  }\n}",
+        "good": "function classify(n) {\n  if (n < 0) return 'negative';\n  return 'non-negative';\n}"
+      }
+    },
+    {
+      "id": "consistent-return",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "control-flow",
+      "title": "Either always return a value or never return one",
+      "description": "Mixing explicit `return value` and bare `return` (or no return at all) in the same function makes the call site uncertain whether `undefined` is meaningful. Pick one and apply it across every branch.",
+      "examples": {
+        "bad": "function find(items, predicate) {\n  for (const item of items) {\n    if (predicate(item)) return item;\n  }\n  // implicit undefined return\n}",
+        "good": "function find(items, predicate) {\n  for (const item of items) {\n    if (predicate(item)) return item;\n  }\n  return undefined;\n}"
+      }
+    },
+    {
+      "id": "no-nested-ternary",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "control-flow",
+      "title": "Do not nest ternary expressions",
+      "description": "Nested ternaries become a parsing puzzle. Replace with an if/else chain, a switch, or a lookup table. The horizontal density is not worth the cognitive cost.",
+      "examples": {
+        "bad": "const status = a > 0 ? 'positive' : a < 0 ? 'negative' : 'zero';",
+        "good": "let status;\nif (a > 0) status = 'positive';\nelse if (a < 0) status = 'negative';\nelse status = 'zero';"
+      }
+    },
+    {
+      "id": "max-lines-per-function",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "complexity",
+      "title": "Keep functions short — under ~50 lines",
+      "description": "Functions that span many screens are hard to keep in working memory and usually do more than one thing. Extract sub-helpers. The exact threshold matters less than the discipline of breaking long functions up the moment they get long.",
+      "examples": {
+        "bad": "function processOrder(order) {\n  // 120 lines of validation, persistence, email, logging, retry…\n}",
+        "good": "function processOrder(order) {\n  validate(order);\n  const saved = persist(order);\n  notify(saved);\n  return saved;\n}"
+      }
+    },
+    {
+      "id": "complexity",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "complexity",
+      "title": "Keep cyclomatic complexity low",
+      "description": "Functions with deeply nested conditionals and many independent branches are hard to test and reason about. Aim for cyclomatic complexity under 10. Extract guard clauses; use early returns; replace boolean chains with named predicates.",
+      "examples": {
+        "bad": "function priceFor(order) {\n  if (order) {\n    if (order.user) {\n      if (order.user.premium) {\n        if (order.items && order.items.length > 0) {\n          // 8 more nested branches\n        }\n      }\n    }\n  }\n}",
+        "good": "function priceFor(order) {\n  if (!order || !order.user) return 0;\n  if (!order.items || order.items.length === 0) return 0;\n  return order.user.premium ? premiumPrice(order) : standardPrice(order);\n}"
+      }
+    },
+    {
+      "id": "no-magic-numbers",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "readability",
+      "title": "Name your magic numbers",
+      "description": "Literal numbers scattered through business logic lose their meaning. Pull them into named constants at the top of the file (or a shared constants module) so the reader sees the intent, not the value.",
+      "examples": {
+        "bad": "if (user.age >= 18 && session.duration > 3600) { ... }",
+        "good": "const MIN_AGE = 18;\nconst SESSION_LIMIT_SECONDS = 3600;\nif (user.age >= MIN_AGE && session.duration > SESSION_LIMIT_SECONDS) { ... }"
+      }
+    },
+    {
+      "id": "import-order",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "imports",
+      "title": "Order imports: builtin > external > internal > relative",
+      "description": "A consistent import order makes diffs cleaner and helps the reader scan for whether a file depends on the local module or an external one. Group by category; blank line between groups.",
+      "examples": {
+        "bad": "import { format } from './utils';\nimport React from 'react';\nimport path from 'node:path';\nimport { Logger } from '@nestjs/common';",
+        "good": "import path from 'node:path';\n\nimport React from 'react';\nimport { Logger } from '@nestjs/common';\n\nimport { format } from './utils';"
+      }
+    },
+    {
+      "id": "import-no-default-export",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "imports",
+      "title": "Prefer named exports over default exports",
+      "description": "Default exports let callers rename freely, which scatters inconsistent names through the codebase. Named exports preserve the name and make refactor-by-grep work. Reserve default exports for files that legitimately have a single canonical export (React components, CLI entry points).",
+      "examples": {
+        "bad": "// utils.js\nexport default function format(x) { ... }",
+        "good": "// utils.js\nexport function format(x) { ... }"
+      }
+    },
+    {
+      "id": "no-duplicate-imports",
+      "severity": "error",
+      "language": "javascript",
+      "category": "imports",
+      "title": "Combine imports from the same module",
+      "description": "Importing different members of the same module on separate lines is noise. Combine them into a single import statement.",
+      "examples": {
+        "bad": "import { foo } from './utils';\nimport { bar } from './utils';",
+        "good": "import { foo, bar } from './utils';"
+      }
+    },
+    {
+      "id": "no-console",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "best-practices",
+      "title": "Do not leave console.log in production code",
+      "description": "console.log is for debugging. Replacement: use the project's logger. Stale console.log calls are noise in production logs and may leak request bodies or PII.",
+      "examples": {
+        "bad": "function handle(req) {\n  console.log('got request', req.body);\n  // …\n}",
+        "good": "function handle(req) {\n  logger.debug({ body: req.body }, 'got request');\n  // …\n}"
+      }
+    },
+    {
+      "id": "no-throw-literal",
+      "severity": "error",
+      "language": "javascript",
+      "category": "errors",
+      "title": "Throw Error instances, never string literals",
+      "description": "Throwing a string loses the stack trace and breaks every consumer that does `err instanceof Error` or `err.message`. Always throw an Error (or a subclass).",
+      "examples": {
+        "bad": "if (!user) throw 'user not found';",
+        "good": "if (!user) throw new Error('user not found');"
+      }
+    },
+    {
+      "id": "no-async-promise-executor",
+      "severity": "error",
+      "language": "javascript",
+      "category": "async",
+      "title": "Do not pass async functions to the Promise constructor",
+      "description": "`new Promise(async (resolve) => …)` swallows errors thrown by the async function before resolve is called. The async wrapper is also unnecessary — if you have async work, just call it directly.",
+      "examples": {
+        "bad": "return new Promise(async (resolve, reject) => {\n  const data = await fetchData();\n  resolve(data);\n});",
+        "good": "async function load() {\n  const data = await fetchData();\n  return data;\n}"
+      }
+    },
+    {
+      "id": "no-await-in-loop",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "async",
+      "title": "Avoid sequential await inside a loop when iterations are independent",
+      "description": "Awaiting inside a for-loop serializes calls that could run in parallel. If the iterations are independent, use Promise.all. Keep the loop when each iteration must wait for the previous one (e.g., paginated reads where the next cursor depends on the prior response).",
+      "examples": {
+        "bad": "const results = [];\nfor (const id of ids) {\n  results.push(await fetchOne(id));\n}",
+        "good": "const results = await Promise.all(ids.map(fetchOne));"
+      }
+    },
+    {
+      "id": "prefer-async-await",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "async",
+      "title": "Prefer async/await over raw Promise chains",
+      "description": "async/await reads as straight-line code and pairs naturally with try/catch. Reserve `.then` for adapter spots where you have to compose with an API that returns a bare Promise.",
+      "examples": {
+        "bad": "function load(id) {\n  return fetchUser(id)\n    .then((user) => fetchPosts(user.id))\n    .then((posts) => formatFeed(posts));\n}",
+        "good": "async function load(id) {\n  const user = await fetchUser(id);\n  const posts = await fetchPosts(user.id);\n  return formatFeed(posts);\n}"
+      }
+    },
+    {
+      "id": "no-floating-promises",
+      "severity": "error",
+      "language": "typescript",
+      "category": "async",
+      "title": "Do not leave promises unhandled",
+      "description": "A promise without an await, .then/.catch, or `void` prefix is a silently-discarded async operation. Errors inside it become unhandled-rejection warnings and the operation may complete after the caller has moved on.",
+      "examples": {
+        "bad": "function onClick() {\n  saveDraft();\n}",
+        "good": "async function onClick() {\n  await saveDraft();\n}\n// Or fire-and-forget intentionally:\nvoid saveDraft();"
+      }
+    },
+    {
+      "id": "no-explicit-any",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "types",
+      "title": "Avoid the `any` type",
+      "description": "`any` disables type checking and propagates outward — every consumer of an `any`-typed value loses its own typing. Use `unknown` when you must accept arbitrary input (then narrow), or a specific type otherwise.",
+      "examples": {
+        "bad": "function process(input: any) {\n  return input.value.trim();\n}",
+        "good": "function process(input: unknown) {\n  if (typeof input === 'object' && input !== null && 'value' in input && typeof input.value === 'string') {\n    return input.value.trim();\n  }\n  throw new Error('invalid input');\n}"
+      }
+    },
+    {
+      "id": "explicit-function-return-type",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "types",
+      "title": "Declare return types on exported functions",
+      "description": "Explicit return types are a contract — they prevent an internal refactor from silently widening the public type. For internal helpers, the inferred return type is usually fine.",
+      "examples": {
+        "bad": "export function findUser(id: string) {\n  return db.users.find((u) => u.id === id);\n}",
+        "good": "export function findUser(id: string): User | undefined {\n  return db.users.find((u) => u.id === id);\n}"
+      }
+    },
+    {
+      "id": "no-non-null-assertion",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "types",
+      "title": "Avoid the non-null assertion operator (!)",
+      "description": "`x!` tells the compiler 'trust me, this is not null' without giving the reader any reason to. If you know it's non-null, narrow with an explicit check. If you cannot prove it locally, the code probably has a real bug at runtime.",
+      "examples": {
+        "bad": "const name = user!.name!.trim();",
+        "good": "if (!user || !user.name) throw new Error('user has no name');\nconst name = user.name.trim();"
+      }
+    },
+    {
+      "id": "react-hooks-rules",
+      "severity": "error",
+      "language": "javascript",
+      "category": "react",
+      "title": "Hooks must be called unconditionally at the top of a component",
+      "description": "React relies on hook call order to associate hook calls with state slots. Calling hooks inside conditionals, loops, or after early returns desynchronizes that mapping and causes silent state corruption.",
+      "examples": {
+        "bad": "function Counter({ enabled }) {\n  if (!enabled) return null;\n  const [count, setCount] = useState(0);\n  return <button onClick={() => setCount(count + 1)}>{count}</button>;\n}",
+        "good": "function Counter({ enabled }) {\n  const [count, setCount] = useState(0);\n  if (!enabled) return null;\n  return <button onClick={() => setCount(count + 1)}>{count}</button>;\n}"
+      }
+    },
+    {
+      "id": "no-empty-catch",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "errors",
+      "title": "Do not swallow errors with an empty catch block",
+      "description": "An empty catch silently absorbs failures and makes the system pretend nothing went wrong. At minimum, log the error and the context. If recovery is intentional, comment WHY so the next reader doesn't 'fix' it.",
+      "examples": {
+        "bad": "try {\n  await syncRemote();\n} catch (e) {}",
+        "good": "try {\n  await syncRemote();\n} catch (err) {\n  logger.warn({ err }, 'remote sync failed — falling back to local cache');\n}"
+      }
+    },
+    {
+      "id": "no-deeply-nested-callbacks",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "control-flow",
+      "title": "Flatten deeply nested callbacks",
+      "description": "When you can see 4+ levels of indentation, the function is doing too much. Extract steps into named helpers. With async work, switch to async/await — the pyramid disappears.",
+      "examples": {
+        "bad": "loadUser(id, (err, user) => {\n  if (err) return cb(err);\n  loadPosts(user, (err, posts) => {\n    if (err) return cb(err);\n    renderFeed(posts, (err, html) => {\n      if (err) return cb(err);\n      cb(null, html);\n    });\n  });\n});",
+        "good": "async function feed(id) {\n  const user = await loadUser(id);\n  const posts = await loadPosts(user);\n  return renderFeed(posts);\n}"
+      }
+    },
+    {
+      "id": "guard-clauses",
+      "severity": "warning",
+      "language": "javascript",
+      "category": "control-flow",
+      "title": "Use guard clauses for invalid inputs",
+      "description": "Handle invalid or unhappy inputs with early returns at the top of the function. This keeps the happy path at one level of indentation and removes the need for trailing else branches.",
+      "examples": {
+        "bad": "function process(order) {\n  if (order) {\n    if (order.items.length > 0) {\n      // 30 lines of happy-path logic\n    } else {\n      throw new Error('no items');\n    }\n  } else {\n    throw new Error('no order');\n  }\n}",
+        "good": "function process(order) {\n  if (!order) throw new Error('no order');\n  if (order.items.length === 0) throw new Error('no items');\n  // 30 lines of happy-path logic at the outer indent\n}"
+      }
+    }
+  ]
+}

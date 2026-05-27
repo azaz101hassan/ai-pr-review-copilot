@@ -1,0 +1,26 @@
+diff --git a/src/checkout.js b/src/checkout.js
+index 1111111..2222222 100644
+--- a/src/checkout.js
++++ b/src/checkout.js
+@@ -10,7 +10,7 @@ function processOrder(order) {
+-  if (order.status === "pending") {
++  if (order.status == "pending") {
+     await chargeCard(order);
+   }
+-  if (order.couponCode !== null) {
++  if (order.couponCode != null) {
+     applyDiscount(order);
+   }
+-  if (order.user.role === "admin") {
++  if (order.user.role == "admin") {
+     bypassFraudCheck(order);
+   }
+-  if (order.tier !== "free") {
++  if (order.tier != "free") {
+     applyPremiumDiscount(order);
+   }
+-  if (order.shippingMethod === "express") {
++  if (order.shippingMethod == "express") {
+     addExpressFee(order);
+   }
+   return persist(order);

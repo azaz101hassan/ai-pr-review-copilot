@@ -34,3 +34,55 @@ jobs:
 
       - name: Build apps/web (smoke-test Next.js scaffold)
         run: npm run build --workspace apps/web
+
+  chroma-integration:
+    name: Chroma integration smoke
+    runs-on: ubuntu-latest
+    # Separate job so the offline test suite isn't blocked by the
+    # ~30s Chroma container boot. This job ONLY exercises
+    # ChromaVectorStore against a real chromadb server — Voyage stays
+    # mocked, so this never spends API tokens.
+    services:
+      chroma:
+        image: chromadb/chroma:1.5.9
+        ports:
+          - 8000:8000
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Chroma to accept HTTP requests
+        # GH Actions `services:` brings the container up but doesn't
+        # gate the next step on application readiness. The chroma
+        # image needs ~10-20s before /api/v2/heartbeat returns 200,
+        # and the runner already has curl on $PATH — simpler than
+        # plumbing a Docker healthcheck through the services block.
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/v2/heartbeat; then
+              echo ""
+              echo "Chroma is healthy after ${i} polls"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Chroma did not become healthy within 60s"
+          docker ps -a
+          exit 1
+
+      - name: Run Chroma integration smoke
+        env:
+          RUN_CHROMA_INTEGRATION: 'true'
+          CHROMA_URL: http://localhost:8000
+        # Targets the gated spec file only — keeps the run fast and
+        # avoids re-executing the 125 offline tests that the `test`
+        # job already covered.
+        run: npm test --workspace apps/api -- --testPathPattern=chroma-vector-store.integration

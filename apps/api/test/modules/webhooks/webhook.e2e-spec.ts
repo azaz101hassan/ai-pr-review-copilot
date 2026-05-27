@@ -44,10 +44,15 @@ describe('POST /webhooks/github (e2e)', () => {
   let tmpDir: string;
   const prevSecret = process.env.GITHUB_WEBHOOK_SECRET;
   const prevDbPath = process.env.DATABASE_PATH;
+  const prevVoyageKey = process.env.VOYAGE_API_KEY;
 
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webhook-e2e-'));
     process.env.GITHUB_WEBHOOK_SECRET = SECRET;
+    // Day 2 added VOYAGE_API_KEY to ConfigService as required.
+    // AppModule construction now fails fast without it, even for tests
+    // that never touch the embeddings code path.
+    process.env.VOYAGE_API_KEY = 'voyage-test-key-0123456789abcdef';
     process.env.DATABASE_PATH = path.join(tmpDir, 'e2e.sqlite');
 
     const moduleRef = await Test.createTestingModule({
@@ -66,6 +71,11 @@ describe('POST /webhooks/github (e2e)', () => {
       delete process.env.GITHUB_WEBHOOK_SECRET;
     } else {
       process.env.GITHUB_WEBHOOK_SECRET = prevSecret;
+    }
+    if (prevVoyageKey === undefined) {
+      delete process.env.VOYAGE_API_KEY;
+    } else {
+      process.env.VOYAGE_API_KEY = prevVoyageKey;
     }
     if (prevDbPath === undefined) {
       delete process.env.DATABASE_PATH;

@@ -1,0 +1,129 @@
+{
+  "source": {
+    "id": "team-standards",
+    "name": "Team Standards",
+    "description": "Project-specific conventions from CLAUDE.md and prior code reviews. These rules are how the team actually wants this codebase written, not generic best practice."
+  },
+  "rules": [
+    {
+      "id": "no-co-authored-by-claude",
+      "severity": "error",
+      "language": "other",
+      "category": "process",
+      "title": "Never add Co-Authored-By: Claude to commits or PRs",
+      "description": "Commit messages, PR descriptions, and review comments must not contain `Co-Authored-By: Claude`, `Generated with Claude Code`, or any other AI-attribution trailer. The author of every commit is the human running the session. Removing such trailers from existing history requires explicit authorization.",
+      "examples": {
+        "bad": "feat: add embeddings module\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+        "good": "feat: add embeddings module"
+      }
+    },
+    {
+      "id": "config-service-only",
+      "severity": "error",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "All env access goes through ConfigService",
+      "description": "Feature code must never read process.env directly. Add a typed property + validator on ConfigService and inject ConfigService where you need the value. ConfigService validates at construction so missing or malformed env vars fail at boot, not at first use.",
+      "examples": {
+        "bad": "@Injectable()\nexport class EmailService {\n  send(to: string) {\n    const apiKey = process.env.SENDGRID_KEY;\n    // ...\n  }\n}",
+        "good": "@Injectable()\nexport class EmailService {\n  constructor(private readonly config: ConfigService) {}\n  send(to: string) {\n    const apiKey = this.config.sendgridKey;\n    // ...\n  }\n}"
+      }
+    },
+    {
+      "id": "guards-live-in-guards-dir",
+      "severity": "error",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "Guards live in src/guards/, never inside feature modules",
+      "description": "All NestJS guards (auth, signature verification, rate limit, etc.) live in src/guards/. Feature modules import what they need. This keeps guards discoverable by grep and prevents per-feature security drift.",
+      "examples": {
+        "bad": "// src/modules/webhooks/signature-verification.guard.ts\n@Injectable()\nexport class GithubSignatureGuard implements CanActivate { ... }",
+        "good": "// src/guards/signature-verification.guard.ts\n@Injectable()\nexport class GithubSignatureGuard implements CanActivate { ... }"
+      }
+    },
+    {
+      "id": "repository-pattern",
+      "severity": "error",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "Repository interfaces in modules/<owner>/types/, implementations in infrastructure/db/repositories/",
+      "description": "Every persistent entity gets a repository interface + Symbol token in modules/<owner>/types/, and a Drizzle-backed implementation in infrastructure/db/repositories/. Consumers inject the interface, not the class. Swapping engines (SQLite → libsql → Postgres) means writing a new implementation and flipping one useClass binding.",
+      "examples": {
+        "bad": "// modules/reviews/review.service.ts\n@Injectable()\nexport class ReviewService {\n  constructor(private readonly db: DatabaseService) {}\n  save(r: Review) {\n    this.db.drizzle.insert(reviews).values(r).run();\n  }\n}",
+        "good": "// modules/reviews/types/review.repository.ts\nexport const REVIEW_REPOSITORY = Symbol('ReviewRepository');\nexport interface IReviewRepository {\n  save(r: ReviewRecord): void;\n}\n\n// modules/reviews/review.service.ts\n@Injectable()\nexport class ReviewService {\n  constructor(@Inject(REVIEW_REPOSITORY) private readonly reviews: IReviewRepository) {}\n  save(r: ReviewRecord) { this.reviews.save(r); }\n}"
+      }
+    },
+    {
+      "id": "tests-mirror-src",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "testing",
+      "title": "Tests mirror the src/ tree exactly",
+      "description": "Every src/<path>/foo.ts has its spec at test/<path>/foo.spec.ts (or .e2e-spec.ts for full-app HTTP tests). No exceptions. This makes finding the test for a given file a one-step path translation, not a search.",
+      "examples": {
+        "bad": "src/modules/webhooks/webhook.service.ts\ntest/webhook-tests.ts",
+        "good": "src/modules/webhooks/webhook.service.ts\ntest/modules/webhooks/webhook.service.spec.ts"
+      }
+    },
+    {
+      "id": "no-mocks-for-the-db",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "testing",
+      "title": "Use a real SQLite tmp DB in tests, not a mock driver",
+      "description": "Database tests open a fresh fs.mkdtempSync directory, run real SQLite, and clean up in afterEach. Mock drivers diverge from real SQLite behavior (constraint enforcement, transactions, type affinities) and hide bugs that the real engine catches.",
+      "examples": {
+        "bad": "const db = { drizzle: { insert: jest.fn(), select: jest.fn() } };\nconst repo = new SqliteReviewsRepository(db);",
+        "good": "tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-test-'));\ndb = new DatabaseService();\ndb.open(path.join(tmpDir, 'test.sqlite'));\nrepo = new SqliteReviewsRepository(db);"
+      }
+    },
+    {
+      "id": "thin-controllers",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "Keep controllers thin — validation in DTOs, logic in services",
+      "description": "Controllers parse the HTTP shape (via class-validator DTOs) and delegate to a service. They should not contain branching business logic, database access, or external service calls. If a controller method runs more than ~5 lines, the logic belongs in a service.",
+      "examples": {
+        "bad": "@Post('search')\nasync search(@Body() body: any) {\n  if (!body.diff || body.diff.length === 0) throw new BadRequestException();\n  const vector = await this.voyage.embed(body.diff);\n  const hits = await this.chroma.query(vector);\n  return hits.filter((h) => h.score > 0.5);\n}",
+        "good": "@Post('search')\nasync search(@Body() dto: SearchRequestDto) {\n  const hits = await this.embeddings.search(dto.diff, { k: dto.k });\n  return { hits };\n}"
+      }
+    },
+    {
+      "id": "no-crud-on-database-service",
+      "severity": "error",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "DatabaseService is lifecycle-only — no CRUD methods",
+      "description": "DatabaseService owns connection lifecycle (open, close, transaction, getDb, hasTable) and nothing else. Per-table CRUD goes in repositories under infrastructure/db/repositories/. Adding methods like saveUser() back onto DatabaseService rebuilds the god-object the repository pattern exists to prevent.",
+      "examples": {
+        "bad": "@Injectable()\nexport class DatabaseService {\n  open() { ... }\n  saveUser(u: User) { ... }\n  findReview(id: string) { ... }\n}",
+        "good": "@Injectable()\nexport class DatabaseService {\n  open() { ... }\n  transaction<T>(fn: () => T): T { ... }\n  // CRUD lives on SqliteUsersRepository, SqliteReviewsRepository, etc.\n}"
+      }
+    },
+    {
+      "id": "drizzle-schema-source-of-truth",
+      "severity": "error",
+      "language": "typescript",
+      "category": "persistence",
+      "title": "Never hand-edit generated Drizzle migrations",
+      "description": "The Drizzle schema TS files under infrastructure/db/schema/ are the source of truth. Migrations under infrastructure/db/migrations/ are generated by `npx drizzle-kit generate --name=<descriptive>`. Hand-editing a generated SQL file will silently desync the schema and the migration; fix the TS and re-generate instead.",
+      "examples": {
+        "bad": "// edit migrations/0002_add_column.sql by hand to drop a default value",
+        "good": "// edit src/infrastructure/db/schema/reviews.ts to fix the default\n// then: cd apps/api && npx drizzle-kit generate --name=fix_default"
+      }
+    },
+    {
+      "id": "module-tier-dependencies",
+      "severity": "error",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "Modules may depend on infrastructure; infrastructure must not depend on module runtime values",
+      "description": "The src/ tree has three tiers (modules/, infrastructure/, system/) with a one-way dependency rule. modules/X may import from infrastructure/* via interface tokens. infrastructure/X may only import type-only declarations from modules/<owner>/types/ (the cross-tier seam). Importing a service or controller from modules/* inside infrastructure/* inverts the dependency and is rejected at review.",
+      "examples": {
+        "bad": "// src/infrastructure/voyage/voyage-embedding.provider.ts\nimport { EmbeddingsService } from '@/modules/embeddings';",
+        "good": "// src/infrastructure/voyage/voyage-embedding.provider.ts\nimport type { IEmbeddingProvider } from '@/modules/embeddings/types/embedding-provider';"
+      }
+    }
+  ]
+}

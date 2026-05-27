@@ -17,6 +17,9 @@ out/
 *.db
 data/
 
+# Chroma persisted volume (Docker Compose bind-mount target)
+chroma-data/
+
 # Env / secrets
 .env
 .env.local

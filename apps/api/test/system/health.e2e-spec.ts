@@ -11,12 +11,15 @@ describe('Health (e2e)', () => {
   let tmpDir: string;
   const prevSecret = process.env.GITHUB_WEBHOOK_SECRET;
   const prevDbPath = process.env.DATABASE_PATH;
+  const prevVoyageKey = process.env.VOYAGE_API_KEY;
 
   beforeAll(async () => {
-    // Booting AppModule pulls in WebhookModule, whose signature guard
-    // requires GITHUB_WEBHOOK_SECRET at construction. Stub env for the test.
+    // Booting AppModule constructs ConfigService, which requires both
+    // GITHUB_WEBHOOK_SECRET and (Day 2+) VOYAGE_API_KEY at boot. Stub
+    // both so the module compiles without leaking real credentials.
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-e2e-'));
-    process.env.GITHUB_WEBHOOK_SECRET = 'health-test-secret';
+    process.env.GITHUB_WEBHOOK_SECRET = 'health-test-secret-1234567890';
+    process.env.VOYAGE_API_KEY = 'voyage-test-key-0123456789abcdef';
     process.env.DATABASE_PATH = path.join(tmpDir, 'health.sqlite');
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -33,6 +36,11 @@ describe('Health (e2e)', () => {
       delete process.env.GITHUB_WEBHOOK_SECRET;
     } else {
       process.env.GITHUB_WEBHOOK_SECRET = prevSecret;
+    }
+    if (prevVoyageKey === undefined) {
+      delete process.env.VOYAGE_API_KEY;
+    } else {
+      process.env.VOYAGE_API_KEY = prevVoyageKey;
     }
     if (prevDbPath === undefined) {
       delete process.env.DATABASE_PATH;

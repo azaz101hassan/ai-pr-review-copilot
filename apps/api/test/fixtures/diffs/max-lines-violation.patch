@@ -1,0 +1,71 @@
+diff --git a/src/process-order.js b/src/process-order.js
+index 5555555..6666666 100644
+--- a/src/process-order.js
++++ b/src/process-order.js
+@@ -5,3 +5,70 @@ export function processOrder(order) {
++  // validate
++  if (!order) throw new Error('no order');
++  if (!order.user) throw new Error('no user');
++  if (!order.items) throw new Error('no items');
++  if (order.items.length === 0) throw new Error('empty');
++  for (const item of order.items) {
++    if (!item.id) throw new Error('item missing id');
++    if (!item.price) throw new Error('item missing price');
++    if (item.price < 0) throw new Error('negative price');
++  }
++  // compute subtotal
++  let subtotal = 0;
++  for (const item of order.items) {
++    subtotal += item.price * item.quantity;
++  }
++  // apply discounts
++  let discount = 0;
++  if (order.coupon) {
++    if (order.coupon.type === 'percent') {
++      discount = subtotal * (order.coupon.value / 100);
++    } else if (order.coupon.type === 'fixed') {
++      discount = order.coupon.value;
++    }
++  }
++  if (order.user.tier === 'premium') {
++    discount += subtotal * 0.05;
++  }
++  // tax
++  let tax = 0;
++  const region = order.shipping?.region ?? 'default';
++  if (region === 'CA') tax = subtotal * 0.0725;
++  else if (region === 'NY') tax = subtotal * 0.08875;
++  else if (region === 'TX') tax = subtotal * 0.0625;
++  else tax = subtotal * 0.05;
++  // shipping
++  let shipping = 0;
++  if (order.shipping?.express) shipping = 25;
++  else if (subtotal > 50) shipping = 0;
++  else shipping = 8;
++  // persist
++  const total = subtotal - discount + tax + shipping;
++  const record = { ...order, subtotal, discount, tax, shipping, total };
++  db.orders.save(record);
++  // notify
++  if (order.user.email) {
++    emailService.send(order.user.email, 'order-confirmation', record);
++  }
++  if (order.user.smsOptIn) {
++    smsService.send(order.user.phone, `Order ${record.id} confirmed`);
++  }
++  // analytics
++  analytics.track('order_placed', { userId: order.user.id, total });
++  // loyalty
++  if (order.user.tier === 'premium') {
++    loyalty.addPoints(order.user.id, Math.floor(total));
++  } else {
++    loyalty.addPoints(order.user.id, Math.floor(total / 2));
++  }
++  // inventory
++  for (const item of order.items) {
++    inventory.decrement(item.id, item.quantity);
++  }
++  // audit log
++  auditLog.write({ kind: 'order.created', orderId: record.id, total });
++  return record;
++}

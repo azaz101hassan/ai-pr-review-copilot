@@ -2,7 +2,13 @@
 
 RAG + agentic LLM that reviews GitHub pull requests against a team knowledge base. Detects coding-standard violations, suggests fixes, and posts structured review comments back to the PR.
 
-**Status:** Day 1 of a 10-day sprint. Today it can *see* PRs over an ngrok tunnel and persist them locally; everything else (Chroma, Claude, agentic tool use, dashboard, deployment) lands on later days. See [`docs/plans/01-baseline.md`](docs/plans/01-baseline.md) for the full sprint plan and [`docs/plans/02-day1-baseline-implementation.md`](docs/plans/02-day1-baseline-implementation.md) for today's implementation detail.
+**Status:** Day 2 of a 10-day sprint. Today the bot can ingest GitHub PR webhooks (Day 1) **and** semantically retrieve relevant code-style rules for a given diff via Chroma + Voyage embeddings (Day 2). Claude analysis, agentic tool use, comment posting, and the dashboard land on later days. See [`docs/plans/01-baseline.md`](docs/plans/01-baseline.md) for the full sprint plan.
+
+| Day | Status | What ships | Implementation plan |
+|---|---|---|---|
+| Day 1 | ✅ shipped | Webhook receiver + SQLite storage + 49 tests | [02-day1-baseline-implementation.md](docs/plans/02-day1-baseline-implementation.md) |
+| Day 2 | ✅ shipped | Chroma + Voyage embeddings + seeded ruleset + `POST /embeddings/search` | [03-day2-rag-foundation.md](docs/plans/03-day2-rag-foundation.md) |
+| Day 3 | ⏳ next | Claude integration for diff analysis | |
 
 ---
 
@@ -44,6 +50,7 @@ The API exposes:
 
 - `GET /health` → `{ status: 'ok', uptime, timestamp }` — smoke test target.
 - `POST /webhooks/github` → guarded by HMAC-SHA256 signature verification; routes `pull_request` events with action `opened` or `synchronize` into SQLite (`pull_requests` + `webhook_events` tables).
+- `POST /embeddings/search` (Day 2) → body `{ diff: string, k?: number }`; returns the top-K matching rules from the seeded corpus. See [`docs/setup/embeddings.md`](docs/setup/embeddings.md) for the full retrieval-loop bring-up (Chroma + Voyage + seed).
 
 ---
 
@@ -88,13 +95,16 @@ npm test --workspace apps/api
 cd apps/api && npx jest --watch
 ```
 
-Day 1 ships with **35 tests** across 5 suites in `apps/api`:
+Day 2 ships with **128 tests** across 17 suites in `apps/api`. New on Day 2 (vs Day 1's 49 across 8 suites):
 
-- Signature verification guard (11 unit tests covering valid signatures, missing headers, malformed prefixes, length mismatches, hex validation, missing `rawBody`).
-- SQLite database service (10 unit tests covering schema idempotency, upserts, foreign-key enforcement, unique-delivery rejection).
-- Webhook service (8 unit tests covering `opened`/`synchronize`/`closed`/`push`/`ping` routing with a real SQLite file).
-- Webhook controller (6 e2e tests via supertest — full HTTP flow including bad-signature short-circuit).
-- Health endpoint (1 e2e test).
+- `ConfigService` — 10 cases covering the four new env vars (Voyage required, Chroma URL/collection/embedding-model with defaults + validators).
+- `SqliteKnowledgeSourcesRepository` and `SqliteKnowledgeChunksRepository` — 14 cases for upsert, `findByIds` order discipline, FK enforcement, `deleteBySourceId`.
+- `VoyageEmbeddingProvider` — 10 cases against a mocked `fetch` for batching, asymmetric `input_type`, `VoyageRequestError` scrubbing the response body.
+- `ChromaVectorStore` — 15 cases for lazy init, cosine-space collection config, distance→score conversion, URL parsing across http/https/trailing-slash.
+- `CorpusLoader`, `EmbeddingsService`, `EmbeddingsController` — 19 cases for chunk normalization, indexing batching, ordering invariant (SQLite first, then Chroma), search enrichment, drift tolerance.
+- `Embeddings (e2e)` — 11 cases booting the full `AppModule` against deterministic in-memory stubs for `EMBEDDING_PROVIDER` and `VECTOR_STORE`, seeding the corpus, and asserting top-K orchestration plus DTO validation (including the 50 000-character `diff` cap).
+
+Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseline-implementation.md`](docs/plans/02-day1-baseline-implementation.md).
 
 ---
 
@@ -104,12 +114,13 @@ Day 1 ships with **35 tests** across 5 suites in `apps/api`:
 |---|---|
 | Backend | NestJS 10 (TypeScript) |
 | Frontend | Next.js 14 App Router (placeholder until Day 7) |
-| Storage (Day 1) | SQLite via `better-sqlite3` |
+| Storage (relational) | SQLite via `better-sqlite3` + Drizzle ORM |
+| Storage (vectors) | Chroma 1.5 via Docker Compose |
+| Embeddings | Voyage AI `voyage-code-3` (1024-dim, code-tuned) |
 | Webhook auth | HMAC-SHA256 + `crypto.timingSafeEqual` |
 | Tests | Jest + supertest |
 | Monorepo | npm workspaces |
-| Future LLM | Anthropic Claude (Sonnet for analysis, Opus for synthesis) |
-| Future vector DB | Chroma |
+| Future LLM | Anthropic Claude (Sonnet for analysis, Opus for synthesis) — Day 3 |
 
 ---
 

@@ -1,0 +1,47 @@
+# Local dev infrastructure for the PR Review Copilot.
+#
+# Currently a one-service file: Chroma is the vector index for the Day-2
+# RAG foundation (see docs/plans/03-day2-rag-foundation.md). Later days
+# may add Postgres, a worker, or an embedded auth proxy here.
+#
+# Usage:
+#   docker compose up -d chroma      # background
+#   docker compose ps                # health status
+#   docker compose down              # stop; data persists in ./chroma-data
+#   docker compose down -v           # stop and wipe the persisted volume
+#
+# See docs/setup/embeddings.md for the full bring-up walkthrough.
+
+services:
+  chroma:
+    # Pinned tag — `:latest` would let Chroma silently roll a breaking
+    # change into local dev. Bump deliberately when upgrading.
+    image: chromadb/chroma:1.5.9
+    container_name: pr-copilot-chroma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind-mount the data dir so the persisted index survives
+      # `docker compose down` and so the contents are inspectable on
+      # disk. `/data` is the current Chroma persistence path; the older
+      # `/chroma/chroma` from pre-1.x tutorials is obsolete.
+      - ./chroma-data:/data
+    healthcheck:
+      # The chroma image ships without curl/wget/nc — only bash is on
+      # the path. We use bash's /dev/tcp pseudo-device to issue an HTTP
+      # GET against the v2 heartbeat and grep for `200 OK`. This is
+      # equivalent to `curl -fsS http://localhost:8000/api/v2/heartbeat`
+      # but doesn't need an extra binary inside the container.
+      #
+      # The v1 path (`/api/v1/heartbeat`) is removed in current builds —
+      # tutorials that still reference it will fail silently here.
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - "exec 3<>/dev/tcp/127.0.0.1/8000 && printf 'GET /api/v2/heartbeat HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q '200 OK'"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
