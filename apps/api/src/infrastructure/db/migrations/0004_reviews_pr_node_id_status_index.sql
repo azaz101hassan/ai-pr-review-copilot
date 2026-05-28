@@ -1,0 +1,1 @@
+CREATE INDEX `idx_reviews_pr_node_id_status` ON `reviews` (`pr_node_id`,`status`);

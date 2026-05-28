@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, gt, lt } from 'drizzle-orm';
 import { DatabaseService } from '../database.service';
 import { reviews } from '../schema';
 import { IReviewRepository } from '@/modules/reviews/types/review.repository';
@@ -76,6 +76,56 @@ export class SqliteReviewsRepository implements IReviewRepository {
       })
       .where(eq(reviews.id, id))
       .run();
+  }
+
+  // Day-5 F2 closure. Identical to markFailed BUT gated on
+  // status='in_progress'. Used by the SIGTERM drain so a row that
+  // finished completing in the last millisecond doesn't get flipped
+  // from 'completed' to 'failed'. The regular markFailed path stays
+  // unguarded because comment_post_failed legitimately flips
+  // 'completed' → 'failed' (the agent loop succeeded; only the POST
+  // didn't land). Returns the number of rows updated so the drain
+  // can log accurately.
+  markFailedIfInProgress(id: string, patch: ReviewFailurePatch): number {
+    const result = this.db.drizzle
+      .update(reviews)
+      .set({
+        status: 'failed',
+        completed_at: patch.completed_at,
+        error_status: patch.error_status,
+        error_code: patch.error_code,
+        ...(patch.turn_count !== undefined && patch.turn_count !== null
+          ? { turn_count: patch.turn_count }
+          : {}),
+        ...(patch.tool_calls !== undefined && patch.tool_calls !== null
+          ? { tool_calls_json: patch.tool_calls }
+          : {}),
+      })
+      .where(
+        and(eq(reviews.id, id), eq(reviews.status, 'in_progress')),
+      )
+      .run();
+    return Number(result.changes);
+  }
+
+  findRecentInProgressForPr(
+    prNodeId: string,
+    withinMs: number,
+  ): ReviewRecord | undefined {
+    const cutoff = new Date(Date.now() - withinMs);
+    return this.db.drizzle
+      .select()
+      .from(reviews)
+      .where(
+        and(
+          eq(reviews.pr_node_id, prNodeId),
+          eq(reviews.status, 'in_progress'),
+          gt(reviews.created_at, cutoff),
+        ),
+      )
+      .orderBy(desc(reviews.created_at))
+      .limit(1)
+      .get();
   }
 
   sweepStaleInProgress(opts: { olderThanMs: number; errorCode: string }): number {

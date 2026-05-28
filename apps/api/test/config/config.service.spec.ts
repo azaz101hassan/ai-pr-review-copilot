@@ -1,5 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { ConfigService } from '@/config';
+import {
+  ConfigService,
+  parseBooleanFlag,
+  parseDogfoodRepos,
+} from '@/config';
 
 // ConfigService reads process.env at construction. Every test below
 // preserves the surrounding shell env, mutates only what it asserts on,
@@ -18,11 +22,26 @@ describe('ConfigService', () => {
     NODE_ENV: process.env.NODE_ENV,
     DATABASE_PATH: process.env.DATABASE_PATH,
     PORT: process.env.PORT,
+    APP_ID: process.env.APP_ID,
+    APP_PRIVATE_KEY: process.env.APP_PRIVATE_KEY,
+    REDIS_URL: process.env.REDIS_URL,
+    DOGFOOD_REPOS: process.env.DOGFOOD_REPOS,
+    ANTHROPIC_USE_ZERO_RETENTION: process.env.ANTHROPIC_USE_ZERO_RETENTION,
+    WORKER_CONCURRENCY: process.env.WORKER_CONCURRENCY,
+    SHUTDOWN_DRAIN_TIMEOUT_MS: process.env.SHUTDOWN_DRAIN_TIMEOUT_MS,
+    MAX_DIFF_BYTES: process.env.MAX_DIFF_BYTES,
+    SKIP_GITHUB_APP_PROBE: process.env.SKIP_GITHUB_APP_PROBE,
+    SKIP_REDIS_PROBE: process.env.SKIP_REDIS_PROBE,
   };
 
   const VALID_WEBHOOK_SECRET = 'webhook-test-secret-0123456789abcdef';
   const VALID_VOYAGE_KEY = 'voyage-test-key-0123456789abcdef';
   const VALID_ANTHROPIC_KEY = 'anthropic-test-key-0123456789abcdef';
+  const VALID_APP_ID = '123456';
+  // Multi-line PEM stored with literal \n escape (the .env shape).
+  const VALID_PEM_ESCAPED =
+    '-----BEGIN RSA PRIVATE KEY-----\\nMIIEpAIBAAKCAQEAtest\\n-----END RSA PRIVATE KEY-----';
+  const VALID_REDIS_URL = 'redis://:password@localhost:6379';
 
   function setEnv(overrides: Partial<Record<keyof typeof snapshot, string | undefined>>) {
     for (const key of Object.keys(snapshot) as (keyof typeof snapshot)[]) {
@@ -39,6 +58,9 @@ describe('ConfigService', () => {
     VOYAGE_API_KEY: VALID_VOYAGE_KEY,
     ANTHROPIC_API_KEY: VALID_ANTHROPIC_KEY,
     NODE_ENV: 'test',
+    APP_ID: VALID_APP_ID,
+    APP_PRIVATE_KEY: VALID_PEM_ESCAPED,
+    REDIS_URL: VALID_REDIS_URL,
   } as const;
 
   afterEach(() => {
@@ -241,5 +263,248 @@ describe('ConfigService', () => {
         expect(new ConfigService().enableDryRun).toBe(false);
       },
     );
+  });
+
+  // Day 5 ─ real-PR integration env surface.
+  describe('GitHub App credentials', () => {
+    it('exposes appId and appPrivateKey when both are set', () => {
+      setEnv(HAPPY_ENV);
+      const cfg = new ConfigService();
+      expect(cfg.appId).toBe(VALID_APP_ID);
+      // PEM stored with literal \n is normalised back to real newlines
+      // so @octokit/auth-app's crypto parsing succeeds at runtime.
+      expect(cfg.appPrivateKey.startsWith('-----BEGIN')).toBe(true);
+      expect(cfg.appPrivateKey).toContain('\n');
+      expect(cfg.appPrivateKey).not.toContain('\\n');
+    });
+
+    it('throws when APP_ID is missing', () => {
+      setEnv({ ...HAPPY_ENV, APP_ID: undefined });
+      expect(() => new ConfigService()).toThrow(/APP_ID/);
+    });
+
+    it('throws when APP_ID is non-numeric', () => {
+      setEnv({ ...HAPPY_ENV, APP_ID: 'abc' });
+      expect(() => new ConfigService()).toThrow(/APP_ID/);
+    });
+
+    it('throws when APP_ID is zero or negative', () => {
+      setEnv({ ...HAPPY_ENV, APP_ID: '0' });
+      expect(() => new ConfigService()).toThrow(/APP_ID/);
+    });
+
+    it('throws when APP_PRIVATE_KEY is missing', () => {
+      setEnv({ ...HAPPY_ENV, APP_PRIVATE_KEY: undefined });
+      expect(() => new ConfigService()).toThrow(/APP_PRIVATE_KEY/);
+    });
+
+    it('throws when APP_PRIVATE_KEY lacks the -----BEGIN prefix', () => {
+      setEnv({ ...HAPPY_ENV, APP_PRIVATE_KEY: 'not-a-pem-at-all' });
+      expect(() => new ConfigService()).toThrow(/APP_PRIVATE_KEY/);
+    });
+
+    it('accepts a PEM with real newlines (multi-line var)', () => {
+      const realNewlinePem =
+        '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----';
+      setEnv({ ...HAPPY_ENV, APP_PRIVATE_KEY: realNewlinePem });
+      const cfg = new ConfigService();
+      expect(cfg.appPrivateKey).toBe(realNewlinePem);
+    });
+  });
+
+  describe('Redis URL', () => {
+    it('accepts a redis:// URL', () => {
+      setEnv({ ...HAPPY_ENV, REDIS_URL: 'redis://localhost:6379' });
+      expect(new ConfigService().redisUrl).toBe('redis://localhost:6379');
+    });
+
+    it('accepts a rediss:// (TLS) URL', () => {
+      setEnv({ ...HAPPY_ENV, REDIS_URL: 'rediss://user:pw@redis.example:6379' });
+      expect(new ConfigService().redisUrl).toBe('rediss://user:pw@redis.example:6379');
+    });
+
+    it('throws when REDIS_URL is missing', () => {
+      setEnv({ ...HAPPY_ENV, REDIS_URL: undefined });
+      expect(() => new ConfigService()).toThrow(/REDIS_URL/);
+    });
+
+    it('throws when REDIS_URL is unparseable', () => {
+      setEnv({ ...HAPPY_ENV, REDIS_URL: 'not a url' });
+      expect(() => new ConfigService()).toThrow(/REDIS_URL/);
+    });
+
+    it('throws when REDIS_URL uses an unsupported scheme', () => {
+      setEnv({ ...HAPPY_ENV, REDIS_URL: 'http://localhost:6379' });
+      expect(() => new ConfigService()).toThrow(/REDIS_URL/);
+    });
+  });
+
+  describe('DOGFOOD_REPOS allowlist', () => {
+    it('defaults to an empty Set when unset', () => {
+      setEnv(HAPPY_ENV);
+      expect(new ConfigService().dogfoodRepos.size).toBe(0);
+    });
+
+    it('defaults to an empty Set when explicitly empty (kill switch)', () => {
+      setEnv({ ...HAPPY_ENV, DOGFOOD_REPOS: '' });
+      expect(new ConfigService().dogfoodRepos.size).toBe(0);
+    });
+
+    it('parses a single owner/repo token', () => {
+      setEnv({ ...HAPPY_ENV, DOGFOOD_REPOS: 'azaz101hassan/ai-pr-review-copilot' });
+      const repos = new ConfigService().dogfoodRepos;
+      expect(repos.has('azaz101hassan/ai-pr-review-copilot')).toBe(true);
+      expect(repos.size).toBe(1);
+    });
+
+    it('parses comma-separated tokens and trims whitespace', () => {
+      setEnv({
+        ...HAPPY_ENV,
+        DOGFOOD_REPOS: ' foo/bar , baz/qux ,, foo/bar ',
+      });
+      const repos = new ConfigService().dogfoodRepos;
+      expect(repos.size).toBe(2);
+      expect(repos.has('foo/bar')).toBe(true);
+      expect(repos.has('baz/qux')).toBe(true);
+    });
+
+    it('throws when a token contains embedded whitespace', () => {
+      setEnv({ ...HAPPY_ENV, DOGFOOD_REPOS: 'foo / bar' });
+      expect(() => new ConfigService()).toThrow(/DOGFOOD_REPOS/);
+    });
+
+    it('throws when a token is not in owner/repo form', () => {
+      setEnv({ ...HAPPY_ENV, DOGFOOD_REPOS: 'just-a-name' });
+      expect(() => new ConfigService()).toThrow(/DOGFOOD_REPOS/);
+    });
+  });
+
+  describe('Worker / drain / diff-cap integers', () => {
+    it('applies documented defaults when all are unset', () => {
+      setEnv(HAPPY_ENV);
+      const cfg = new ConfigService();
+      expect(cfg.workerConcurrency).toBe(1);
+      // F14 closure — default lowered to 15s for 15s margin under
+      // k8s default terminationGracePeriodSeconds: 30.
+      expect(cfg.shutdownDrainTimeoutMs).toBe(15_000);
+      expect(cfg.maxDiffBytes).toBe(256 * 1024);
+    });
+
+    it('honours explicit values', () => {
+      setEnv({
+        ...HAPPY_ENV,
+        WORKER_CONCURRENCY: '4',
+        SHUTDOWN_DRAIN_TIMEOUT_MS: '5000',
+        MAX_DIFF_BYTES: '1048576',
+      });
+      const cfg = new ConfigService();
+      expect(cfg.workerConcurrency).toBe(4);
+      expect(cfg.shutdownDrainTimeoutMs).toBe(5000);
+      expect(cfg.maxDiffBytes).toBe(1_048_576);
+    });
+
+    it('throws when WORKER_CONCURRENCY is zero', () => {
+      setEnv({ ...HAPPY_ENV, WORKER_CONCURRENCY: '0' });
+      expect(() => new ConfigService()).toThrow(/WORKER_CONCURRENCY/);
+    });
+
+    it('throws when WORKER_CONCURRENCY is non-numeric', () => {
+      setEnv({ ...HAPPY_ENV, WORKER_CONCURRENCY: 'four' });
+      expect(() => new ConfigService()).toThrow(/WORKER_CONCURRENCY/);
+    });
+
+    it('throws when SHUTDOWN_DRAIN_TIMEOUT_MS is negative-looking', () => {
+      setEnv({ ...HAPPY_ENV, SHUTDOWN_DRAIN_TIMEOUT_MS: '-100' });
+      expect(() => new ConfigService()).toThrow(/SHUTDOWN_DRAIN_TIMEOUT_MS/);
+    });
+
+    it('throws when MAX_DIFF_BYTES is non-numeric', () => {
+      setEnv({ ...HAPPY_ENV, MAX_DIFF_BYTES: '1MB' });
+      expect(() => new ConfigService()).toThrow(/MAX_DIFF_BYTES/);
+    });
+  });
+
+  describe('ANTHROPIC_USE_ZERO_RETENTION', () => {
+    it('defaults to false when unset (operator opt-in for production)', () => {
+      setEnv(HAPPY_ENV);
+      expect(new ConfigService().anthropicUseZeroRetention).toBe(false);
+    });
+
+    it.each(['true', 'TRUE', '1', 'yes', 'Yes'])(
+      'parses "%s" as true',
+      (value) => {
+        setEnv({ ...HAPPY_ENV, ANTHROPIC_USE_ZERO_RETENTION: value });
+        expect(new ConfigService().anthropicUseZeroRetention).toBe(true);
+      },
+    );
+
+    it.each(['false', '0', 'no', 'maybe'])(
+      'parses "%s" as false',
+      (value) => {
+        setEnv({ ...HAPPY_ENV, ANTHROPIC_USE_ZERO_RETENTION: value });
+        expect(new ConfigService().anthropicUseZeroRetention).toBe(false);
+      },
+    );
+  });
+});
+
+// Module-level parser helpers are exported so module-definition-time
+// code (analogous to parseEnableDryRun's usage in app.module.ts) can
+// consult the same parse rule without constructing a full ConfigService.
+describe('parseBooleanFlag', () => {
+  it('returns fallback when explicit is undefined', () => {
+    expect(parseBooleanFlag(undefined, true)).toBe(true);
+    expect(parseBooleanFlag(undefined, false)).toBe(false);
+  });
+
+  it('returns fallback when explicit is empty', () => {
+    expect(parseBooleanFlag('', true)).toBe(true);
+    expect(parseBooleanFlag('', false)).toBe(false);
+  });
+
+  it.each(['true', 'TRUE', 'True', '1', 'yes', 'YES'])(
+    'parses "%s" as true ignoring fallback',
+    (v) => expect(parseBooleanFlag(v, false)).toBe(true),
+  );
+
+  it.each(['false', '0', 'no', 'maybe', ' '])(
+    'parses "%s" as false ignoring fallback',
+    (v) => expect(parseBooleanFlag(v, true)).toBe(false),
+  );
+});
+
+describe('parseDogfoodRepos', () => {
+  it('returns empty set for undefined', () => {
+    expect(parseDogfoodRepos(undefined).size).toBe(0);
+  });
+
+  it('returns empty set for empty / whitespace string', () => {
+    expect(parseDogfoodRepos('').size).toBe(0);
+    expect(parseDogfoodRepos('   ').size).toBe(0);
+  });
+
+  it('parses a single token', () => {
+    const repos = parseDogfoodRepos('foo/bar');
+    expect(repos.has('foo/bar')).toBe(true);
+    expect(repos.size).toBe(1);
+  });
+
+  it('deduplicates repeated tokens', () => {
+    const repos = parseDogfoodRepos('foo/bar,foo/bar');
+    expect(repos.size).toBe(1);
+  });
+
+  it('drops empty tokens between commas', () => {
+    const repos = parseDogfoodRepos(',foo/bar,,baz/qux,');
+    expect(repos.size).toBe(2);
+  });
+
+  it('rejects tokens with embedded whitespace', () => {
+    expect(() => parseDogfoodRepos('foo / bar')).toThrow(/DOGFOOD_REPOS/);
+  });
+
+  it('rejects tokens that are not owner/repo shaped', () => {
+    expect(() => parseDogfoodRepos('orphan')).toThrow(/DOGFOOD_REPOS/);
+    expect(() => parseDogfoodRepos('too/many/slashes')).toThrow(/DOGFOOD_REPOS/);
   });
 });

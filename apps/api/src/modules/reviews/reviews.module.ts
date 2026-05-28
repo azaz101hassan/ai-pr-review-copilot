@@ -1,10 +1,17 @@
 import { DynamicModule, Logger, Module } from '@nestjs/common';
-import { ConfigModule, parseEnableDryRun } from '@/config';
+import {
+  ConfigModule,
+  parseEnableDryRun,
+  parseSkipRedisProbe,
+} from '@/config';
 import { AnthropicModule } from '@/infrastructure/anthropic';
+import { GithubModule } from '@/infrastructure/github';
+import { QueueModule } from '@/infrastructure/queue';
 import { RepoContextModule } from '@/infrastructure/repo-context';
 import { EmbeddingsModule } from '@/modules/embeddings';
 import { ReviewsService } from './reviews.service';
 import { ReviewsController } from './reviews.controller';
+import { ReviewsProcessor } from './reviews.processor';
 
 // ReviewsModule.forRoot() is a DynamicModule so it can branch on
 // ENABLE_DRY_RUN at module construction time:
@@ -36,8 +43,18 @@ export class ReviewsModule {
       process.env.ENABLE_DRY_RUN,
       process.env.NODE_ENV,
     );
+    // Day-5: register the BullMQ ReviewsProcessor only when the queue
+    // is actually wired (SKIP_REDIS_PROBE=false → BullMQ path). In
+    // test mode the QueueModule binds REVIEW_QUEUE to NoopReviewQueue
+    // and no Worker would have a queue to consume from; the
+    // processor's @Processor() metadata would also trigger
+    // @nestjs/bullmq's explorer to try to construct a Worker against
+    // a non-existent queue.
+    const skipRedis = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);
+
     ReviewsModule.logger.log(
-      `ReviewsModule: dry-run HTTP surface ${enableDryRun ? 'ENABLED' : 'DISABLED'}`,
+      `ReviewsModule: dry-run HTTP surface ${enableDryRun ? 'ENABLED' : 'DISABLED'}; ` +
+        `BullMQ worker ${skipRedis ? 'DISABLED (test mode)' : 'ENABLED'}`,
     );
 
     return {
@@ -48,13 +65,25 @@ export class ReviewsModule {
         AnthropicModule,
         // Day-4: the HTTP path resolves `REPO_CONTEXT_PROVIDER` to
         // `NullRepoContextProvider` (deterministic-degraded). The
-        // CLI bypasses this and constructs a `FilesystemRepoContextProvider`
-        // directly with the resolved `--repo` path. Day-5 swaps the
-        // binding here to `GitHubRepoContextProvider`.
+        // CLI bypasses this and constructs a
+        // `FilesystemRepoContextProvider` directly with the
+        // resolved `--repo` path. Day-5 keeps NullRepoContextProvider
+        // as the DI binding — the worker constructs
+        // `GitHubRepoContextProvider` per-job in U7.
         RepoContextModule,
+        // Day-5: real-PR worker dependencies. GithubModule provides
+        // GITHUB_AUTH_PROVIDER (Octokit factory); QueueModule
+        // provides the REVIEW_QUEUE token + BullMQ wiring the
+        // processor consumes. Both are imported regardless of the
+        // skipRedis flag — the QueueModule itself decides whether to
+        // load real BullMQ or the no-op fallback.
+        GithubModule,
+        QueueModule.forRoot(),
       ],
       controllers: enableDryRun ? [ReviewsController] : [],
-      providers: [ReviewsService],
+      providers: skipRedis
+        ? [ReviewsService]
+        : [ReviewsService, ReviewsProcessor],
       exports: [ReviewsService],
     };
   }

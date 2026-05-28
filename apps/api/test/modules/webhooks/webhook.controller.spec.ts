@@ -13,7 +13,9 @@ import {
 
 function makeService() {
   const handleDelivery = jest.fn(
-    (): { status: WebhookHandlerStatus } => ({ status: 'processed' }),
+    async (): Promise<{ status: WebhookHandlerStatus }> => ({
+      status: 'processed',
+    }),
   );
   return {
     instance: { handleDelivery } as unknown as WebhookService,
@@ -47,56 +49,56 @@ const VALID_RAW = Buffer.from(JSON.stringify(VALID_PAYLOAD));
 
 describe('WebhookController', () => {
   describe('header validation', () => {
-    it('throws BadRequestException when X-GitHub-Event is missing', () => {
+    it('rejects with BadRequestException when X-GitHub-Event is missing', async () => {
       const { instance, handleDelivery } = makeService();
       const controller = new WebhookController(instance);
 
-      expect(() =>
+      await expect(
         controller.receive(
           undefined,
           'delivery-id',
           makeReq(VALID_RAW),
           VALID_PAYLOAD,
         ),
-      ).toThrow(BadRequestException);
+      ).rejects.toThrow(BadRequestException);
       expect(handleDelivery).not.toHaveBeenCalled();
     });
 
-    it('throws BadRequestException when X-GitHub-Delivery is missing', () => {
+    it('rejects with BadRequestException when X-GitHub-Delivery is missing', async () => {
       const { instance, handleDelivery } = makeService();
       const controller = new WebhookController(instance);
 
-      expect(() =>
+      await expect(
         controller.receive(
           'pull_request',
           undefined,
           makeReq(VALID_RAW),
           VALID_PAYLOAD,
         ),
-      ).toThrow(BadRequestException);
+      ).rejects.toThrow(BadRequestException);
       expect(handleDelivery).not.toHaveBeenCalled();
     });
   });
 
   describe('rawBody invariant', () => {
-    it('throws InternalServerErrorException when rawBody is missing (guard wiring broken)', () => {
+    it('rejects with InternalServerErrorException when rawBody is missing (guard wiring broken)', async () => {
       const { instance, handleDelivery } = makeService();
       const controller = new WebhookController(instance);
 
-      expect(() =>
+      await expect(
         controller.receive(
           'pull_request',
           'delivery-id',
           makeReq(undefined),
           VALID_PAYLOAD,
         ),
-      ).toThrow(InternalServerErrorException);
+      ).rejects.toThrow(InternalServerErrorException);
       expect(handleDelivery).not.toHaveBeenCalled();
     });
   });
 
   describe('happy path delegation', () => {
-    it('forwards the raw bytes verbatim — does not re-serialize the parsed body', () => {
+    it('forwards the raw bytes verbatim — does not re-serialize the parsed body', async () => {
       const { instance, handleDelivery } = makeService();
       const controller = new WebhookController(instance);
 
@@ -107,7 +109,7 @@ describe('WebhookController', () => {
         '{\n  "action": "opened",\n  "pull_request": { "node_id": "PR_unit" }\n}',
       );
 
-      controller.receive(
+      await controller.receive(
         'pull_request',
         'd-roundtrip',
         makeReq(rawWithWhitespace),
@@ -126,7 +128,7 @@ describe('WebhookController', () => {
       );
     });
 
-    it('coerces missing payload.action to null on the WebhookDelivery shape', () => {
+    it('coerces missing payload.action to null on the WebhookDelivery shape', async () => {
       const { instance, handleDelivery } = makeService();
       const controller = new WebhookController(instance);
 
@@ -135,7 +137,7 @@ describe('WebhookController', () => {
       } as unknown as GithubWebhookPayload;
       const raw = Buffer.from(JSON.stringify(payloadWithoutAction));
 
-      controller.receive(
+      await controller.receive(
         'ping',
         'd-ping',
         makeReq(raw),

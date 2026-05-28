@@ -27,6 +27,13 @@ export class AnthropicRequestError extends Error {
   // pre-loop failures (auth errors, etc.) don't carry it.
   readonly turnCount?: number;
   readonly toolCalls?: ToolCallRecord[];
+  // Day-5 F4 closure: Anthropic-supplied `retry-after` header in
+  // milliseconds, surfaced so the BullMQ worker's custom
+  // backoffStrategy can honour the upstream's wait hint instead of
+  // burning the next exponential slot. Undefined when the response
+  // didn't carry retry-after (most non-429 paths) or the value
+  // failed to parse.
+  readonly retryAfterMs?: number;
   override readonly cause?: unknown;
 
   constructor(
@@ -37,6 +44,7 @@ export class AnthropicRequestError extends Error {
       serverMessage?: string;
       turnCount?: number;
       toolCalls?: ToolCallRecord[];
+      retryAfterMs?: number;
       cause?: unknown;
     },
   ) {
@@ -46,6 +54,7 @@ export class AnthropicRequestError extends Error {
     this.serverMessage = opts.serverMessage;
     this.turnCount = opts.turnCount;
     this.toolCalls = opts.toolCalls;
+    this.retryAfterMs = opts.retryAfterMs;
     this.cause = opts.cause;
   }
 }

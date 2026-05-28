@@ -4,6 +4,8 @@ export type WebhookHandlerStatus =
   | 'processed'
   | 'ignored-action'
   | 'ignored-event'
+  | 'ignored-repo'
+  | 'ignored-draft'
   | 'duplicate';
 
 // Internal shape passed from the controller to the service. Captures the

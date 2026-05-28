@@ -19,6 +19,12 @@ function sign(body: string): string {
   return 'sha256=' + createHmac('sha256', SECRET).update(body).digest('hex');
 }
 
+// Day-5: e2e must include the repo in DOGFOOD_REPOS (set in beforeAll
+// below) and supply installation.id so the enqueue path runs. The
+// 'processed' assertions further down would otherwise become
+// 'ignored-repo' / 'ignored-event' after the gates land.
+const E2E_REPO = 'octocat/hello-world';
+
 function prPayload(action: string) {
   return {
     action,
@@ -33,7 +39,8 @@ function prPayload(action: string) {
       created_at: '2026-05-24T11:00:00Z',
       updated_at: '2026-05-24T11:00:00Z',
     },
-    repository: { full_name: 'octocat/hello-world' },
+    repository: { full_name: E2E_REPO },
+    installation: { id: 999 },
   };
 }
 
@@ -46,6 +53,7 @@ describe('POST /webhooks/github (e2e)', () => {
   const prevDbPath = process.env.DATABASE_PATH;
   const prevVoyageKey = process.env.VOYAGE_API_KEY;
   const prevAnthropicKey = process.env.ANTHROPIC_API_KEY;
+  const prevDogfood = process.env.DOGFOOD_REPOS;
 
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webhook-e2e-'));
@@ -57,6 +65,11 @@ describe('POST /webhooks/github (e2e)', () => {
     // Day 3 added ANTHROPIC_API_KEY to ConfigService as required.
     process.env.ANTHROPIC_API_KEY = 'anthropic-test-key-0123456789abcdef';
     process.env.DATABASE_PATH = path.join(tmpDir, 'e2e.sqlite');
+    // Day 5 — allowlist the e2e repo so the enqueue path runs end-to-
+    // end. The queue itself stubs out as a no-op since SKIP_REDIS_PROBE
+    // is true (jest.setup.ts) and the bullmq Queue is constructed but
+    // never actually contacts Redis in the e2e happy paths.
+    process.env.DOGFOOD_REPOS = E2E_REPO;
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -89,6 +102,11 @@ describe('POST /webhooks/github (e2e)', () => {
       delete process.env.DATABASE_PATH;
     } else {
       process.env.DATABASE_PATH = prevDbPath;
+    }
+    if (prevDogfood === undefined) {
+      delete process.env.DOGFOOD_REPOS;
+    } else {
+      process.env.DOGFOOD_REPOS = prevDogfood;
     }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

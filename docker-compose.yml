@@ -1,16 +1,21 @@
 # Local dev infrastructure for the PR Review Copilot.
 #
-# Currently a one-service file: Chroma is the vector index for the Day-2
-# RAG foundation (see docs/plans/03-day2-rag-foundation.md). Later days
-# may add Postgres, a worker, or an embedded auth proxy here.
+# Services:
+#   chroma — vector index (Day 2 RAG foundation, see
+#           docs/plans/03-day2-rag-foundation.md).
+#   redis  — BullMQ backing store for the per-PR review queue (Day 5
+#           real-PR integration, see docs/plans/06-day5-real-pr-integration.md
+#           and docs/setup/day5-real-pr.md).
 #
 # Usage:
-#   docker compose up -d chroma      # background
-#   docker compose ps                # health status
-#   docker compose down              # stop; data persists in ./chroma-data
-#   docker compose down -v           # stop and wipe the persisted volume
+#   docker compose up -d              # background, all services
+#   docker compose up -d redis        # one service
+#   docker compose ps                 # health status
+#   docker compose down               # stop; data persists in named volumes
+#   docker compose down -v            # stop and wipe persisted volumes
 #
-# See docs/setup/embeddings.md for the full bring-up walkthrough.
+# See docs/setup/embeddings.md and docs/setup/day5-real-pr.md for the
+# full bring-up walkthroughs.
 
 services:
   chroma:
@@ -45,3 +50,40 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  redis:
+    # Pinned tag — Day-5 review queue is BullMQ on Redis. `redis:7-alpine`
+    # is the canonical small image; bump deliberately when upgrading.
+    image: redis:7-alpine
+    container_name: pr-copilot-redis
+    restart: unless-stopped
+    # Bind to localhost only by default. The whole stack is a single-
+    # operator dev environment (Day-5 demo + dogfood). Exposing 6379 on
+    # all interfaces would let any machine on the LAN read/write the
+    # queue; the password is the only auth and we shouldn't rely on it
+    # to deter a network-reachable attacker.
+    ports:
+      - "127.0.0.1:6379:6379"
+    # The `--requirepass` flag also enforces auth for `redis-cli ping`
+    # itself, so the healthcheck below passes the same password via
+    # REDISCLI_AUTH. REDIS_PASSWORD comes from the host env (apps/api/.env
+    # → docker-compose --env-file pattern, or shell export).
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in the host shell or .env}"
+      - "--appendonly"
+      - "yes"
+    environment:
+      REDISCLI_AUTH: "${REDIS_PASSWORD}"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  redis-data:

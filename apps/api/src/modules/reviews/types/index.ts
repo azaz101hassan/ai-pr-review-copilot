@@ -34,3 +34,16 @@ export {
   PriorReviewQuery,
 } from './repo-context-provider';
 export { ToolCallRecord } from './review.types';
+export {
+  GITHUB_AUTH_PROVIDER,
+  IGithubAuthProvider,
+} from './github-auth-provider';
+export {
+  REVIEW_QUEUE,
+  REVIEW_QUEUE_NAME,
+  REVIEW_JOB_NAME,
+  IReviewQueue,
+  ReviewJobData,
+  EnqueueResult,
+  EnqueueResultKind,
+} from './review-queue';

@@ -40,6 +40,27 @@ export class ConfigService {
   // auth. The CLI path is unaffected (no HTTP).
   readonly enableDryRun: boolean;
 
+  // Day 5 — real-PR integration. App credentials authenticate Octokit
+  // via @octokit/auth-app; Redis backs the BullMQ review queue;
+  // DOGFOOD_REPOS is the allowlist + kill switch for which repos the
+  // bot reviews; the remaining knobs bound the agent loop's runtime
+  // and cost surface. See docs/setup/day5-real-pr.md.
+  readonly appId: string;
+  readonly appPrivateKey: string;
+  readonly redisUrl: string;
+  readonly dogfoodRepos: ReadonlySet<string>;
+  readonly anthropicUseZeroRetention: boolean;
+  readonly workerConcurrency: number;
+  readonly shutdownDrainTimeoutMs: number;
+  readonly maxDiffBytes: number;
+
+  // Test-only escape hatches. When true, the corresponding boot
+  // probe is skipped so AppModule-bootstrapping specs don't need real
+  // upstream dependencies (GitHub API, Redis). Always false in
+  // production / dev. Set via jest.setup.ts.
+  readonly skipGithubAppProbe: boolean;
+  readonly skipRedisProbe: boolean;
+
   constructor() {
     this.githubWebhookSecret = this.requireSecret(
       'GITHUB_WEBHOOK_SECRET',
@@ -72,6 +93,46 @@ export class ConfigService {
     this.enableDryRun = this.resolveEnableDryRun(
       process.env.ENABLE_DRY_RUN,
       process.env.NODE_ENV,
+    );
+
+    this.appId = this.requireAppId('APP_ID', process.env.APP_ID);
+    this.appPrivateKey = this.requireAppPrivateKey(
+      'APP_PRIVATE_KEY',
+      process.env.APP_PRIVATE_KEY,
+    );
+    this.redisUrl = this.validateRedisUrl('REDIS_URL', process.env.REDIS_URL);
+    this.dogfoodRepos = parseDogfoodRepos(process.env.DOGFOOD_REPOS);
+    this.anthropicUseZeroRetention = parseBooleanFlag(
+      process.env.ANTHROPIC_USE_ZERO_RETENTION,
+      false,
+    );
+    this.workerConcurrency = this.requirePositiveInteger(
+      'WORKER_CONCURRENCY',
+      process.env.WORKER_CONCURRENCY,
+      1,
+    );
+    // F14 closure: 15s default leaves 15s margin under k8s's default
+    // terminationGracePeriodSeconds: 30 for Nest's own shutdown
+    // (database close, queue shutdown, etc.). Bumped down from
+    // 25_000 where the 5s margin proved tight on real shutdowns.
+    // Operators with a longer platform grace can raise this.
+    this.shutdownDrainTimeoutMs = this.requirePositiveInteger(
+      'SHUTDOWN_DRAIN_TIMEOUT_MS',
+      process.env.SHUTDOWN_DRAIN_TIMEOUT_MS,
+      15_000,
+    );
+    this.maxDiffBytes = this.requirePositiveInteger(
+      'MAX_DIFF_BYTES',
+      process.env.MAX_DIFF_BYTES,
+      256 * 1024,
+    );
+    this.skipGithubAppProbe = parseBooleanFlag(
+      process.env.SKIP_GITHUB_APP_PROBE,
+      false,
+    );
+    this.skipRedisProbe = parseBooleanFlag(
+      process.env.SKIP_REDIS_PROBE,
+      false,
     );
 
     ConfigService.logger.log(`Resolved model: ${this.anthropicModel}`);
@@ -148,6 +209,93 @@ export class ConfigService {
   ): boolean {
     return parseEnableDryRun(explicit, nodeEnv);
   }
+
+  // GitHub App IDs from the App settings page are a positive integer
+  // (typically 6–7 digits). We accept the string form because env
+  // values are strings; reject anything non-numeric or non-positive.
+  private requireAppId(name: string, value: string | undefined): string {
+    if (!value || value === 'undefined' || value === 'null') {
+      throw new Error(
+        `${name} is required (the GitHub App ID from your App's settings page).`,
+      );
+    }
+    const trimmed = value.trim();
+    if (!/^[1-9]\d*$/.test(trimmed)) {
+      throw new Error(
+        `${name} must be a positive integer (the App's numeric ID), got "${value}".`,
+      );
+    }
+    return trimmed;
+  }
+
+  // PEM private keys are stored in .env with literal "\n" escape
+  // sequences (real newlines break dotenv parsing). We normalise them
+  // back to real newlines so @octokit/auth-app — which parses the PEM
+  // with node's crypto — accepts the value. The "-----BEGIN" prefix
+  // check catches the obvious misconfig of pasting a fingerprint or a
+  // SSH key instead of the App's downloaded PEM.
+  private requireAppPrivateKey(name: string, value: string | undefined): string {
+    if (!value || value === 'undefined' || value === 'null') {
+      throw new Error(
+        `${name} is required (the App private key PEM, newlines escaped as \\n).`,
+      );
+    }
+    const normalized = value.includes('\\n') ? value.replace(/\\n/g, '\n') : value;
+    if (!normalized.includes('-----BEGIN')) {
+      throw new Error(
+        `${name} does not look like a PEM private key — expected to contain "-----BEGIN". Download a fresh key from your App's settings page.`,
+      );
+    }
+    return normalized;
+  }
+
+  // BullMQ's connection field accepts a URL with redis:// or rediss://
+  // scheme. We parse to surface typos at boot rather than at first
+  // queue.add. Loopback-only enforcement and TLS policy live in docs;
+  // see the Day-5 Open Questions about non-localhost deployments.
+  private validateRedisUrl(name: string, value: string | undefined): string {
+    if (!value) {
+      throw new Error(
+        `${name} is required (e.g. redis://:password@localhost:6379).`,
+      );
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new Error(`${name} must be a valid URL (got "${value}").`);
+    }
+    if (parsed.protocol !== 'redis:' && parsed.protocol !== 'rediss:') {
+      throw new Error(
+        `${name} must use redis:// or rediss:// (got "${parsed.protocol}").`,
+      );
+    }
+    return value;
+  }
+
+  // Positive-integer parser with a default. `undefined`/empty → default;
+  // non-numeric, zero, negative, or non-finite → throw. Used for the
+  // worker concurrency knob, shutdown drain budget, and the diff cap.
+  private requirePositiveInteger(
+    name: string,
+    value: string | undefined,
+    fallback: number,
+  ): number {
+    if (value === undefined || value === '') return fallback;
+    const trimmed = value.trim();
+    if (!/^[1-9]\d*$/.test(trimmed)) {
+      throw new Error(
+        `${name} must be a positive integer (got "${value}").`,
+      );
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(
+        `${name} must be a positive finite integer (got "${value}").`,
+      );
+    }
+    return parsed;
+  }
 }
 
 // ENABLE_DRY_RUN parser exported as a pure function so module-definition-
@@ -169,4 +317,75 @@ export function parseEnableDryRun(
     return normalized === 'true' || normalized === '1' || normalized === 'yes';
   }
   return nodeEnv === 'development';
+}
+
+// Module-definition-time parser for WORKER_CONCURRENCY. Mirrors the
+// `parseEnableDryRun` / `parseBooleanFlag` pattern so the @Processor
+// decorator on ReviewsProcessor can read the env at class-eval time
+// without constructing a ConfigService (which would fail-fast on
+// any unrelated missing env var). Returns `fallback` for unset /
+// empty values. Invalid values (non-numeric, zero, negative,
+// non-finite) fall back to `fallback` with no throw — module-eval
+// must not crash; ConfigService.requirePositiveInteger is still the
+// strict gate for runtime values surfaced to consumers.
+export function parseWorkerConcurrency(
+  explicit: string | undefined,
+  fallback: number,
+): number {
+  if (explicit === undefined || explicit === '') return fallback;
+  const trimmed = explicit.trim();
+  if (!/^[1-9]\d*$/.test(trimmed)) return fallback;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+// Module-definition-time parser for SKIP_REDIS_PROBE. The QueueModule
+// and ReviewsModule both branch on this flag at forRoot()-time to
+// decide whether to wire BullMQ or fall back to the no-op queue.
+// Replaces direct `process.env.SKIP_REDIS_PROBE` reads in those
+// modules (CLAUDE.md pitfall #3 — no bare env reads outside
+// ConfigService or the parse helpers in @/config).
+export function parseSkipRedisProbe(
+  explicit: string | undefined,
+  fallback: boolean,
+): boolean {
+  return parseBooleanFlag(explicit, fallback);
+}
+
+// Generic boolean-flag parser modelled on parseEnableDryRun but
+// without the NODE_ENV branch. Used for ANTHROPIC_USE_ZERO_RETENTION
+// and any future Day-5+ feature flag that has a fixed default rather
+// than a per-environment default. Truthy tokens (case-insensitive):
+// 'true', '1', 'yes'. Empty / unset → fallback. Anything else → false.
+export function parseBooleanFlag(
+  explicit: string | undefined,
+  fallback: boolean,
+): boolean {
+  if (explicit === undefined || explicit === '') return fallback;
+  const normalized = explicit.trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}
+
+// DOGFOOD_REPOS parsing. Comma-separated list of GitHub `repo_full_name`
+// values ("owner/repo"). Whitespace around tokens is trimmed; empty
+// tokens (e.g., a trailing comma) are dropped. A whitespace-bearing
+// token (e.g., "owner / repo") is the smoking gun for a .env parse
+// accident and we refuse to start. Empty/unset input → empty Set,
+// which silently disables the bot (operator kill switch).
+export function parseDogfoodRepos(raw: string | undefined): ReadonlySet<string> {
+  if (raw === undefined || raw.trim() === '') return new Set();
+  const tokens = raw.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
+  for (const token of tokens) {
+    if (/\s/.test(token)) {
+      throw new Error(
+        `DOGFOOD_REPOS contains a token with embedded whitespace ("${token}"). Use comma separation: "owner/repo,owner2/repo2".`,
+      );
+    }
+    if (!/^[^/]+\/[^/]+$/.test(token)) {
+      throw new Error(
+        `DOGFOOD_REPOS token "${token}" is not in "owner/repo" form.`,
+      );
+    }
+  }
+  return new Set(tokens);
 }

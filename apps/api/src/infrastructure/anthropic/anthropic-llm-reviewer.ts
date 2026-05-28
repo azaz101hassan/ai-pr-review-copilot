@@ -665,6 +665,7 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
         status,
         errorCode,
         serverMessage,
+        retryAfterMs: parseAnthropicRetryAfterMs(err),
         cause: err,
       });
     }
@@ -673,6 +674,31 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
       { status: 0, cause: err },
     );
   }
+}
+
+// Day-5 F4 closure. Parse the `retry-after` header off an Anthropic
+// APIError so the BullMQ backoffStrategy can honour it. Anthropic
+// returns retry-after as delta seconds; clamp invalid/negative
+// values to undefined so the caller falls back to exponential.
+function parseAnthropicRetryAfterMs(err: APIError): number | undefined {
+  const headers = (err as { headers?: unknown }).headers;
+  if (!headers) return undefined;
+  // `headers` may be a Headers instance or a plain object depending
+  // on the SDK version; normalise the lookup.
+  let raw: string | undefined;
+  if (typeof (headers as { get?: (k: string) => string | null }).get === 'function') {
+    raw =
+      (headers as { get: (k: string) => string | null }).get('retry-after') ??
+      undefined;
+  } else if (typeof headers === 'object') {
+    const dict = headers as Record<string, string | string[] | undefined>;
+    const v = dict['retry-after'] ?? dict['Retry-After'];
+    raw = Array.isArray(v) ? v[0] : v;
+  }
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+  return Math.floor(seconds * 1000);
 }
 
 // === Module-scope helpers ===

@@ -384,4 +384,81 @@ describe('SqliteReviewsRepository', () => {
       expect(repo.findById('old-failed')?.status).toBe('failed');
     });
   });
+
+  describe('findRecentInProgressForPr', () => {
+    it('returns the most recent in_progress row within the window', () => {
+      const older = new Date(Date.now() - 3 * 60_000);
+      const newer = new Date(Date.now() - 30_000);
+      repo.insert(
+        makeReview({
+          id: 'in-prog-older',
+          status: 'in_progress',
+          created_at: older,
+        }),
+      );
+      repo.insert(
+        makeReview({
+          id: 'in-prog-newer',
+          status: 'in_progress',
+          created_at: newer,
+        }),
+      );
+
+      const found = repo.findRecentInProgressForPr(PR_NODE_ID, 5 * 60_000);
+      expect(found?.id).toBe('in-prog-newer');
+    });
+
+    it('returns undefined when no in_progress row exists', () => {
+      repo.insert(
+        makeReview({
+          id: 'completed',
+          status: 'completed',
+          created_at: new Date(),
+        }),
+      );
+      expect(repo.findRecentInProgressForPr(PR_NODE_ID, 5 * 60_000)).toBeUndefined();
+    });
+
+    it('ignores in_progress rows older than the window', () => {
+      const twentyMinAgo = new Date(Date.now() - 20 * 60_000);
+      repo.insert(
+        makeReview({
+          id: 'stale',
+          status: 'in_progress',
+          created_at: twentyMinAgo,
+        }),
+      );
+      expect(repo.findRecentInProgressForPr(PR_NODE_ID, 10 * 60_000)).toBeUndefined();
+    });
+
+    it('scopes by pr_node_id (different PR not returned)', () => {
+      const otherPr = 'PR_other';
+      // Seed second pull_requests parent for FK.
+      prs.save({
+        node_id: otherPr,
+        repo_full_name: 'owner/repo',
+        number: 99,
+        title: 'Other PR',
+        state: 'open',
+        head_sha: 'c'.repeat(40),
+        base_sha: 'd'.repeat(40),
+        author_login: 'someoneelse',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+      });
+      repo.insert(
+        makeReview({
+          id: 'other-pr-row',
+          pr_node_id: otherPr,
+          status: 'in_progress',
+          created_at: new Date(),
+        }),
+      );
+      expect(repo.findRecentInProgressForPr(PR_NODE_ID, 5 * 60_000)).toBeUndefined();
+      expect(repo.findRecentInProgressForPr(otherPr, 5 * 60_000)?.id).toBe(
+        'other-pr-row',
+      );
+    });
+  });
 });

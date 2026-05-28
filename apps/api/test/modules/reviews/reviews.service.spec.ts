@@ -79,6 +79,7 @@ interface MockReviewRepo extends IReviewRepository {
   findAll: jest.Mock;
   markCompleted: jest.Mock;
   markFailed: jest.Mock;
+  markFailedIfInProgress: jest.Mock;
   sweepStaleInProgress: jest.Mock;
 }
 function makeMockReviewRepo(): MockReviewRepo {
@@ -88,6 +89,7 @@ function makeMockReviewRepo(): MockReviewRepo {
     findAll: jest.fn(),
     markCompleted: jest.fn(),
     markFailed: jest.fn(),
+    markFailedIfInProgress: jest.fn().mockReturnValue(1),
     sweepStaleInProgress: jest.fn().mockReturnValue(0),
   } as MockReviewRepo;
 }
@@ -95,11 +97,13 @@ function makeMockReviewRepo(): MockReviewRepo {
 interface MockFindingRepo extends IReviewFindingRepository {
   insertMany: jest.Mock;
   findByReviewId: jest.Mock;
+  findByPrNodeIdForPriorReview: jest.Mock;
 }
 function makeMockFindingRepo(): MockFindingRepo {
   return {
     insertMany: jest.fn(),
     findByReviewId: jest.fn().mockReturnValue([]),
+    findByPrNodeIdForPriorReview: jest.fn().mockReturnValue([]),
   } as MockFindingRepo;
 }
 
@@ -789,6 +793,8 @@ describe('ReviewsService — real SQLite cases', () => {
         throw new Error('disk full');
       }),
       findByReviewId: (id) => findingsRepo.findByReviewId(id),
+      findByPrNodeIdForPriorReview: (id) =>
+        findingsRepo.findByPrNodeIdForPriorReview(id),
     };
 
     const service = new ReviewsService(
@@ -842,8 +848,12 @@ describe('ReviewsService — real SQLite cases', () => {
     expect(findingsRepo.findByReviewId(all[0].id)).toEqual([]);
   });
 
-  it('onModuleInit: finalises stale in_progress rows older than 5 min, leaves fresh ones alone', () => {
-    const tenMinAgo = new Date(Date.now() - 10 * 60_000);
+  it('onModuleInit: finalises stale in_progress rows older than the cutoff, leaves fresh ones alone', () => {
+    // Day-5 bumped STALE_IN_PROGRESS_CUTOFF_MS from 5 → 10 minutes
+    // (so the sweep doesn't race a healthy long agent loop). The
+    // stale row sits comfortably past the cutoff at 15 min to keep
+    // the assertion timing-stable regardless of suite-order drift.
+    const fifteenMinAgo = new Date(Date.now() - 15 * 60_000);
     const oneMinAgo = new Date(Date.now() - 60_000);
 
     reviewsRepo.insert({
@@ -863,7 +873,7 @@ describe('ReviewsService — real SQLite cases', () => {
       output_tokens: null,
       cache_creation_input_tokens: null,
       cache_read_input_tokens: null,
-      created_at: tenMinAgo,
+      created_at: fifteenMinAgo,
       completed_at: null,
     });
     reviewsRepo.insert({
@@ -905,6 +915,164 @@ describe('ReviewsService — real SQLite cases', () => {
     expect(stale.completed_at).toBeInstanceOf(Date);
     expect(fresh.status).toBe('in_progress');
     expect(fresh.completed_at).toBeNull();
+  });
+
+  // Day-5 U7 — runRealReview is a thin sibling of runDryRun on the
+  // service. Its job is to delegate to the same lifecycle with the
+  // extra Day-5 inputs (prNodeId required, headSha captured for
+  // future use).
+  it('runRealReview persists the row with pr_node_id and goes through the same lifecycle as runDryRun', async () => {
+    // pr_node_id is an FK to pull_requests.node_id — seed the parent
+    // row directly via raw SQL (the test's scope is the service, not
+    // pull-request CRUD).
+    db.getDb()
+      .prepare(
+        `INSERT INTO pull_requests
+          (node_id, repo_full_name, number, title, state,
+           head_sha, base_sha, author_login, created_at, updated_at, raw_payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'PR_real_review_test',
+        'octocat/demo',
+        7,
+        'Real review test',
+        'open',
+        'd'.repeat(40),
+        'e'.repeat(40),
+        'octocat',
+        Date.now(),
+        Date.now(),
+        '{}',
+      );
+
+    const hit = makeSearchHit({ metadata: { severity: 'warning' } });
+    const embeddings = makeEmbeddings([hit]);
+    const llm = makeLlm(happyAnalyzeResult());
+    const service = new ReviewsService(
+      embeddings,
+      llm,
+      reviewsRepo,
+      findingsRepo,
+      db,
+      makeConfig(),
+    );
+
+    const result = await service.runRealReview({
+      diff: REAL_DIFF,
+      prNodeId: 'PR_real_review_test',
+      headSha: 'd'.repeat(40),
+      repoContext: undefined as never,
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.findings).toHaveLength(1);
+
+    const row = reviewsRepo.findById(result.review_id) as ReviewRecord;
+    expect(row.pr_node_id).toBe('PR_real_review_test');
+    expect(row.status).toBe('completed');
+  });
+
+  // Day-5 U8 — markRowsFailedByIdSet wraps a markFailed loop in a
+  // single transaction. Drives the shutdown drain's failed-row flip.
+  describe('markRowsFailedByIdSet', () => {
+    function seedInProgress(id: string): void {
+      reviewsRepo.insert({
+        id,
+        pr_node_id: null,
+        created_by: null,
+        diff_length: 0,
+        model: 'haiku',
+        prompt_version: 'v1',
+        top_k: 0,
+        retrieved_chunk_ids: '[]',
+        retrieved_chunk_ids_hash: '0'.repeat(64),
+        status: 'in_progress',
+        error_status: null,
+        error_code: null,
+        input_tokens: null,
+        output_tokens: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        created_at: new Date(),
+        completed_at: null,
+      });
+    }
+
+    it('flips every in_progress row in the set to failed/<errorCode>', () => {
+      seedInProgress('drain-a');
+      seedInProgress('drain-b');
+      seedInProgress('drain-c');
+
+      const service = new ReviewsService(
+        makeEmbeddings([]),
+        makeLlm(happyAnalyzeResult()),
+        reviewsRepo,
+        findingsRepo,
+        db,
+        makeConfig(),
+      );
+
+      service.markRowsFailedByIdSet(
+        ['drain-a', 'drain-b', 'drain-c'],
+        'process_terminated',
+      );
+
+      for (const id of ['drain-a', 'drain-b', 'drain-c']) {
+        const row = reviewsRepo.findById(id) as ReviewRecord;
+        expect(row.status).toBe('failed');
+        expect(row.error_code).toBe('process_terminated');
+        expect(row.completed_at).toBeInstanceOf(Date);
+      }
+    });
+
+    it('no-ops on an empty id list', () => {
+      seedInProgress('not-touched');
+      const service = new ReviewsService(
+        makeEmbeddings([]),
+        makeLlm(happyAnalyzeResult()),
+        reviewsRepo,
+        findingsRepo,
+        db,
+        makeConfig(),
+      );
+      service.markRowsFailedByIdSet([], 'process_terminated');
+      expect((reviewsRepo.findById('not-touched') as ReviewRecord).status).toBe(
+        'in_progress',
+      );
+    });
+
+    // F2 closure: a row that completed milliseconds before the drain
+    // inspected the in-flight Set must NOT be flipped to failed —
+    // markFailedIfInProgress gates on status='in_progress'.
+    it('does not flip rows that are already completed (drain race guard)', () => {
+      seedInProgress('drain-completed');
+      // Use the real markCompleted path so the row is now 'completed'.
+      reviewsRepo.markCompleted('drain-completed', {
+        completed_at: new Date(),
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+      });
+
+      const service = new ReviewsService(
+        makeEmbeddings([]),
+        makeLlm(happyAnalyzeResult()),
+        reviewsRepo,
+        findingsRepo,
+        db,
+        makeConfig(),
+      );
+      const flipped = service.markRowsFailedByIdSet(
+        ['drain-completed'],
+        'process_terminated',
+      );
+      expect(flipped).toBe(0);
+      const row = reviewsRepo.findById('drain-completed') as ReviewRecord;
+      expect(row.status).toBe('completed');
+      expect(row.error_code).toBeNull();
+    });
   });
 
   it('happy path through real SQLite: insert → markCompleted → insertMany → findByReviewId returns the persisted findings', async () => {

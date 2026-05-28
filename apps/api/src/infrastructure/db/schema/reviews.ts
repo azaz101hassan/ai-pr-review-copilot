@@ -72,6 +72,20 @@ export const reviews = sqliteTable(
       table.status,
       table.created_at,
     ),
+    // F17 closure. Powers two hot reads:
+    //   1. findByPrNodeIdForPriorReview's
+    //      `WHERE pr_node_id = ? AND status = 'completed' AND error_code IS NULL`
+    //      → first two filters land directly on the composite.
+    //   2. findRecentInProgressForPr's
+    //      `WHERE pr_node_id = ? AND status = 'in_progress' AND created_at > ?`
+    //      → composite covers the first two, created_at picked up
+    //      from idx_reviews_pr_node_id_created_at-equivalent on the
+    //      secondary lookup (DESC limit 1).
+    // Composite order: pr_node_id leads (high cardinality), then status.
+    prNodeIdStatusIdx: index('idx_reviews_pr_node_id_status').on(
+      table.pr_node_id,
+      table.status,
+    ),
     pullRequestFk: foreignKey({
       columns: [table.pr_node_id],
       foreignColumns: [pullRequests.node_id],

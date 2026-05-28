@@ -43,6 +43,32 @@ export interface RunDryRunInput {
   // to truthful `is_error` tool_results (or a NullRepoContextProvider
   // if the controller layer ever wires one).
   repoContext?: IRepoContextProvider;
+  // Day-5 F2 closure: caller-provided review_id. The BullMQ worker
+  // pre-allocates the UUID so it can add to its in-flight tracking
+  // Set BEFORE the lifecycle row is inserted — closes the race
+  // window between row insert and the activeReviewIds.add() that
+  // previously ran AFTER runRealReview returned. CLI / HTTP callers
+  // don't pass this; runDryRun generates one when absent.
+  reviewId?: string;
+}
+
+// Day-5 sibling entry point for the BullMQ worker. The worker
+// pre-checks empty-diff / MAX_DIFF_BYTES and constructs the
+// GitHubRepoContextProvider before calling this; runRealReview just
+// delegates to the shared lifecycle. `headSha` and `owner`/`repo` are
+// captured here so future Day-5+ work can persist them on the row
+// without renegotiating the input shape — Day-5 doesn't use them
+// inside the service (the worker uses them for the createReview POST).
+export interface RunRealReviewInput {
+  diff: string;
+  prNodeId: string;
+  headSha: string;
+  repoContext: IRepoContextProvider;
+  // F2 closure (mirrors RunDryRunInput.reviewId). The processor
+  // pre-allocates the UUID and adds it to activeReviewIds BEFORE
+  // calling runRealReview so the SIGTERM-drain Set is consistent
+  // with the row's existence for the entire lifecycle.
+  reviewId?: string;
 }
 
 export interface RunDryRunResult {
@@ -70,10 +96,14 @@ export class ReviewsServiceError extends Error {
 }
 
 const DEFAULT_K = 10;
-// Same cutoff used by the startup sweep — 5 minutes. Anything older
-// than this in `in_progress` is treated as a casualty of a prior
-// process death.
-const STALE_IN_PROGRESS_CUTOFF_MS = 5 * 60_000;
+// Cutoff used by the startup sweep AND the per-PR worker guard.
+// Day-5 bumped 5 → 10 minutes so the sweep doesn't race a healthy
+// long-running agent loop: the worst-case 6-turn loop with file
+// fetches reaches ~6 minutes wall clock; 10 minutes is safely above
+// that while still surfacing real stalls within an operator's
+// attention window. Per-row updated_at heartbeat is the Day-8
+// follow-up if observed in practice.
+const STALE_IN_PROGRESS_CUTOFF_MS = 10 * 60_000;
 // Severity values that match the rule corpus's metadata.severity field.
 // Sourced from rule metadata at persistence; the adapter never emits
 // severity (see D1 in the plan).
@@ -151,8 +181,11 @@ export class ReviewsService implements OnModuleInit {
 
     // PF1: generate the review_id just before the insert (and not in a
     // pre-insert log line). Once the row is durably inserted we can use
-    // it freely.
-    const reviewId = randomUUID();
+    // it freely. Day-5 F2: when the caller pre-allocates a review_id
+    // (the BullMQ worker does so it can add to its in-flight tracking
+    // Set BEFORE the row insert), use the caller's id and validate
+    // it's a UUID — otherwise generate one.
+    const reviewId = validateOptionalReviewId(input.reviewId) ?? randomUUID();
     const startedAt = new Date();
     this.reviews.insert({
       id: reviewId,
@@ -290,6 +323,66 @@ export class ReviewsService implements OnModuleInit {
       tool_calls: result.toolCalls,
     };
   }
+
+  // Day-5 sibling of runDryRun for the BullMQ worker path. The
+  // lifecycle is identical (insert in_progress → llm.analyzeDiff →
+  // transaction(markCompleted + findings.insertMany)). The only
+  // differences are upstream: the worker fetched the diff from
+  // Octokit, pre-checked empty / MAX_DIFF_BYTES, and constructed the
+  // per-job GitHubRepoContextProvider. The worker also POSTs the
+  // GitHub Review after this returns, using the result's findings —
+  // that POST stays out of this method to keep the persistence
+  // contract symmetric with runDryRun.
+  async runRealReview(input: RunRealReviewInput): Promise<RunDryRunResult> {
+    return this.runDryRun({
+      diff: input.diff,
+      prNodeId: input.prNodeId,
+      repoContext: input.repoContext,
+      reviewId: input.reviewId,
+    });
+  }
+
+  // Day-5 U8 shutdown drain helper. Marks every review_id in the
+  // set as failed/<errorCode>, gated on the row still being
+  // 'in_progress' (F2 closure — see IReviewRepository.markFailedIfInProgress).
+  // Wraps the loop in a single better-sqlite3 transaction so the
+  // whole batch commits or none does.
+  //
+  // The unique caller is ReviewsProcessor.drainGracefully on
+  // SIGTERM timeout. Rows that completed between the drain
+  // snapshot and this call retain their 'completed' status — the
+  // guarded UPDATE is a no-op for them. Returns the number of rows
+  // actually flipped so the drain log reflects truth.
+  markRowsFailedByIdSet(reviewIds: string[], errorCode: string): number {
+    if (reviewIds.length === 0) return 0;
+    const completedAt = new Date();
+    let flipped = 0;
+    this.db.transaction(() => {
+      for (const id of reviewIds) {
+        flipped += this.reviews.markFailedIfInProgress(id, {
+          completed_at: completedAt,
+          error_status: null,
+          error_code: errorCode,
+        });
+      }
+    });
+    return flipped;
+  }
+}
+
+// Tight UUID gate. Mirrors the regex in reviews.processor.ts and the
+// formatter. Reject any string that fails the canonical pattern so a
+// caller passing garbage doesn't end up persisted as the row id.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateOptionalReviewId(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || !UUID_RE.test(value)) {
+    throw new ReviewsServiceError(
+      'runDryRun.input.reviewId must be a canonical UUID when provided',
+    );
+  }
+  return value;
 }
 
 function hashSortedComposites(composites: string[]): string {

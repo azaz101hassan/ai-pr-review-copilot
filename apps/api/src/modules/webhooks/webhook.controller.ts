@@ -22,7 +22,7 @@ export class WebhookController {
   @Post('github')
   @HttpCode(200)
   @UseGuards(GithubSignatureGuard)
-  receive(
+  async receive(
     @Headers('x-github-event') event: string | undefined,
     @Headers('x-github-delivery') delivery: string | undefined,
     @Req() req: RawBodyRequest<Request>,

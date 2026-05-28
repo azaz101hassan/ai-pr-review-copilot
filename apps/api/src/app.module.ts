@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ConfigModule } from '@/config';
 import { DatabaseModule } from '@/infrastructure/db';
+import { GithubModule } from '@/infrastructure/github';
 import { WebhookModule } from '@/modules/webhooks';
 import { EmbeddingsModule } from '@/modules/embeddings';
 import { ReviewsModule } from '@/modules/reviews';
@@ -19,6 +20,11 @@ import { HealthController } from '@/system';
     // also covered (well above realistic health-check load). CLI
     // callers bypass entirely (no HTTP).
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 30 }]),
+    // Day-5: GitHub App auth seam + boot probe. Loaded before
+    // WebhookModule so the GET /app probe blocks startup before any
+    // webhook route binds — a malformed PEM surfaces in the first
+    // second of boot, not at first webhook arrival.
+    GithubModule,
     WebhookModule,
     // ReviewsModule must come AFTER EmbeddingsModule so Nest resolves
     // EmbeddingsService (exported from EmbeddingsModule) before

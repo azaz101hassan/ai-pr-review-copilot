@@ -157,10 +157,11 @@ You should see your recent deliveries.
 
 ## What's next
 
-Day 1 ends here. Day 2 picks up by:
+Day 1 ends here. Subsequent days build on this App install:
 
-1. Adding Octokit auth-as-app (using the private key from step 5).
-2. Fetching the actual unified diff for each `pull_request.opened` / `synchronize` event.
-3. Standing up Chroma + an embedding pipeline so the diff can be matched against the knowledge base.
+1. **Day 2** stood up Chroma + the Voyage embedding pipeline so diffs can be matched against the seeded rule corpus. See [`docs/setup/embeddings.md`](embeddings.md).
+2. **Day 3** wired the Anthropic SDK so retrieved rules drive Claude's review. See [`docs/setup/claude.md`](claude.md).
+3. **Day 4** added the multi-turn agent loop (fetched repo context across multiple turns before emitting findings).
+4. **Day 5** activates this App's webhook delivery: the private key from step 5 now mints installation-scoped Octokit clients, the worker fetches the unified diff for each `pull_request.opened` / `synchronize` event, runs the agent loop, and POSTs a body-only Review back to the PR. Full setup: [`docs/setup/day5-real-pr.md`](day5-real-pr.md).
 
 See [`docs/plans/01-baseline.md`](../plans/01-baseline.md) for the full sprint.
