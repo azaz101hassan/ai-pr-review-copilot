@@ -17,6 +17,7 @@ import {
   REVIEW_QUEUE,
   REVIEW_QUEUE_NAME,
 } from '@/modules/reviews/types/review-queue';
+import { formatBriefError } from '@/types';
 import { BullMQReviewQueue } from './bullmq-review-queue';
 import { NoopReviewQueue } from './noop-review-queue';
 
@@ -25,8 +26,12 @@ import { NoopReviewQueue } from './noop-review-queue';
 // REDIS_URL or stopped Redis container fails the process at startup
 // rather than at first webhook arrival. Paired with U2's GET /app
 // probe so both upstream dependencies surface as fail-fast at boot.
+// F31 closure. Exported + the boot logic split into a public
+// runProbe() method so Day-8 health surfaces (and operator-triggered
+// re-probes after a Redis restart) can re-run it without booting a
+// fresh module. Mirrors GitHubAppService.runProbe()'s shape.
 @Injectable()
-class QueueBootProbe implements OnModuleInit {
+export class QueueBootProbe implements OnModuleInit {
   private readonly logger = new Logger(QueueBootProbe.name);
 
   constructor(
@@ -36,6 +41,10 @@ class QueueBootProbe implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    await this.runProbe();
+  }
+
+  async runProbe(): Promise<void> {
     if (this.config.skipRedisProbe) {
       this.logger.warn(
         `Redis PING probe skipped via SKIP_REDIS_PROBE=true. Production must leave this unset.`,
@@ -65,11 +74,6 @@ class QueueBootProbe implements OnModuleInit {
       );
     }
   }
-}
-
-function formatBriefError(err: unknown): string {
-  if (err instanceof Error) return err.message.slice(0, 200);
-  return String(err).slice(0, 200);
 }
 
 // QueueModule wires the BullMQ root + the per-queue registration —

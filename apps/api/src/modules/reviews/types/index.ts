@@ -8,6 +8,9 @@ export {
   ReviewInsert,
   ReviewCompletionPatch,
   ReviewFailurePatch,
+  ReviewErrorCode,
+  KnownReviewErrorCode,
+  isKnownReviewErrorCode,
 } from './review.types';
 export { ReviewFindingRecord, ReviewFindingInsert } from './review-finding.types';
 export {

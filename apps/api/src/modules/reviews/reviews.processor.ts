@@ -14,6 +14,7 @@ import {
 } from '@/config';
 import { AnthropicRequestError } from '@/infrastructure/anthropic';
 import { GitHubRepoContextProvider } from '@/infrastructure/github/github-repo-context.provider';
+import { formatBriefError, readStatus } from '@/types';
 import {
   formatReviewBody,
   FindingWithSeverity,
@@ -571,20 +572,9 @@ export class ReviewsProcessor
   }
 }
 
-function readStatus(err: unknown): number {
-  if (typeof err !== 'object' || err === null) return 0;
-  const s = (err as { status?: unknown }).status;
-  return typeof s === 'number' && Number.isFinite(s) ? s : 0;
-}
-
 function classifyToRequestError(err: unknown): Error {
   if (err instanceof Error) return err;
   return new Error(String(err));
-}
-
-function formatBriefError(err: unknown): string {
-  if (err instanceof Error) return err.message.slice(0, 200);
-  return String(err).slice(0, 200);
 }
 
 // F4 closure. Terminal Anthropic error codes — codes for which a

@@ -8,6 +8,7 @@ import {
   REVIEW_QUEUE_NAME,
   ReviewJobData,
 } from '@/modules/reviews/types/review-queue';
+import { formatBriefError } from '@/types';
 
 // Day-5 BullMQ-backed implementation of IReviewQueue.
 //
@@ -185,7 +186,3 @@ export class BullMQReviewQueue implements IReviewQueue {
   }
 }
 
-function formatBriefError(err: unknown): string {
-  if (err instanceof Error) return err.message.slice(0, 200);
-  return String(err).slice(0, 200);
-}

@@ -1,4 +1,4 @@
-import type { Octokit, RequestError } from 'octokit';
+import type { Octokit } from 'octokit';
 import {
   IRepoContextProvider,
   PriorReviewEntry,
@@ -11,6 +11,7 @@ import {
 } from '@/modules/reviews/types/repo-context-provider';
 import type { IReviewFindingRepository } from '@/modules/reviews/types/review-finding.repository';
 import { grepFunctionDefinition } from '@/infrastructure/repo-context/helpers/grep-function-definition';
+import { formatBriefError, readStatus } from '@/types';
 
 // Day-5 GitHub-API-backed implementation of IRepoContextProvider.
 // Constructed once per job by ReviewsProcessor (U7) — the Octokit
@@ -327,12 +328,6 @@ function redact(value: string): string {
   return value.length > 60 ? `${value.slice(0, 57)}...` : value;
 }
 
-function readStatus(err: unknown): number {
-  if (typeof err !== 'object' || err === null) return 0;
-  const s = (err as { status?: unknown }).status;
-  return typeof s === 'number' && Number.isFinite(s) ? s : 0;
-}
-
 function readHeaders(err: unknown): HeaderMap {
   if (typeof err !== 'object' || err === null) return {};
   const responseHeaders = (err as { response?: { headers?: unknown } }).response
@@ -385,7 +380,3 @@ function parseRetryAfterMs(headers: HeaderMap): number | undefined {
   return undefined;
 }
 
-function formatBriefError(err: unknown): string {
-  if (err instanceof Error) return err.message.slice(0, 200);
-  return String(err).slice(0, 200);
-}

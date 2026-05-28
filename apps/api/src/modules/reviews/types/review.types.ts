@@ -1,6 +1,97 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { reviews } from '@/infrastructure/db/schema';
 
+// F29 closure. Cataloged from every concrete `error_code:` /
+// `errorCode:` literal currently written to a `reviews` row across
+// the worker, the service, the Anthropic adapter, and the boot
+// probes. Day-6 eval reads this column heavily and benefits from a
+// typed surface so an unknown code is a compile error rather than
+// a silent classifier-miss.
+//
+// `string & {}` keeps the union *open* — the SQLite column is plain
+// TEXT and we accept whatever lands there at runtime (never let
+// type tightening on a string column corrupt prod data). Callers
+// that want strict membership can use a `ReviewErrorCode extends
+// KnownReviewErrorCode` check at the boundary.
+//
+// Categories (kept as one flat union — narrowing happens at the
+// catch site, not in the type):
+//   Worker / pre-runRealReview:
+//     - pr_closed_during_review
+//     - diff_too_large
+//     - github_api_error
+//     - comment_post_failed
+//   Lifecycle / process:
+//     - process_terminated   (drain timeout, startup sweep)
+//     - internal_error       (defensive — see processor UUID drift)
+//   Anthropic-classified (rawErrorCode passed through, plus our synth):
+//     - rate_limit_error
+//     - invalid_request_error
+//     - authentication_error
+//     - permission_error
+//     - not_found_error
+//     - credit_balance_too_low
+//     - anthropic_error      (catchall when raw was unknown)
+//   Day-4 agent-loop terminal:
+//     - turn_cap_exceeded
+//     - malformed_emit_finding
+//     - unexpected_response_shape
+//   Boot probes:
+//     - app_probe_failed
+export type KnownReviewErrorCode =
+  | 'pr_closed_during_review'
+  | 'diff_too_large'
+  | 'github_api_error'
+  | 'comment_post_failed'
+  | 'process_terminated'
+  | 'internal_error'
+  | 'rate_limit_error'
+  | 'invalid_request_error'
+  | 'authentication_error'
+  | 'permission_error'
+  | 'not_found_error'
+  | 'credit_balance_too_low'
+  | 'anthropic_error'
+  | 'turn_cap_exceeded'
+  | 'malformed_emit_finding'
+  | 'unexpected_response_shape'
+  | 'app_probe_failed';
+
+export type ReviewErrorCode = KnownReviewErrorCode | (string & {});
+
+// Membership check for runtime narrowing (Day-6 eval treats unknown
+// codes as "needs investigation"). Sourced from the same literal
+// list as KnownReviewErrorCode — keep both in sync when adding a
+// new code.
+const KNOWN_REVIEW_ERROR_CODES = new Set<KnownReviewErrorCode>([
+  'pr_closed_during_review',
+  'diff_too_large',
+  'github_api_error',
+  'comment_post_failed',
+  'process_terminated',
+  'internal_error',
+  'rate_limit_error',
+  'invalid_request_error',
+  'authentication_error',
+  'permission_error',
+  'not_found_error',
+  'credit_balance_too_low',
+  'anthropic_error',
+  'turn_cap_exceeded',
+  'malformed_emit_finding',
+  'unexpected_response_shape',
+  'app_probe_failed',
+]);
+
+export function isKnownReviewErrorCode(
+  value: unknown,
+): value is KnownReviewErrorCode {
+  return (
+    typeof value === 'string' &&
+    KNOWN_REVIEW_ERROR_CODES.has(value as KnownReviewErrorCode)
+  );
+}
+
 // SELECT shape. `status` narrows to the literal union via the schema's
 // enum mode; timestamps come back as Date objects.
 export type ReviewRecord = InferSelectModel<typeof reviews>;
