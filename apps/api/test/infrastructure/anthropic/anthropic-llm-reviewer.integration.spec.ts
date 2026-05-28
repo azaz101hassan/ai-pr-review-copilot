@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AnthropicLlmReviewer } from '../../../src/infrastructure/anthropic/anthropic-llm-reviewer';
+import { AnthropicLlmReviewer } from '@/infrastructure/anthropic';
+import { FilesystemRepoContextProvider } from '@/infrastructure/repo-context';
 import { ConfigService } from '@/config';
 
 // Real-Anthropic smoke spec. Talks to the actual Messages API — no
@@ -116,5 +117,39 @@ describeIf('AnthropicLlmReviewer — real-Anthropic smoke (RUN_ANTHROPIC_INTEGRA
     enforceSessionRateLimit();
     const second = await reviewer.analyzeDiff({ diff, rules });
     expect(second.usage.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
+  });
+
+  // Day-4: proves the multi-turn loop actually fires against the real
+  // Anthropic API. The `silent-signature-change.patch` fixture is
+  // designed so the violation is only visible after fetching
+  // surrounding context (chargeCard's definition + the unchanged
+  // callers in src/retry-queue.js). A correct multi-turn run lands
+  // turn_count > 1 AND at least one non-emit_finding tool call.
+  it('multi-turn loop fires on silent-signature-change against the real Haiku model', async () => {
+    enforceSessionRateLimit();
+    const reviewer = new AnthropicLlmReviewer(makeConfig());
+    const diff = loadFixture('silent-signature-change.patch');
+    const repoDir = resolve(
+      __dirname,
+      '../../fixtures/diffs/silent-signature-change.repo',
+    );
+    const repoContext = new FilesystemRepoContextProvider(repoDir);
+    const rules = [
+      {
+        rule_id: 'no-param-reassign',
+        source: 'airbnb-eslint',
+        document:
+          'When a function signature evolves to require a new argument or option, every caller must be updated consistently. Inconsistent argument shapes across call sites cause silent runtime bugs that pass code review.',
+        title: 'Update all callers when changing a function signature',
+      },
+    ];
+
+    const result = await reviewer.analyzeDiff({ diff, rules, repoContext });
+
+    expect(result.turnCount).toBeGreaterThan(1);
+    const nonTerminal = result.toolCalls.filter(
+      (c) => c.tool_name !== 'emit_finding',
+    );
+    expect(nonTerminal.length).toBeGreaterThanOrEqual(1);
   });
 });

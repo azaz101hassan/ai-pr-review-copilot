@@ -117,6 +117,91 @@ describe('SqliteReviewsRepository', () => {
       expect(row.cache_read_input_tokens).toBe(0);
       expect(row.completed_at?.toISOString()).toBe(completedAt.toISOString());
     });
+
+    it('persists turn_count and tool_calls_json when provided (round-trip)', () => {
+      repo.insert(makeReview({ id: 'rc-multi' }));
+      const completedAt = new Date('2026-05-27T10:00:06Z');
+      const toolCalls = [
+        {
+          turn_idx: 1,
+          tool_name: 'fetch_related_file',
+          input_hash: 'a'.repeat(16),
+          result_bytes: 1024,
+          latency_ms: 612,
+          stop_reason: 'tool_use',
+        },
+        {
+          turn_idx: 2,
+          tool_name: 'fetch_function_definition',
+          input_hash: 'b'.repeat(16),
+          result_bytes: 384,
+          latency_ms: 524,
+          stop_reason: 'tool_use',
+        },
+        {
+          turn_idx: 3,
+          tool_name: 'emit_finding',
+          input_hash: 'c'.repeat(16),
+          result_bytes: 220,
+          latency_ms: 711,
+          stop_reason: 'tool_use',
+        },
+      ];
+      repo.markCompleted('rc-multi', {
+        completed_at: completedAt,
+        input_tokens: 3000,
+        output_tokens: 410,
+        cache_creation_input_tokens: 2400,
+        cache_read_input_tokens: 600,
+        turn_count: 3,
+        tool_calls: toolCalls,
+      });
+
+      const row = repo.findById('rc-multi')!;
+      expect(row.turn_count).toBe(3);
+      expect(row.tool_calls_json).toEqual(toolCalls);
+    });
+
+    it('leaves turn_count at default 0 and tool_calls_json null when patch omits them', () => {
+      repo.insert(makeReview({ id: 'rc-default' }));
+      repo.markCompleted('rc-default', {
+        completed_at: new Date('2026-05-27T10:00:07Z'),
+        input_tokens: 100,
+        output_tokens: 20,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+      });
+
+      const row = repo.findById('rc-default')!;
+      expect(row.turn_count).toBe(0);
+      expect(row.tool_calls_json).toBeNull();
+    });
+
+    it('persists a large tool_calls_json array (6 entries) without truncation', () => {
+      repo.insert(makeReview({ id: 'rc-large' }));
+      const calls = Array.from({ length: 6 }, (_, i) => ({
+        turn_idx: i + 1,
+        tool_name: 'fetch_related_file',
+        input_hash: String(i).padStart(16, '0'),
+        result_bytes: 8192,
+        latency_ms: 500 + i,
+        stop_reason: 'tool_use',
+      }));
+      repo.markCompleted('rc-large', {
+        completed_at: new Date('2026-05-27T10:00:08Z'),
+        input_tokens: 9000,
+        output_tokens: 800,
+        cache_creation_input_tokens: 4000,
+        cache_read_input_tokens: 3000,
+        turn_count: 6,
+        tool_calls: calls,
+      });
+
+      const row = repo.findById('rc-large')!;
+      expect(row.turn_count).toBe(6);
+      expect(row.tool_calls_json).toHaveLength(6);
+      expect(row.tool_calls_json).toEqual(calls);
+    });
   });
 
   describe('markFailed', () => {
@@ -135,6 +220,85 @@ describe('SqliteReviewsRepository', () => {
       expect(row.error_code).toBe('rate_limit_error');
       expect(row.completed_at?.toISOString()).toBe(completedAt.toISOString());
       expect(row.input_tokens).toBeNull();
+    });
+
+    it('persists turn_count on turn_cap_exceeded failures', () => {
+      repo.insert(makeReview({ id: 'rf-cap' }));
+      repo.markFailed('rf-cap', {
+        completed_at: new Date('2026-05-27T10:00:09Z'),
+        error_status: 200,
+        error_code: 'turn_cap_exceeded',
+        turn_count: 6,
+      });
+
+      const row = repo.findById('rf-cap')!;
+      expect(row.status).toBe('failed');
+      expect(row.error_code).toBe('turn_cap_exceeded');
+      expect(row.turn_count).toBe(6);
+    });
+
+    it('persists tool_calls_json on turn_cap_exceeded failures (partial loop trace round-trip)', () => {
+      repo.insert(makeReview({ id: 'rf-cap-tool-calls' }));
+      const partialToolCalls = [
+        {
+          turn_idx: 1,
+          tool_name: 'fetch_related_file',
+          input_hash: 'a'.repeat(16),
+          result_bytes: 800,
+          latency_ms: 500,
+          stop_reason: 'tool_use',
+        },
+        {
+          turn_idx: 2,
+          tool_name: 'fetch_function_definition',
+          input_hash: 'b'.repeat(16),
+          result_bytes: 400,
+          latency_ms: 520,
+          stop_reason: 'tool_use',
+          is_error: true,
+        },
+      ];
+      repo.markFailed('rf-cap-tool-calls', {
+        completed_at: new Date('2026-05-27T10:00:11Z'),
+        error_status: 200,
+        error_code: 'turn_cap_exceeded',
+        turn_count: 6,
+        tool_calls: partialToolCalls,
+      });
+
+      const row = repo.findById('rf-cap-tool-calls')!;
+      expect(row.tool_calls_json).toEqual(partialToolCalls);
+      // is_error round-trips as a boolean — not stringified.
+      const parsed = row.tool_calls_json as unknown as Array<{ is_error?: boolean }>;
+      expect(parsed[1].is_error).toBe(true);
+    });
+
+    it('leaves tool_calls_json at SQL NULL when patch passes null (not the literal JSON string "null")', () => {
+      // Regression: drizzle-orm's `mode: 'json'` text column can
+      // serialize null as the four-character string "null" depending
+      // on the SET path. Repository now skips the SET on both null
+      // AND undefined so the column stays at its schema default.
+      // Day-6 eval queries like `WHERE tool_calls_json IS NULL`
+      // depend on this distinction.
+      repo.insert(makeReview({ id: 'rf-null-tc' }));
+      repo.markFailed('rf-null-tc', {
+        completed_at: new Date('2026-05-27T10:00:12Z'),
+        error_status: 401,
+        error_code: 'authentication_error',
+        turn_count: 0,
+        tool_calls: null,
+      });
+
+      // findById returns null when tool_calls_json IS SQL NULL.
+      const row = repo.findById('rf-null-tc')!;
+      expect(row.tool_calls_json).toBeNull();
+      // Raw SQL check — `IS NULL` should match, and `= 'null'`
+      // (literal string) should NOT.
+      const rawDb = db.getDb();
+      const isNullCount = rawDb
+        .prepare('SELECT COUNT(*) AS c FROM reviews WHERE id = ? AND tool_calls_json IS NULL')
+        .get('rf-null-tc') as { c: number };
+      expect(isNullCount.c).toBe(1);
     });
   });
 

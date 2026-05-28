@@ -51,6 +51,15 @@ export const reviews = sqliteTable(
     output_tokens: integer('output_tokens'),
     cache_creation_input_tokens: integer('cache_creation_input_tokens'),
     cache_read_input_tokens: integer('cache_read_input_tokens'),
+    // Day-4 multi-turn loop aggregates. `turn_count` defaults to 0 so
+    // failures before the first `messages.create` response are
+    // distinguishable from any review that made it past turn 1
+    // (historical Day-3 rows backfill to 1 in the 0003 migration).
+    // `tool_calls_json` stores the per-turn ToolCallRecord array as JSON
+    // text; nullable because Day-4 pre-turn-1 failures and historical
+    // Day-3 rows have no per-turn data.
+    turn_count: integer('turn_count').notNull().default(0),
+    tool_calls_json: text('tool_calls_json', { mode: 'json' }),
     created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
     completed_at: integer('completed_at', { mode: 'timestamp_ms' }),
   },

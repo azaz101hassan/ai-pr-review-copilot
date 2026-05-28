@@ -144,7 +144,7 @@ curl -sS http://localhost:3001/reviews/dry-run \
   -d '{ "diff": "diff --git a/x.js b/x.js\n@@ -1 +1 @@\n-let x = 1\n+var x = 1\n", "k": 5 }' | jq
 ```
 
-Response shape:
+Response shape (Day 4+):
 
 ```json
 {
@@ -163,9 +163,22 @@ Response shape:
   ],
   "usage": { "input_tokens": 1283, "output_tokens": 86, "cache_creation_input_tokens": 1100, "cache_read_input_tokens": null },
   "model": "claude-haiku-4-5-20251001",
-  "prompt_version": "v1"
+  "prompt_version": "v3",
+  "turn_count": 1,
+  "tool_calls": [
+    {
+      "turn_idx": 1,
+      "tool_name": "emit_finding",
+      "input_hash": "a1b2c3d4e5f60718",
+      "result_bytes": 220,
+      "latency_ms": 711,
+      "stop_reason": "tool_use"
+    }
+  ]
 }
 ```
+
+`turn_count` is always populated on `status: 'completed'` (1 for the degenerate single-turn case; 2-6 when the agent fetched repo context before emitting). `tool_calls` is the per-turn trace — one record per `messages.create` call. On `status: 'failed'`, `turn_count` reflects the partial loop progress and `tool_calls` carries the partial trace when the failure was loop-internal (`turn_cap_exceeded`, `malformed_emit_finding`); pre-loop failures (auth, network) leave `turn_count` at 0 and `tool_calls` null. The HTTP path uses a `NullRepoContextProvider` by default — every context fetch returns `is_error: true` and Claude falls through to `emit_finding` on turn 1. Use the CLI's `--repo=<dir>` flag for multi-turn behavior against fixture repos.
 
 The persisted `reviews` row is queryable directly:
 
@@ -188,6 +201,8 @@ sqlite3 apps/api/data/app.sqlite \
 | **404** on `POST /reviews/dry-run` | `ENABLE_DRY_RUN` is `false` | Set `ENABLE_DRY_RUN=true` in `apps/api/.env` (dev only) or use the CLI. |
 | **`unexpected_response_shape`** error | Claude returned something other than the forced tool call (rare with `tool_choice: { type: 'tool' }`) | File a bug. Inspect logs for the actual shape; verify the model id isn't a typo. |
 | **`truncated_response`** error (`stop_reason === 'max_tokens'`) | Claude ran out of room | Increase `MAX_TOKENS` in `infrastructure/anthropic/anthropic-llm-reviewer.ts` (default 4096) or trim the diff. |
+| **`turn_cap_exceeded`** error (Day-4+) | The multi-turn agent loop reached the 6-turn cap without calling `emit_finding` — usually means Claude is oscillating between tool calls or hitting repeated `is_error` results | Inspect `tool_calls_json` on the failed `reviews` row for the per-turn trace. The review is marked `failed` and no findings are persisted. If a fixture consistently hits the cap, narrow the prompt or pre-seed context the agent would otherwise have to discover. |
+| **`malformed_emit_finding`** error (Day-4+) | Claude invoked `emit_finding` but the payload failed schema validation (e.g., `findings: null`, missing `rule_id` / `title` / `message`, or non-string `location_hint` / `citation`) | Inspect `tool_calls_json` for the partial loop state. If recurring, tighten the `EMIT_FINDING_TOOL` schema or add a corrective example to `SYSTEM_PROMPT` — both edits require bumping `PROMPT_AND_TOOL_VERSION` and the `HASH_MAP` entry in the same commit. |
 | **`AnalyzeDiffResult` findings empty when violations are obvious** | Retrieval didn't surface the expected rule in top-K | Run `npm run query:rules --workspace apps/api -- <path>` to see what's actually retrieved. If the rule isn't in the top-K, the embeddings layer (Day 2) is the problem, not Claude. |
 | **`Resolved model: claude-haiku-...` when you expected Sonnet** (or vice versa) | NODE_ENV mismatch | Verify `NODE_ENV` in the shell that booted `npm run dev:api`. Set `ANTHROPIC_MODEL` explicitly in `.env` if you want to lock the choice. |
 | **Cost surprise** — `[review:dry-run] estimated cost` exceeds a couple cents per call | Cache miss (every call), or accidentally on Opus/Sonnet during iteration | Check the resolved-model line. If it's Sonnet/Opus and you're iterating, switch to Haiku. If cache_read tokens stay at 0 across calls, the system prompt likely drifted — `git diff apps/api/src/infrastructure/anthropic/anthropic-llm-reviewer.ts`. |
@@ -205,3 +220,107 @@ sqlite3 apps/api/data/app.sqlite \
 - **A cost / token telemetry dashboard.** Day 8 reads the `input_tokens`, `output_tokens`, `cache_*` columns we now write on every row.
 
 See [`docs/plans/04-day3-claude-integration.md`](../plans/04-day3-claude-integration.md) → "Scope Boundaries" for the full deferred-work list.
+
+---
+
+## 10. Day 4 — Function definition lookup, known limitations
+
+Day 4 adds a `fetch_function_definition` tool the agent can call to
+locate a function or method by name. The implementation
+(`apps/api/src/infrastructure/repo-context/helpers/grep-function-definition.ts`)
+is a **grep heuristic**, not an AST parser. It matches three line
+shapes against the source:
+
+1. `^\s*(export\s+)?(async\s+)?function\s+<name>\b`
+   — top-level `function` declarations, optionally `export`ed and
+   optionally `async`.
+2. `^\s*(export\s+)?(const|let|var)\s+<name>\s*=`
+   — arrow / function-expression assignments, optionally `export`ed.
+3. `^\s+<name>\s*\(` inside a `class\s+` block
+   — class methods. Tracked via brace-counting on lines that opened
+   a `class X { ... }` scope.
+
+The first matching line wins. On a hit, the helper returns up to 10
+lines of context on each side (≤ 21 lines total).
+
+### Known limitations
+
+These are accepted Day-4 gaps. The agent's output stays truthful about
+what it found — it never invents content — but the heuristic can miss
+or pick a non-canonical definition in these cases:
+
+- **TypeScript overloads.** When a function has multiple signature
+  declarations followed by an implementation:
+  ```ts
+  function chargeCard(order: Order): Result;
+  function chargeCard(order: Order, opts: Opts): Result;
+  function chargeCard(order: Order, opts?: Opts): Result { /* impl */ }
+  ```
+  The heuristic returns the first matched line, which is the first
+  overload declaration — not the implementation. The agent then
+  reasons about the wrong signature.
+
+- **Decorated methods.** A decorator line precedes the method
+  declaration:
+  ```ts
+  class C {
+    @Cached()
+    chargeCard(order) { ... }
+  }
+  ```
+  The class-method pattern matches the `chargeCard(` line itself,
+  and the 10-line context window captures the decorator above it.
+  But pathological setups where the decorator changes the function's
+  semantics (e.g., `@Method('GET')` for an RPC, or
+  `@Deprecated(' use Y ')` marking the method as removed) won't be
+  flagged by the heuristic — only by the agent reading the returned
+  context carefully.
+
+- **Default-exported function expressions.** A function with no name
+  at the definition site:
+  ```ts
+  export default function (order) { ... }
+  ```
+  Has nothing for the heuristic to match against. The agent calling
+  `fetch_function_definition('whatever')` against such a file gets
+  `{ ok: false, reason: 'not_found' }`. (The same applies to
+  `export default (order) => ...`.)
+
+- **Methods of the same name across multiple classes.** If two
+  classes in the same file each define a `process()` method, the
+  heuristic returns the FIRST match (top of file). The agent's
+  message could end up describing the wrong class's implementation.
+  The
+  `apps/api/test/infrastructure/repo-context/helpers/grep-function-definition.spec.ts`
+  spec pins this behavior with a dedicated case so the regression
+  surface is explicit.
+
+- **Module-level identifiers re-exported under a different name.**
+  ```ts
+  function _chargeCardImpl(order) { ... }
+  export { _chargeCardImpl as chargeCard };
+  ```
+  The agent calling `fetch_function_definition('chargeCard')`
+  finds nothing — the heuristic doesn't track export aliases.
+
+### Why a heuristic, not a parser
+
+A real parser (tree-sitter, ts-morph, the TypeScript compiler) would
+close every gap above. Day 4 deliberately ships the heuristic instead
+because:
+
+- The demo's value is in the multi-turn behavior, not the function-
+  lookup precision. A non-canonical match still lets the agent
+  reason about the surrounding code.
+- Tree-sitter adds a native dependency and a per-language grammar
+  selection step (the Day-4 fixtures are JS-only; the project will
+  add Python / Ruby / Go later).
+- ts-morph parses the full TypeScript program — which means the
+  agent's per-tool latency would grow with codebase size in a way
+  the dry-run iteration loop wouldn't tolerate.
+
+Day 10 is the candidate slot for a tree-sitter or ts-morph upgrade
+if Day-6 eval surfaces the gap as a real false-negative cause. Until
+then, the agent's `message` field is the right place to caveat any
+ambiguity (it can say "matched the first of two `process` definitions
+in this file"); the heuristic itself stays simple.

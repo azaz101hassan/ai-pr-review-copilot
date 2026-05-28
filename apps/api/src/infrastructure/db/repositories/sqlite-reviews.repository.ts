@@ -41,6 +41,19 @@ export class SqliteReviewsRepository implements IReviewRepository {
         output_tokens: patch.output_tokens,
         cache_creation_input_tokens: patch.cache_creation_input_tokens,
         cache_read_input_tokens: patch.cache_read_input_tokens,
+        // Drizzle's `json` mode handles serialization. Skip the SET
+        // for both undefined AND null — otherwise drizzle-orm may
+        // serialize `null` as the literal JSON string "null" in a
+        // `mode: 'json'` text column, which breaks `WHERE
+        // tool_calls_json IS NULL` queries in Day-6 eval. Skipping
+        // leaves the column at its schema default (turn_count = 0,
+        // tool_calls_json = SQL NULL).
+        ...(patch.turn_count !== undefined && patch.turn_count !== null
+          ? { turn_count: patch.turn_count }
+          : {}),
+        ...(patch.tool_calls !== undefined && patch.tool_calls !== null
+          ? { tool_calls_json: patch.tool_calls }
+          : {}),
       })
       .where(eq(reviews.id, id))
       .run();
@@ -54,6 +67,12 @@ export class SqliteReviewsRepository implements IReviewRepository {
         completed_at: patch.completed_at,
         error_status: patch.error_status,
         error_code: patch.error_code,
+        ...(patch.turn_count !== undefined && patch.turn_count !== null
+          ? { turn_count: patch.turn_count }
+          : {}),
+        ...(patch.tool_calls !== undefined && patch.tool_calls !== null
+          ? { tool_calls_json: patch.tool_calls }
+          : {}),
       })
       .where(eq(reviews.id, id))
       .run();

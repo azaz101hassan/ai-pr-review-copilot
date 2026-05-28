@@ -19,3 +19,18 @@ export {
   AnalyzeDiffResult,
   PROMPT_AND_TOOL_VERSION,
 } from './llm-reviewer';
+export {
+  REPO_CONTEXT_PROVIDER,
+  IRepoContextProvider,
+  RepoContextError,
+  RepoContextErrorReason,
+  RepoFileResult,
+  RepoFileSuccess,
+  RepoFunctionResult,
+  RepoFunctionSuccess,
+  RepoPriorReviewResult,
+  RepoPriorReviewSuccess,
+  PriorReviewEntry,
+  PriorReviewQuery,
+} from './repo-context-provider';
+export { ToolCallRecord } from './review.types';

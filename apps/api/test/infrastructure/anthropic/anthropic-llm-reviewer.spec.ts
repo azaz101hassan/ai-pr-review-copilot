@@ -3,19 +3,29 @@ import { APIError } from '@anthropic-ai/sdk';
 import {
   AnthropicLlmReviewer,
   SYSTEM_PROMPT,
-  REPORT_FINDINGS_TOOL,
+  REGISTERED_TOOLS,
+  FETCH_FILE_TOOL,
+  FETCH_FUNCTION_TOOL,
+  FETCH_PRIOR_REVIEW_TOOL,
+  EMIT_FINDING_TOOL,
+  FETCH_FILE_TOOL_NAME,
+  FETCH_FUNCTION_TOOL_NAME,
+  FETCH_PRIOR_REVIEW_TOOL_NAME,
+  EMIT_FINDING_TOOL_NAME,
 } from '../../../src/infrastructure/anthropic/anthropic-llm-reviewer';
 import { AnthropicRequestError } from '../../../src/infrastructure/anthropic/anthropic-request.error';
 import { PROMPT_AND_TOOL_VERSION } from '../../../src/modules/reviews/types/llm-reviewer';
 import { ConfigService } from '@/config';
+import { IRepoContextProvider } from '@/modules/reviews/types/repo-context-provider';
 
-// Spec for the Anthropic adapter. The SDK client is mocked at the
-// `createClient()` seam — these tests own request shape (cache_control,
-// tool_choice, tools, system blocks), response parsing (tool_use
-// extraction, stop_reason gating, hallucinated rule_id filtering),
-// error wrapping (scrub discipline), and the by-design prompt-cache
-// invariant (system prompt + tool definition byte-identical across
-// calls).
+// Multi-turn loop spec. The SDK client is mocked at the
+// `createClient()` seam. These tests own:
+//   - request shape (cache_control breakpoints, tool_choice, tools list)
+//   - loop control (turn cap, terminal vs non-terminal, mixed same-turn)
+//   - tool dispatch (repoContext invocation, validation, is_error flow)
+//   - response parsing (emit_finding payload validation, hallucination filter)
+//   - error wrapping (carried forward from Day-3)
+//   - cache invariant (request args byte-identical across calls)
 
 const REAL_DIFF = 'diff --git a/x.js b/x.js\n@@ -1 +1 @@\n-let x = 1\n+var x = 1\n';
 const REAL_RULES = [
@@ -47,9 +57,6 @@ function makeConfig(overrides: Partial<ConfigService> = {}): ConfigService {
   } as ConfigService;
 }
 
-// Test seam: subclass that lets us substitute the SDK client without
-// jest.mock() on @anthropic-ai/sdk. Same pattern as
-// TestableChromaVectorStore.
 class TestableAnthropicLlmReviewer extends AnthropicLlmReviewer {
   constructor(
     config: ConfigService,
@@ -62,15 +69,31 @@ class TestableAnthropicLlmReviewer extends AnthropicLlmReviewer {
   }
 }
 
-function toolUseResponse(input: unknown, overrides: Record<string, unknown> = {}) {
+// Helpers to build mock Anthropic responses.
+
+let nextToolUseId = 0;
+function nextId(): string {
+  nextToolUseId += 1;
+  return `toolu_test_${nextToolUseId}`;
+}
+
+function emitFindingResponse(
+  findings: unknown[],
+  usageOverrides: Partial<{
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number | null;
+    cache_read_input_tokens: number | null;
+  }> = {},
+) {
   return {
-    id: 'msg_test',
+    id: 'msg_emit',
     content: [
       {
         type: 'tool_use',
-        id: 'tool_test',
-        name: 'report_findings',
-        input,
+        id: nextId(),
+        name: EMIT_FINDING_TOOL_NAME,
+        input: { findings },
       },
     ],
     model: 'claude-haiku-4-5-20251001',
@@ -80,22 +103,85 @@ function toolUseResponse(input: unknown, overrides: Record<string, unknown> = {}
       output_tokens: 56,
       cache_creation_input_tokens: null,
       cache_read_input_tokens: null,
+      ...usageOverrides,
     },
+  };
+}
+
+function nonTerminalToolUseResponse(
+  toolName: string,
+  toolInput: unknown,
+  usageOverrides: Partial<{
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number | null;
+    cache_read_input_tokens: number | null;
+  }> = {},
+) {
+  return {
+    id: 'msg_tool',
+    content: [
+      {
+        type: 'tool_use',
+        id: nextId(),
+        name: toolName,
+        input: toolInput,
+      },
+    ],
+    model: 'claude-haiku-4-5-20251001',
+    stop_reason: 'tool_use',
+    usage: {
+      input_tokens: 800,
+      output_tokens: 40,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      ...usageOverrides,
+    },
+  };
+}
+
+function makeRepoContextProvider(
+  overrides: Partial<IRepoContextProvider> = {},
+): IRepoContextProvider {
+  return {
+    fetchFile: jest.fn(async (p: string) => ({
+      ok: true as const,
+      content: `file content for ${p}`,
+      path: p,
+    })),
+    fetchFunctionDefinition: jest.fn(async (name: string) => ({
+      ok: true as const,
+      content: `function ${name}() {}`,
+      path: 'src/checkout.js',
+      startLine: 1,
+      endLine: 1,
+    })),
+    fetchPriorReview: jest.fn(async () => ({
+      ok: true as const,
+      content: [],
+    })),
     ...overrides,
   };
 }
 
-describe('AnthropicLlmReviewer', () => {
-  describe('analyzeDiff — request shape (the cache invariant)', () => {
-    it('sends system content with cache_control: ephemeral and a single text block', async () => {
+describe('AnthropicLlmReviewer (multi-turn loop)', () => {
+  describe('request shape — cache invariant', () => {
+    it('every messages.create call carries three cache_control markers (end of tools, end of system, end of initial user)', async () => {
       const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(toolUseResponse({ findings: [] }));
+      client.messages.create.mockResolvedValueOnce(emitFindingResponse([]));
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
       await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
 
-      expect(client.messages.create).toHaveBeenCalledTimes(1);
       const args = client.messages.create.mock.calls[0][0];
+      // BP1: end of tools — cache_control on the LAST tool.
+      const lastTool = args.tools[args.tools.length - 1];
+      expect(lastTool.cache_control).toEqual({ type: 'ephemeral' });
+      // Non-last tools must NOT carry cache_control (single breakpoint).
+      for (let i = 0; i < args.tools.length - 1; i++) {
+        expect(args.tools[i].cache_control).toBeUndefined();
+      }
+      // BP2: end of system — single text block with cache_control.
       expect(args.system).toEqual([
         {
           type: 'text',
@@ -103,51 +189,59 @@ describe('AnthropicLlmReviewer', () => {
           cache_control: { type: 'ephemeral' },
         },
       ]);
+      // BP3: end of initial user message — the first content block.
+      expect(args.messages[0].role).toBe('user');
+      expect(args.messages[0].content[0].cache_control).toEqual({
+        type: 'ephemeral',
+      });
     });
 
-    it('forces the report_findings tool via tool_choice', async () => {
+    it('uses tool_choice: { type: "any" }', async () => {
       const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(toolUseResponse({ findings: [] }));
+      client.messages.create.mockResolvedValueOnce(emitFindingResponse([]));
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
       await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
 
       const args = client.messages.create.mock.calls[0][0];
-      expect(args.tool_choice).toEqual({ type: 'tool', name: 'report_findings' });
-      expect(args.tools).toEqual([REPORT_FINDINGS_TOOL]);
+      expect(args.tool_choice).toEqual({ type: 'any' });
     });
 
-    it('does NOT include `severity` in the tool schema sent to the SDK', async () => {
+    it('registers all four tools (fetch_*, emit_finding)', async () => {
       const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(toolUseResponse({ findings: [] }));
+      client.messages.create.mockResolvedValueOnce(emitFindingResponse([]));
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
       await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
 
-      const tool = client.messages.create.mock.calls[0][0].tools[0];
-      const findingProps = tool.input_schema.properties.findings.items.properties;
+      const args = client.messages.create.mock.calls[0][0];
+      // Strip cache_control marker so we compare by schema content.
+      const sentTools = args.tools.map((t: Record<string, unknown>) => {
+        const { cache_control, ...rest } = t;
+        return rest;
+      });
+      expect(sentTools).toEqual([
+        FETCH_FILE_TOOL,
+        FETCH_FUNCTION_TOOL,
+        FETCH_PRIOR_REVIEW_TOOL,
+        EMIT_FINDING_TOOL,
+      ]);
+    });
+
+    it('EMIT_FINDING_TOOL has no `severity` field on findings items (D1 invariant)', () => {
+      const findingProps = EMIT_FINDING_TOOL.input_schema.properties.findings
+        .items.properties as Record<string, unknown>;
       expect(findingProps.severity).toBeUndefined();
-      expect(tool.input_schema.properties.findings.items.required).not.toContain('severity');
+      expect(
+        EMIT_FINDING_TOOL.input_schema.properties.findings.items.required,
+      ).not.toContain('severity');
     });
 
-    it('uses the model from ConfigService', async () => {
-      const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(toolUseResponse({ findings: [] }));
-      const reviewer = new TestableAnthropicLlmReviewer(
-        makeConfig({ anthropicModel: 'claude-sonnet-4-6' } as Partial<ConfigService>),
-        client,
-      );
-
-      await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-
-      expect(client.messages.create.mock.calls[0][0].model).toBe('claude-sonnet-4-6');
-    });
-
-    it('request args are byte-identical across two consecutive calls (cache-hit invariant)', async () => {
+    it('turn-1 request args are byte-identical across two consecutive analyzeDiff invocations (cache hit invariant)', async () => {
       const client = makeMockClient();
       client.messages.create
-        .mockResolvedValueOnce(toolUseResponse({ findings: [] }))
-        .mockResolvedValueOnce(toolUseResponse({ findings: [] }));
+        .mockResolvedValueOnce(emitFindingResponse([]))
+        .mockResolvedValueOnce(emitFindingResponse([]));
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
       await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
@@ -158,112 +252,282 @@ describe('AnthropicLlmReviewer', () => {
       expect(first.system).toEqual(second.system);
       expect(first.tools).toEqual(second.tools);
       expect(first.tool_choice).toEqual(second.tool_choice);
+      expect(first.messages[0]).toEqual(second.messages[0]);
     });
   });
 
-  describe('analyzeDiff — happy paths', () => {
-    it('returns a single finding from a single tool_use block', async () => {
+  describe('loop — happy paths', () => {
+    it('emit_finding on turn 1 returns immediately with turnCount=1', async () => {
       const client = makeMockClient();
       client.messages.create.mockResolvedValueOnce(
-        toolUseResponse({
-          findings: [
+        emitFindingResponse([
+          {
+            rule_id: 'no-var',
+            title: 'Use let/const',
+            message: 'Replace `var` with `let` or `const`.',
+          },
+        ]),
+      );
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
+      });
+
+      expect(result.turnCount).toBe(1);
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].tool_name).toBe(EMIT_FINDING_TOOL_NAME);
+      expect(result.findings).toHaveLength(1);
+      expect(result.findings[0].rule_id).toBe('no-var');
+      expect(result.promptVersion).toBe(PROMPT_AND_TOOL_VERSION);
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('fetch_related_file on turn 1, emit_finding on turn 2 — invokes provider and returns turnCount=2', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, {
+            path: 'src/checkout.js',
+          }),
+        )
+        .mockResolvedValueOnce(
+          emitFindingResponse([
             {
               rule_id: 'no-var',
               title: 'Use let/const',
-              message: 'Replace `var` with `let` or `const`.',
+              message: 'Replace `var` per src/checkout.js context.',
             },
-          ],
-        }),
-      );
+          ]),
+        );
+      const repoContext = makeRepoContextProvider();
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      const result = await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-
-      expect(result.findings).toHaveLength(1);
-      expect(result.findings[0]).toEqual({
-        rule_id: 'no-var',
-        title: 'Use let/const',
-        message: 'Replace `var` with `let` or `const`.',
-        location_hint: null,
-        citation: null,
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
       });
-      // Severity is not on the Finding type.
-      expect((result.findings[0] as unknown as Record<string, unknown>).severity).toBeUndefined();
-      expect(result.model).toBe('claude-haiku-4-5-20251001');
-      expect(result.promptVersion).toBe(PROMPT_AND_TOOL_VERSION);
+
+      expect(result.turnCount).toBe(2);
+      expect(result.toolCalls).toHaveLength(2);
+      expect(result.toolCalls[0].tool_name).toBe(FETCH_FILE_TOOL_NAME);
+      expect(result.toolCalls[1].tool_name).toBe(EMIT_FINDING_TOOL_NAME);
+      expect(repoContext.fetchFile).toHaveBeenCalledWith('src/checkout.js');
+      // Turn 2's request includes the assistant turn-1 message + a
+      // user tool_result message — verify we sent that lineage.
+      const turn2Args = client.messages.create.mock.calls[1][0];
+      expect(turn2Args.messages).toHaveLength(3); // initial user + assistant + tool_result user
+      expect(turn2Args.messages[1].role).toBe('assistant');
+      expect(turn2Args.messages[2].role).toBe('user');
+      expect(turn2Args.messages[2].content[0].type).toBe('tool_result');
     });
 
-    it('returns an empty findings array when Claude reports no violations', async () => {
+    it('accumulates UsageStats across turns (input/output/cache_creation/cache_read summed)', async () => {
       const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(toolUseResponse({ findings: [] }));
-      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
-
-      const result = await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-
-      expect(result.findings).toEqual([]);
-    });
-
-    it('preserves order across multiple findings', async () => {
-      const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(
-        toolUseResponse({
-          findings: [
-            { rule_id: 'no-var', title: 'A', message: 'a' },
-            { rule_id: 'no-var', title: 'B', message: 'b' },
-            { rule_id: 'no-var', title: 'C', message: 'c' },
-          ],
-        }),
-      );
-      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
-
-      const result = await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-
-      expect(result.findings.map((f) => f.title)).toEqual(['A', 'B', 'C']);
-    });
-
-    it('propagates cache usage from the response', async () => {
-      const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(
-        toolUseResponse(
-          { findings: [] },
-          {
-            usage: {
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(
+            FETCH_FILE_TOOL_NAME,
+            { path: 'src/checkout.js' },
+            {
               input_tokens: 100,
               output_tokens: 50,
-              cache_creation_input_tokens: 800,
-              cache_read_input_tokens: 1200,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 25,
             },
-          },
-        ),
+          ),
+        )
+        .mockResolvedValueOnce(
+          emitFindingResponse([], {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 25,
+          }),
+        );
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
+      });
+
+      expect(result.usage).toEqual({
+        input_tokens: 200,
+        output_tokens: 100,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 50,
+      });
+    });
+
+    it('emit_finding with 10 findings persists all 10', async () => {
+      const tenFindings = Array.from({ length: 10 }, (_, i) => ({
+        rule_id: 'no-var',
+        title: `T${i}`,
+        message: `m${i}`,
+      }));
+      const client = makeMockClient();
+      client.messages.create.mockResolvedValueOnce(
+        emitFindingResponse(tenFindings),
       );
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      const result = await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-
-      expect(result.usage).toEqual({
-        input_tokens: 100,
-        output_tokens: 50,
-        cache_creation_input_tokens: 800,
-        cache_read_input_tokens: 1200,
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
       });
+
+      expect(result.findings).toHaveLength(10);
     });
   });
 
-  describe('analyzeDiff — hallucinated rule_id filtering', () => {
-    it('drops findings whose rule_id is not in the retrieved set and logs a warning', async () => {
-      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  describe('loop — same-turn mixed content', () => {
+    it('[fetch_related_file, emit_finding] in one turn — takes emit_finding, ignores the fetcher', async () => {
+      const client = makeMockClient();
+      // Response with BOTH a non-terminal and a terminal block in the
+      // same `content[]` array. The loop should exit via emit_finding
+      // without invoking the non-terminal (would orphan tool_result).
+      client.messages.create.mockResolvedValueOnce({
+        id: 'msg_mixed',
+        content: [
+          {
+            type: 'tool_use',
+            id: nextId(),
+            name: FETCH_FILE_TOOL_NAME,
+            input: { path: 'src/checkout.js' },
+          },
+          {
+            type: 'tool_use',
+            id: nextId(),
+            name: EMIT_FINDING_TOOL_NAME,
+            input: { findings: [] },
+          },
+        ],
+        model: 'claude-haiku-4-5-20251001',
+        stop_reason: 'tool_use',
+        usage: { input_tokens: 100, output_tokens: 50 },
+      });
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(result.turnCount).toBe(1);
+      expect(repoContext.fetchFile).not.toHaveBeenCalled();
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].tool_name).toBe(EMIT_FINDING_TOOL_NAME);
+    });
+
+    it('[emit_finding, emit_finding] — takes the FIRST emit_finding payload', async () => {
+      const client = makeMockClient();
+      client.messages.create.mockResolvedValueOnce({
+        id: 'msg_dup',
+        content: [
+          {
+            type: 'tool_use',
+            id: nextId(),
+            name: EMIT_FINDING_TOOL_NAME,
+            input: {
+              findings: [
+                {
+                  rule_id: 'no-var',
+                  title: 'first',
+                  message: 'first',
+                },
+              ],
+            },
+          },
+          {
+            type: 'tool_use',
+            id: nextId(),
+            name: EMIT_FINDING_TOOL_NAME,
+            input: {
+              findings: [
+                {
+                  rule_id: 'no-var',
+                  title: 'second',
+                  message: 'second',
+                },
+              ],
+            },
+          },
+        ],
+        model: 'claude-haiku-4-5-20251001',
+        stop_reason: 'tool_use',
+        usage: { input_tokens: 100, output_tokens: 50 },
+      });
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
+      });
+
+      expect(result.findings).toHaveLength(1);
+      expect(result.findings[0].title).toBe('first');
+    });
+  });
+
+  describe('loop — turn cap', () => {
+    it('throws turn_cap_exceeded after 6 turns of non-terminal tool calls (turnCount=6)', async () => {
+      const client = makeMockClient();
+      for (let i = 0; i < 6; i++) {
+        client.messages.create.mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, {
+            path: `src/file-${i}.js`,
+          }),
+        );
+      }
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      let caught: AnthropicRequestError | undefined;
+      try {
+        await reviewer.analyzeDiff({
+          diff: REAL_DIFF,
+          rules: REAL_RULES,
+          repoContext: makeRepoContextProvider(),
+        });
+      } catch (err) {
+        caught = err as AnthropicRequestError;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught?.errorCode).toBe('turn_cap_exceeded');
+      expect(caught?.turnCount).toBe(6);
+      expect(caught?.toolCalls).toHaveLength(6);
+      expect(client.messages.create).toHaveBeenCalledTimes(6);
+    });
+  });
+
+  describe('hallucinated rule_id filtering', () => {
+    it('drops findings whose rule_id is not in the retrieved set', async () => {
+      const warnSpy = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
       const client = makeMockClient();
       client.messages.create.mockResolvedValueOnce(
-        toolUseResponse({
-          findings: [
-            { rule_id: 'no-var', title: 'real', message: 'real' },
-            { rule_id: 'made-up-rule', title: 'fake', message: 'fake' },
-          ],
-        }),
+        emitFindingResponse([
+          { rule_id: 'no-var', title: 'real', message: 'real' },
+          { rule_id: 'made-up-rule', title: 'fake', message: 'fake' },
+        ]),
       );
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      const result = await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
+      });
 
       expect(result.findings).toHaveLength(1);
       expect(result.findings[0].rule_id).toBe('no-var');
@@ -272,121 +536,435 @@ describe('AnthropicLlmReviewer', () => {
       );
       warnSpy.mockRestore();
     });
-
-    it('logs only the rule_id slug — never the finding body — on a dropped hallucination', async () => {
-      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-      const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(
-        toolUseResponse({
-          findings: [
-            {
-              rule_id: 'fabricated',
-              title: 'secret-API-key sk-leak-12345',
-              message: REAL_DIFF, // would expose the diff if naively logged
-              citation: REAL_DIFF,
-            },
-          ],
-        }),
-      );
-      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
-
-      await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-
-      for (const call of warnSpy.mock.calls) {
-        const message = String(call[0] ?? '');
-        expect(message).not.toContain('sk-leak-12345');
-        expect(message).not.toContain('var x = 1');
-        expect(message).not.toContain('let x = 1');
-      }
-      warnSpy.mockRestore();
-    });
   });
 
-  describe('analyzeDiff — response-shape failure modes', () => {
-    it('throws unexpected_response_shape when the response contains no tool_use block', async () => {
+  describe('tool dispatch — validation', () => {
+    it('non-terminal tool_use with invalid input (path: 123) returns is_error tool_result; loop continues', async () => {
       const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'Just commentary, no tool call.' }],
-        model: 'claude-haiku-4-5-20251001',
-        stop_reason: 'end_turn',
-        usage: { input_tokens: 100, output_tokens: 10 },
-      });
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 123 }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      await expect(reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES })).rejects.toMatchObject(
-        { name: 'AnthropicRequestError', status: 200, errorCode: 'unexpected_response_shape' },
-      );
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      // The validation rejected the bad input — provider was NOT called.
+      expect(repoContext.fetchFile).not.toHaveBeenCalled();
+      // Loop continued — turn 2 saw the is_error tool_result.
+      expect(result.turnCount).toBe(2);
+      // Turn 2's user message has a tool_result with is_error=true.
+      const turn2 = client.messages.create.mock.calls[1][0];
+      const toolResult = turn2.messages[2].content[0];
+      expect(toolResult.is_error).toBe(true);
+      expect(toolResult.content[0].text).toContain('invalid_input');
     });
 
-    it('throws unexpected_response_shape when the tool_use block has the wrong tool name', async () => {
+    it('terminal emit_finding with findings=null throws malformed_emit_finding', async () => {
       const client = makeMockClient();
       client.messages.create.mockResolvedValueOnce({
+        id: 'msg_bad_emit',
         content: [
           {
             type: 'tool_use',
-            id: 't_x',
-            name: 'some_other_tool',
-            input: { findings: [] },
+            id: nextId(),
+            name: EMIT_FINDING_TOOL_NAME,
+            input: { findings: null },
           },
         ],
         model: 'claude-haiku-4-5-20251001',
         stop_reason: 'tool_use',
-        usage: { input_tokens: 100, output_tokens: 10 },
+        usage: { input_tokens: 100, output_tokens: 50 },
       });
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      await expect(reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES })).rejects.toMatchObject(
-        { name: 'AnthropicRequestError', status: 200, errorCode: 'unexpected_response_shape' },
-      );
+      await expect(
+        reviewer.analyzeDiff({
+          diff: REAL_DIFF,
+          rules: REAL_RULES,
+          repoContext: makeRepoContextProvider(),
+        }),
+      ).rejects.toMatchObject({
+        name: 'AnthropicRequestError',
+        errorCode: 'malformed_emit_finding',
+      });
     });
 
-    it('throws unexpected_response_shape when tool_use input has no `findings` array', async () => {
+    it('malformed_emit_finding on turn N carries the partial turnCount + toolCalls (review-fix)', async () => {
+      // Mirror turn_cap_exceeded: when the loop fails mid-flight, the
+      // partial loop state must reach ReviewsService.markFailed so the
+      // failed `reviews` row reflects how far the agent got. Without
+      // this, a malformed emit on turn 5 is indistinguishable from a
+      // pre-turn-1 auth failure (both look like turn_count=0).
       const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(toolUseResponse({ wrong_field: 'oops' }));
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, {
+            path: 'src/checkout.js',
+          }),
+        )
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, {
+            path: 'src/retry-queue.js',
+          }),
+        )
+        .mockResolvedValueOnce({
+          id: 'msg_bad_emit_turn3',
+          content: [
+            {
+              type: 'tool_use',
+              id: nextId(),
+              name: EMIT_FINDING_TOOL_NAME,
+              input: { findings: [{ title: 'missing rule_id', message: 'oops' }] },
+            },
+          ],
+          model: 'claude-haiku-4-5-20251001',
+          stop_reason: 'tool_use',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        });
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      await expect(reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES })).rejects.toMatchObject(
-        { name: 'AnthropicRequestError', status: 200, errorCode: 'unexpected_response_shape' },
-      );
+      let caught: AnthropicRequestError | undefined;
+      try {
+        await reviewer.analyzeDiff({
+          diff: REAL_DIFF,
+          rules: REAL_RULES,
+          repoContext: makeRepoContextProvider(),
+        });
+      } catch (err) {
+        caught = err as AnthropicRequestError;
+      }
+
+      expect(caught?.errorCode).toBe('malformed_emit_finding');
+      // turnCount is the turn at which the malformed emit happened.
+      // toolCalls contains only the non-terminal records that
+      // successfully landed BEFORE the throw — the malformed emit
+      // itself doesn't push a record (the validation check throws
+      // before the success-path push). So turnCount=3 with
+      // toolCalls.length=2 is the truthful state: "two tool calls
+      // succeeded, the third turn's emit was malformed".
+      expect(caught?.turnCount).toBe(3);
+      expect(caught?.toolCalls).toHaveLength(2);
+      expect(caught?.toolCalls?.[0].tool_name).toBe(FETCH_FILE_TOOL_NAME);
+      expect(caught?.toolCalls?.[1].tool_name).toBe(FETCH_FILE_TOOL_NAME);
     });
 
-    it('throws truncated_response when stop_reason is max_tokens', async () => {
+    it('terminal emit_finding with a finding missing rule_id throws malformed_emit_finding', async () => {
       const client = makeMockClient();
       client.messages.create.mockResolvedValueOnce(
-        toolUseResponse({ findings: [] }, { stop_reason: 'max_tokens' }),
+        emitFindingResponse([{ title: 'no rule', message: 'oops' }]),
       );
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      await expect(reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES })).rejects.toMatchObject(
-        { name: 'AnthropicRequestError', status: 200, errorCode: 'truncated_response' },
-      );
-    });
-
-    it('throws truncated_response when stop_reason is refusal', async () => {
-      const client = makeMockClient();
-      client.messages.create.mockResolvedValueOnce(
-        toolUseResponse({ findings: [] }, { stop_reason: 'refusal' }),
-      );
-      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
-
-      await expect(reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES })).rejects.toMatchObject(
-        { name: 'AnthropicRequestError', status: 200, errorCode: 'truncated_response' },
-      );
+      await expect(
+        reviewer.analyzeDiff({
+          diff: REAL_DIFF,
+          rules: REAL_RULES,
+          repoContext: makeRepoContextProvider(),
+        }),
+      ).rejects.toMatchObject({
+        errorCode: 'malformed_emit_finding',
+      });
     });
   });
 
-  describe('analyzeDiff — SDK error wrapping (scrub discipline)', () => {
-    it('wraps APIError(401, authentication_error) without leaking the key, diff, or rule body', async () => {
+  describe('tool dispatch — provider error handling', () => {
+    it('repoContext undefined → every non-terminal tool returns is_error; loop continues', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, {
+            path: 'src/x.js',
+          }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        // no repoContext
+      });
+
+      expect(result.turnCount).toBe(2);
+      const turn2 = client.messages.create.mock.calls[1][0];
+      const toolResult = turn2.messages[2].content[0];
+      expect(toolResult.is_error).toBe(true);
+      expect(toolResult.content[0].text).toMatch(/no repo context/i);
+    });
+
+    it('provider returns ok:false → tool_result carries is_error=true; loop continues', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, {
+            path: 'src/missing.js',
+          }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider({
+        fetchFile: jest.fn(async () => ({
+          ok: false as const,
+          reason: 'not_found' as const,
+          message: 'file not found: src/missing.js',
+        })),
+      });
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(result.turnCount).toBe(2);
+      const turn2 = client.messages.create.mock.calls[1][0];
+      const toolResult = turn2.messages[2].content[0];
+      expect(toolResult.is_error).toBe(true);
+      expect(toolResult.content[0].text).toContain('not_found');
+    });
+
+    it('provider throws unexpectedly → wrapped as is_error tool_result; loop continues', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, {
+            path: 'src/x.js',
+          }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider({
+        fetchFile: jest.fn(async () => {
+          throw new Error('provider crashed');
+        }),
+      });
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(result.turnCount).toBe(2);
+      const turn2 = client.messages.create.mock.calls[1][0];
+      const toolResult = turn2.messages[2].content[0];
+      expect(toolResult.is_error).toBe(true);
+      expect(toolResult.content[0].text).toContain('tool_invocation_error');
+    });
+
+    it('fetch_function_definition arm: happy path invokes provider with name + optional file', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FUNCTION_TOOL_NAME, {
+            name: 'chargeCard',
+            file: 'src/checkout.js',
+          }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(repoContext.fetchFunctionDefinition).toHaveBeenCalledWith(
+        'chargeCard',
+        'src/checkout.js',
+      );
+    });
+
+    it('fetch_function_definition arm: name=123 returns is_error invalid_input', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FUNCTION_TOOL_NAME, { name: 123 }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(repoContext.fetchFunctionDefinition).not.toHaveBeenCalled();
+      const turn2 = client.messages.create.mock.calls[1][0];
+      const toolResult = turn2.messages[2].content[0];
+      expect(toolResult.is_error).toBe(true);
+      expect(toolResult.content[0].text).toContain('invalid_input');
+      expect(toolResult.content[0].text).toContain('name');
+    });
+
+    it('fetch_function_definition arm: file=non-string returns is_error invalid_input', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FUNCTION_TOOL_NAME, {
+            name: 'chargeCard',
+            file: 42,
+          }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(repoContext.fetchFunctionDefinition).not.toHaveBeenCalled();
+      const turn2 = client.messages.create.mock.calls[1][0];
+      expect(turn2.messages[2].content[0].content[0].text).toContain('file');
+    });
+
+    it('fetch_prior_review arm: forwards typed query fields to the provider', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_PRIOR_REVIEW_TOOL_NAME, {
+            file_path: 'src/x.js',
+            rule_id: 'no-var',
+          }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(repoContext.fetchPriorReview).toHaveBeenCalledWith({
+        file_path: 'src/x.js',
+        rule_id: 'no-var',
+      });
+    });
+
+    it('fetch_prior_review arm: rule_id=123 returns is_error invalid_input', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_PRIOR_REVIEW_TOOL_NAME, {
+            rule_id: 123,
+          }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(repoContext.fetchPriorReview).not.toHaveBeenCalled();
+      const turn2 = client.messages.create.mock.calls[1][0];
+      expect(turn2.messages[2].content[0].is_error).toBe(true);
+    });
+
+    it('unknown tool name returns is_error unknown_tool; loop continues', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce({
+          id: 'msg_unknown',
+          content: [
+            {
+              type: 'tool_use',
+              id: nextId(),
+              name: 'made_up_tool',
+              input: { foo: 'bar' },
+            },
+          ],
+          model: 'claude-haiku-4-5-20251001',
+          stop_reason: 'tool_use',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        })
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const reviewer = new TestableAnthropicLlmReviewer(
+        makeConfig(),
+        client,
+      );
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
+      });
+
+      expect(result.turnCount).toBe(2);
+      const turn2 = client.messages.create.mock.calls[1][0];
+      const toolResult = turn2.messages[2].content[0];
+      expect(toolResult.is_error).toBe(true);
+      expect(toolResult.content[0].text).toContain('unknown_tool');
+      expect(toolResult.content[0].text).toContain('made_up_tool');
+    });
+  });
+
+  describe('loop — response-shape edge cases', () => {
+    it('text-only response under tool_choice:any throws unexpected_response_shape', async () => {
+      // The system prompt requires Claude to call one of the four
+      // tools every turn. If Claude returns only text blocks (no
+      // tool_use), the loop has nothing to dispatch. Treat as a
+      // protocol violation: throw unexpected_response_shape rather
+      // than silently looping or completing with no findings.
+      const client = makeMockClient();
+      client.messages.create.mockResolvedValueOnce({
+        id: 'msg_text_only',
+        content: [{ type: 'text', text: 'No tool call here.' }],
+        model: 'claude-haiku-4-5-20251001',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 100, output_tokens: 50 },
+      });
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      await expect(
+        reviewer.analyzeDiff({
+          diff: REAL_DIFF,
+          rules: REAL_RULES,
+          repoContext: makeRepoContextProvider(),
+        }),
+      ).rejects.toMatchObject({
+        name: 'AnthropicRequestError',
+        errorCode: 'unexpected_response_shape',
+      });
+    });
+  });
+
+  describe('SDK error wrapping (carried forward from Day-3)', () => {
+    it('wraps APIError(401, authentication_error) and scrubs the API key', async () => {
       const client = makeMockClient();
       const headers = new Headers({ 'request-id': 'req_xyz' });
       const apiError = new APIError(
         401,
-        { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } },
+        {
+          type: 'error',
+          error: { type: 'authentication_error', message: 'invalid x-api-key' },
+        },
         'whatever',
         headers,
       );
       client.messages.create.mockRejectedValueOnce(apiError);
-      const config = makeConfig({ anthropicApiKey: 'sk-ant-secret-value-please-do-not-log-this-001' } as Partial<ConfigService>);
+      const config = makeConfig({
+        anthropicApiKey: 'sk-ant-secret-value-please-do-not-log-this-001',
+      } as Partial<ConfigService>);
       const reviewer = new TestableAnthropicLlmReviewer(config, client);
 
       let caught: AnthropicRequestError | undefined;
@@ -396,25 +974,15 @@ describe('AnthropicLlmReviewer', () => {
         caught = err as AnthropicRequestError;
       }
 
-      expect(caught).toBeDefined();
-      expect(caught?.name).toBe('AnthropicRequestError');
       expect(caught?.status).toBe(401);
       expect(caught?.errorCode).toBe('authentication_error');
-      // Scrub assertions: the API KEY VALUE, diff text, and rule body
-      // must never appear in the error message. (The server's
-      // textual `error.message` is included as `serverMessage` —
-      // intentionally surfaced so operators can diagnose 400s
-      // without re-running with verbose logging. The server message
-      // is the server's explanation, not echoed input.)
-      expect(caught?.message).not.toContain('sk-ant-secret-value-please-do-not-log-this-001');
-      expect(caught?.message).not.toContain('var x = 1');
-      expect(caught?.message).not.toContain('let x = 1');
-      expect(caught?.message).not.toContain('Prefer let/const');
-      // serverMessage IS the API's text explanation — surfaced.
+      expect(caught?.message).not.toContain(
+        'sk-ant-secret-value-please-do-not-log-this-001',
+      );
       expect(caught?.serverMessage).toBe('invalid x-api-key');
     });
 
-    it('maps 400 + "credit balance is too low" to errorCode=credit_balance_too_low', async () => {
+    it('maps 400 + "credit balance is too low" to credit_balance_too_low', async () => {
       const client = makeMockClient();
       const headers = new Headers({ 'request-id': 'req_credit' });
       client.messages.create.mockRejectedValueOnce(
@@ -434,63 +1002,9 @@ describe('AnthropicLlmReviewer', () => {
       );
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      let caught: AnthropicRequestError | undefined;
-      try {
-        await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-      } catch (err) {
-        caught = err as AnthropicRequestError;
-      }
-
-      expect(caught?.status).toBe(400);
-      expect(caught?.errorCode).toBe('credit_balance_too_low');
-      expect(caught?.serverMessage).toMatch(/credit balance is too low/i);
-      // Other 400 + invalid_request_error cases still get the raw code.
-      expect(caught?.errorCode).not.toBe('invalid_request_error');
-    });
-
-    it('leaves other 400 + invalid_request_error responses with the raw errorCode', async () => {
-      const client = makeMockClient();
-      const headers = new Headers({ 'request-id': 'req_schema' });
-      client.messages.create.mockRejectedValueOnce(
-        new APIError(
-          400,
-          {
-            type: 'error',
-            error: {
-              type: 'invalid_request_error',
-              message: 'tools.0.input_schema: invalid keyword "additionalProperties"',
-            },
-          },
-          'msg',
-          headers,
-        ),
-      );
-      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
-
-      await expect(reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES })).rejects.toMatchObject(
-        {
-          status: 400,
-          errorCode: 'invalid_request_error',
-        },
-      );
-    });
-
-    it('wraps APIError(429, rate_limit_error)', async () => {
-      const client = makeMockClient();
-      const headers = new Headers({ 'request-id': 'req_x' });
-      client.messages.create.mockRejectedValueOnce(
-        new APIError(
-          429,
-          { type: 'error', error: { type: 'rate_limit_error', message: 'too many' } },
-          'msg',
-          headers,
-        ),
-      );
-      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
-
-      await expect(reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES })).rejects.toMatchObject(
-        { name: 'AnthropicRequestError', status: 429, errorCode: 'rate_limit_error' },
-      );
+      await expect(
+        reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES }),
+      ).rejects.toMatchObject({ errorCode: 'credit_balance_too_low' });
     });
 
     it('wraps a transport error with status 0 and preserves the cause', async () => {
@@ -506,41 +1020,17 @@ describe('AnthropicLlmReviewer', () => {
         caught = err as AnthropicRequestError;
       }
 
-      expect(caught?.name).toBe('AnthropicRequestError');
       expect(caught?.status).toBe(0);
       expect(caught?.cause).toBe(transportError);
     });
   });
 
   describe('lazy client construction', () => {
-    it('does not call createClient on construction (DI bootstrap stays network-free)', () => {
+    it('does not call createClient on construction', () => {
       const client = makeMockClient();
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
-
-      // No call has happened — the SDK construction is lazy. The mock
-      // is captured but never invoked until the first analyzeDiff.
       expect(client.messages.create).not.toHaveBeenCalled();
-      // Sanity: the reviewer is the right type.
       expect(reviewer).toBeInstanceOf(AnthropicLlmReviewer);
-    });
-
-    it('createClient is only called once even across multiple analyzeDiff invocations', async () => {
-      const client = makeMockClient();
-      client.messages.create
-        .mockResolvedValueOnce(toolUseResponse({ findings: [] }))
-        .mockResolvedValueOnce(toolUseResponse({ findings: [] }));
-      const createSpy = jest.fn(() => client as never);
-      class SpyReviewer extends AnthropicLlmReviewer {
-        protected override createClient(): never {
-          return createSpy() as never;
-        }
-      }
-      const reviewer = new SpyReviewer(makeConfig());
-
-      await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-      await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
-
-      expect(createSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

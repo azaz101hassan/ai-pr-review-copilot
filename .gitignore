@@ -55,3 +55,7 @@ GEMINI.local.md
 # Coverage / test artifacts
 coverage/
 .nyc_output/
+
+# Brainstorm scratch (ce-brainstorm requirements docs are local-only by convention;
+# the plan in docs/plans/ is the durable artifact that gets committed)
+docs/brainstorms/

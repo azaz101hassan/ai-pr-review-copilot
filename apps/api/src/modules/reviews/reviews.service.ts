@@ -9,6 +9,7 @@ import {
   PROMPT_AND_TOOL_VERSION,
   UsageStats,
 } from './types/llm-reviewer';
+import { IRepoContextProvider } from './types/repo-context-provider';
 import { AnthropicRequestError } from '@/infrastructure/anthropic/anthropic-request.error';
 import {
   IReviewRepository,
@@ -22,6 +23,7 @@ import {
   ReviewFindingInsert,
   ReviewFindingRecord,
 } from './types/review-finding.types';
+import { ToolCallRecord } from './types/review.types';
 
 // ReviewsService orchestrates the Day-3 pipeline:
 //   embeddings.search() → llm.analyzeDiff() → persist (3-step lifecycle)
@@ -35,6 +37,12 @@ export interface RunDryRunInput {
   diff: string;
   k?: number;
   prNodeId?: string | null;
+  // Day-4: per-review repo-context source. CLI builds a
+  // `FilesystemRepoContextProvider` against the resolved `--repo`
+  // directory; HTTP callers pass nothing and the adapter falls back
+  // to truthful `is_error` tool_results (or a NullRepoContextProvider
+  // if the controller layer ever wires one).
+  repoContext?: IRepoContextProvider;
 }
 
 export interface RunDryRunResult {
@@ -44,6 +52,12 @@ export interface RunDryRunResult {
   usage: UsageStats | null;
   model: string;
   prompt_version: string;
+  // Day-4: agent-loop aggregates. Always populated on the completed
+  // path; `null` only when the review failed BEFORE the first
+  // messages.create response returned.
+  turn_count: number;
+  tool_calls: ToolCallRecord[] | null;
+  error_code?: string;
 }
 
 export class ReviewsServiceError extends Error {
@@ -171,17 +185,42 @@ export class ReviewsService implements OnModuleInit {
           document: hit.document,
           title: hit.title,
         })),
+        repoContext: input.repoContext,
       });
     } catch (err) {
+      // Guard the markFailed write so a secondary DB failure (SQLITE_BUSY,
+      // disk full, schema corruption) doesn't shadow the original error.
+      // The original `err` is what callers need to see; the persistence
+      // failure is a secondary concern that we log and move on from. The
+      // 5-min in_progress sweep will finalise the row on next boot if
+      // markFailed never landed.
+      const markFailedSafely = (patch: Parameters<typeof this.reviews.markFailed>[1]): void => {
+        try {
+          this.reviews.markFailed(reviewId, patch);
+        } catch (persistErr) {
+          this.logger.error(
+            `markFailed write failed for review ${reviewId} — original error preserved; sweep will finalise this row`,
+            persistErr instanceof Error ? persistErr.stack : String(persistErr),
+          );
+        }
+      };
+
       if (err instanceof AnthropicRequestError) {
-        this.reviews.markFailed(reviewId, {
+        markFailedSafely({
           completed_at: new Date(),
           error_status: err.status,
           error_code: err.errorCode ?? 'anthropic_error',
+          // Day-4: turn_cap_exceeded and malformed_emit_finding
+          // carry partial loop state on the error so it lands in the
+          // reviews row alongside the failure. Pre-loop failures
+          // (auth, network) leave these undefined → markFailed leaves
+          // turn_count at the schema default (0).
+          turn_count: err.turnCount,
+          tool_calls: err.toolCalls ?? null,
         });
         throw err;
       }
-      this.reviews.markFailed(reviewId, {
+      markFailedSafely({
         completed_at: new Date(),
         error_status: null,
         error_code: 'internal_error',
@@ -232,6 +271,8 @@ export class ReviewsService implements OnModuleInit {
         output_tokens: result.usage.output_tokens,
         cache_creation_input_tokens: result.usage.cache_creation_input_tokens ?? null,
         cache_read_input_tokens: result.usage.cache_read_input_tokens ?? null,
+        turn_count: result.turnCount,
+        tool_calls: result.toolCalls,
       });
       this.findings.insertMany(findingInserts);
     });
@@ -245,6 +286,8 @@ export class ReviewsService implements OnModuleInit {
       usage: result.usage,
       model: result.model,
       prompt_version: result.promptVersion,
+      turn_count: result.turnCount,
+      tool_calls: result.toolCalls,
     };
   }
 }

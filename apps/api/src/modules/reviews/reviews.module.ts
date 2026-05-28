@@ -1,6 +1,7 @@
 import { DynamicModule, Logger, Module } from '@nestjs/common';
 import { ConfigModule, parseEnableDryRun } from '@/config';
 import { AnthropicModule } from '@/infrastructure/anthropic';
+import { RepoContextModule } from '@/infrastructure/repo-context';
 import { EmbeddingsModule } from '@/modules/embeddings';
 import { ReviewsService } from './reviews.service';
 import { ReviewsController } from './reviews.controller';
@@ -41,7 +42,17 @@ export class ReviewsModule {
 
     return {
       module: ReviewsModule,
-      imports: [ConfigModule, EmbeddingsModule, AnthropicModule],
+      imports: [
+        ConfigModule,
+        EmbeddingsModule,
+        AnthropicModule,
+        // Day-4: the HTTP path resolves `REPO_CONTEXT_PROVIDER` to
+        // `NullRepoContextProvider` (deterministic-degraded). The
+        // CLI bypasses this and constructs a `FilesystemRepoContextProvider`
+        // directly with the resolved `--repo` path. Day-5 swaps the
+        // binding here to `GitHubRepoContextProvider`.
+        RepoContextModule,
+      ],
       controllers: enableDryRun ? [ReviewsController] : [],
       providers: [ReviewsService],
       exports: [ReviewsService],

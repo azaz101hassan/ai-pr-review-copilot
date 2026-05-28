@@ -1,10 +1,18 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Inject, Post } from '@nestjs/common';
 import { ReviewsService, RunDryRunResult } from './reviews.service';
 import { DryRunReviewRequestDto } from './types/dto/dry-run-review-request.dto';
+import {
+  IRepoContextProvider,
+  REPO_CONTEXT_PROVIDER,
+} from './types/repo-context-provider';
 
 @Controller('reviews')
 export class ReviewsController {
-  constructor(private readonly reviews: ReviewsService) {}
+  constructor(
+    private readonly reviews: ReviewsService,
+    @Inject(REPO_CONTEXT_PROVIDER)
+    private readonly repoContext: IRepoContextProvider,
+  ) {}
 
   // POST /reviews/dry-run
   //
@@ -29,6 +37,11 @@ export class ReviewsController {
       diff: dto.diff,
       k: dto.k,
       prNodeId: dto.pr_node_id ?? null,
+      // Day-4: HTTP path uses NullRepoContextProvider (bound in
+      // ReviewsModule). Truthful "no repo context" tool_results keep
+      // turn counts low and predictable on this path. Day-5 swaps the
+      // binding to GitHubRepoContextProvider.
+      repoContext: this.repoContext,
     });
   }
 }

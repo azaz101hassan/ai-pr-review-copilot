@@ -1,0 +1,14 @@
+diff --git a/src/checkout.js b/src/checkout.js
+index 5555555..6666666 100644
+--- a/src/checkout.js
++++ b/src/checkout.js
+@@ -22,7 +22,8 @@ function processCheckout(order) {
+   if (!order) return null;
+
+   // Pass an idempotency key so a retried request does not double-charge.
+-  const result = chargeCard(order, { capture: true });
++  // NOTE: signature of chargeCard now expects an idempotencyKey on opts.
++  const result = chargeCard(order, { capture: true, idempotencyKey: order.id });
+
+   return persist(result);
+ }

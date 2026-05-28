@@ -132,6 +132,22 @@ function happyAnalyzeResult(
     },
     model: 'claude-haiku-4-5-20251001',
     promptVersion: PROMPT_AND_TOOL_VERSION,
+    // Day-4 widened shape — degenerate single-turn case represented
+    // as turnCount=1 + one synthetic emit_finding tool call so this
+    // helper satisfies the new return type. The service-level
+    // persistence + flow tests don't inspect these fields; U7
+    // expands coverage with scripted multi-turn behaviour.
+    turnCount: 1,
+    toolCalls: [
+      {
+        turn_idx: 1,
+        tool_name: 'emit_finding',
+        input_hash: '0'.repeat(16),
+        result_bytes: 0,
+        latency_ms: 0,
+        stop_reason: 'tool_use',
+      },
+    ],
     ...overrides,
   };
 }
@@ -549,6 +565,139 @@ describe('ReviewsService (pure-mock cases)', () => {
       expect((caught as ReviewsServiceError).cause).toBe(underlying);
       expect(reviews.markFailed.mock.calls[0][1].error_code).toBe('internal_error');
       expect(reviews.markFailed.mock.calls[0][1].error_status).toBeNull();
+    });
+
+    it('turn_cap_exceeded → markFailed carries the partial turn_count + tool_calls from the error', async () => {
+      const embeddings = makeEmbeddings([makeSearchHit()]);
+      const partialToolCalls = [
+        {
+          turn_idx: 1,
+          tool_name: 'fetch_related_file',
+          input_hash: 'a'.repeat(16),
+          result_bytes: 800,
+          latency_ms: 500,
+          stop_reason: 'tool_use',
+        },
+      ];
+      const err = new AnthropicRequestError(
+        'Agent loop exceeded 6 turns without emit_finding',
+        {
+          status: 200,
+          errorCode: 'turn_cap_exceeded',
+          turnCount: 6,
+          toolCalls: partialToolCalls,
+        },
+      );
+      const llm = makeLlm(err);
+      const reviews = makeMockReviewRepo();
+      const findings = makeMockFindingRepo();
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        reviews,
+        findings,
+        makeDbStub(),
+        makeConfig(),
+      );
+
+      await expect(service.runDryRun({ diff: REAL_DIFF })).rejects.toBe(err);
+      const failPatch = reviews.markFailed.mock.calls[0][1] as ReviewFailurePatch;
+      expect(failPatch.error_code).toBe('turn_cap_exceeded');
+      expect(failPatch.turn_count).toBe(6);
+      expect(failPatch.tool_calls).toEqual(partialToolCalls);
+      // No findings persisted on turn_cap_exceeded — the plan's
+      // no-partial-findings rule (see Key Technical Decisions).
+      expect(findings.insertMany).not.toHaveBeenCalled();
+      expect(reviews.markCompleted).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('runDryRun — Day-4 repoContext + aggregates', () => {
+    it('forwards input.repoContext to llm.analyzeDiff (CLI path)', async () => {
+      const embeddings = makeEmbeddings([makeSearchHit()]);
+      const llm = makeLlm(happyAnalyzeResult());
+      const reviews = makeMockReviewRepo();
+      const findings = makeMockFindingRepo();
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        reviews,
+        findings,
+        makeDbStub(),
+        makeConfig(),
+      );
+      const repoContext = {
+        fetchFile: jest.fn(),
+        fetchFunctionDefinition: jest.fn(),
+        fetchPriorReview: jest.fn(),
+      };
+
+      await service.runDryRun({ diff: REAL_DIFF, repoContext: repoContext as unknown as Parameters<typeof service.runDryRun>[0]['repoContext'] });
+
+      const analyzeArgs = (llm.analyzeDiff as jest.Mock).mock.calls[0][0];
+      expect(analyzeArgs.repoContext).toBe(repoContext);
+    });
+
+    it('without input.repoContext, llm.analyzeDiff is called with repoContext: undefined', async () => {
+      const embeddings = makeEmbeddings([makeSearchHit()]);
+      const llm = makeLlm(happyAnalyzeResult());
+      const reviews = makeMockReviewRepo();
+      const findings = makeMockFindingRepo();
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        reviews,
+        findings,
+        makeDbStub(),
+        makeConfig(),
+      );
+
+      await service.runDryRun({ diff: REAL_DIFF });
+
+      const analyzeArgs = (llm.analyzeDiff as jest.Mock).mock.calls[0][0];
+      expect(analyzeArgs.repoContext).toBeUndefined();
+    });
+
+    it('markCompleted carries turnCount + toolCalls from the adapter result', async () => {
+      const embeddings = makeEmbeddings([makeSearchHit()]);
+      const toolCalls = [
+        {
+          turn_idx: 1,
+          tool_name: 'fetch_related_file',
+          input_hash: 'x'.repeat(16),
+          result_bytes: 1024,
+          latency_ms: 612,
+          stop_reason: 'tool_use',
+        },
+        {
+          turn_idx: 2,
+          tool_name: 'emit_finding',
+          input_hash: 'y'.repeat(16),
+          result_bytes: 220,
+          latency_ms: 511,
+          stop_reason: 'tool_use',
+        },
+      ];
+      const llm = makeLlm(
+        happyAnalyzeResult({ turnCount: 2, toolCalls }),
+      );
+      const reviews = makeMockReviewRepo();
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        reviews,
+        makeMockFindingRepo(),
+        makeDbStub(),
+        makeConfig(),
+      );
+
+      const result = await service.runDryRun({ diff: REAL_DIFF });
+
+      const completionPatch = reviews.markCompleted.mock.calls[0][1] as ReviewCompletionPatch;
+      expect(completionPatch.turn_count).toBe(2);
+      expect(completionPatch.tool_calls).toEqual(toolCalls);
+      expect(result.turn_count).toBe(2);
+      expect(result.tool_calls).toEqual(toolCalls);
     });
   });
 

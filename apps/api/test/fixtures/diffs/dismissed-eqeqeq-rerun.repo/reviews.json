@@ -1,0 +1,11 @@
+[
+  {
+    "review_id": "rev-2025-05-21-a1b2c3d4",
+    "finding_id": "find-2025-05-21-eqeqeq-1",
+    "rule_id": "eqeqeq",
+    "file_path": "src/checkout.js",
+    "location_hint": "src/checkout.js:15",
+    "dismissed_at": 1779712800000,
+    "message": "Use === instead of == on order.status. (Dismissed by @octocat during last week's review with rationale: \"intentional — we want type coercion here so '1' from query string matches 1\".)"
+  }
+]

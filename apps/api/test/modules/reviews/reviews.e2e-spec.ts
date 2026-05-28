@@ -23,6 +23,7 @@ import {
 import {
   AnalyzeDiffInput,
   AnalyzeDiffResult,
+  Finding,
   ILlmReviewer,
   LLM_REVIEWER,
   PROMPT_AND_TOOL_VERSION,
@@ -32,9 +33,11 @@ import {
   REVIEW_FINDING_REPOSITORY,
 } from '@/modules/reviews/types';
 import { AnthropicRequestError } from '@/infrastructure/anthropic';
+import { FilesystemRepoContextProvider } from '@/infrastructure/repo-context';
 import { ReviewsService } from '@/modules/reviews';
 import { ReviewsModule } from '@/modules/reviews/reviews.module';
-import { ReviewRecord } from '@/modules/reviews/types/review.types';
+import { ReviewRecord, ToolCallRecord } from '@/modules/reviews/types/review.types';
+import { IRepoContextProvider } from '@/modules/reviews/types/repo-context-provider';
 import { HealthController } from '@/system';
 
 // We build the test module manually (mirroring AppModule) instead of
@@ -164,12 +167,36 @@ function cosineSimilarity(a: number[], b: number[]): number {
 //
 // The stub never emits `severity` — matches the production adapter
 // contract from U4.
-type StubMode = 'echo-first-only' | 'echo-all' | 'echo-none' | 'throw-rate-limit' | 'delay-then-echo';
+type StubMode =
+  | 'echo-first-only'
+  | 'echo-all'
+  | 'echo-none'
+  | 'throw-rate-limit'
+  | 'delay-then-echo'
+  | 'multi-turn-script'
+  | 'throw-turn-cap-exceeded';
+
+// One step of a scripted multi-turn run. `tool` steps invoke the
+// configured `input.repoContext` and record the result as a
+// ToolCallRecord (with is_error reflecting the provider response).
+// `emit` is the terminal step — the stub returns its findings as the
+// final result.
+type ScriptedTurn =
+  | {
+      kind: 'tool';
+      name: 'fetch_related_file' | 'fetch_function_definition' | 'fetch_prior_review';
+      input: Record<string, unknown>;
+    }
+  | { kind: 'emit'; findings: Finding[] };
 
 class StubLlmReviewer implements ILlmReviewer {
   public mode: StubMode = 'echo-first-only';
   public delayMs = 0;
   public lastInput?: AnalyzeDiffInput;
+  public script: ScriptedTurn[] = [];
+  // Pre-built error used by 'throw-turn-cap-exceeded' so AE3 can
+  // assert against a specific turnCount + toolCalls shape.
+  public turnCapToolCalls: ToolCallRecord[] = [];
 
   async analyzeDiff(input: AnalyzeDiffInput): Promise<AnalyzeDiffResult> {
     this.lastInput = input;
@@ -178,6 +205,20 @@ class StubLlmReviewer implements ILlmReviewer {
         status: 429,
         errorCode: 'rate_limit_error',
       });
+    }
+    if (this.mode === 'throw-turn-cap-exceeded') {
+      throw new AnthropicRequestError(
+        'Agent loop exceeded 6 turns without emit_finding',
+        {
+          status: 200,
+          errorCode: 'turn_cap_exceeded',
+          turnCount: 6,
+          toolCalls: this.turnCapToolCalls,
+        },
+      );
+    }
+    if (this.mode === 'multi-turn-script') {
+      return this.runScript(input);
     }
     if (this.mode === 'delay-then-echo' && this.delayMs > 0) {
       await new Promise((r) => setTimeout(r, this.delayMs));
@@ -206,8 +247,117 @@ class StubLlmReviewer implements ILlmReviewer {
       },
       model: 'stub-model',
       promptVersion: PROMPT_AND_TOOL_VERSION,
+      // Day-4 widened shape — degenerate single-turn case. The
+      // 'multi-turn-script' mode below walks a scripted sequence
+      // for the AE1/AE1b/AE2 scenarios.
+      turnCount: 1,
+      toolCalls: [
+        {
+          turn_idx: 1,
+          tool_name: 'emit_finding',
+          input_hash: '0'.repeat(16),
+          result_bytes: 0,
+          latency_ms: 0,
+          stop_reason: 'tool_use',
+        },
+      ],
     };
   }
+
+  // Walks the configured script, invoking `input.repoContext` on tool
+  // steps and accumulating a ToolCallRecord per step. The terminal
+  // 'emit' step's findings flow through to the result (with
+  // hallucination filtering — drop any rule_id not in input.rules).
+  private async runScript(input: AnalyzeDiffInput): Promise<AnalyzeDiffResult> {
+    const repoContext = input.repoContext;
+    const inputRuleIds = new Set(input.rules.map((r) => r.rule_id));
+    const toolCalls: ToolCallRecord[] = [];
+    let turn = 0;
+    let emittedFindings: Finding[] = [];
+
+    for (const step of this.script) {
+      turn += 1;
+      if (step.kind === 'tool') {
+        const dispatch = await this.dispatchScriptedTool(step, repoContext);
+        toolCalls.push({
+          turn_idx: turn,
+          tool_name: step.name,
+          input_hash: hashScriptInput(step.input),
+          result_bytes: dispatch.bytes,
+          latency_ms: 0,
+          stop_reason: 'tool_use',
+          ...(dispatch.isError ? { is_error: true } : {}),
+        });
+        continue;
+      }
+      // emit step — the terminal turn. Filter hallucinations.
+      emittedFindings = step.findings.filter((f) => inputRuleIds.has(f.rule_id));
+      toolCalls.push({
+        turn_idx: turn,
+        tool_name: 'emit_finding',
+        input_hash: hashScriptInput({ findings: step.findings }),
+        result_bytes: 0,
+        latency_ms: 0,
+        stop_reason: 'tool_use',
+      });
+      break;
+    }
+
+    return {
+      findings: emittedFindings,
+      usage: {
+        input_tokens: 1500 * turn,
+        output_tokens: 100 * turn,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+      },
+      model: 'stub-model',
+      promptVersion: PROMPT_AND_TOOL_VERSION,
+      turnCount: turn,
+      toolCalls,
+    };
+  }
+
+  private async dispatchScriptedTool(
+    step: Extract<ScriptedTurn, { kind: 'tool' }>,
+    repoContext: IRepoContextProvider | undefined,
+  ): Promise<{ bytes: number; isError: boolean }> {
+    if (!repoContext) {
+      return { bytes: 32, isError: true };
+    }
+    if (step.name === 'fetch_related_file') {
+      const result = await repoContext.fetchFile(
+        (step.input.path as string) ?? '',
+      );
+      return {
+        bytes: result.ok ? Buffer.byteLength(result.content, 'utf8') : 64,
+        isError: !result.ok,
+      };
+    }
+    if (step.name === 'fetch_function_definition') {
+      const result = await repoContext.fetchFunctionDefinition(
+        (step.input.name as string) ?? '',
+        step.input.file as string | undefined,
+      );
+      return {
+        bytes: result.ok ? Buffer.byteLength(result.content, 'utf8') : 64,
+        isError: !result.ok,
+      };
+    }
+    // fetch_prior_review
+    const result = await repoContext.fetchPriorReview(step.input as Parameters<IRepoContextProvider['fetchPriorReview']>[0]);
+    return {
+      bytes: result.ok ? Buffer.byteLength(JSON.stringify(result.content), 'utf8') : 64,
+      isError: !result.ok,
+    };
+  }
+}
+
+function hashScriptInput(input: unknown): string {
+  // Reproducible-but-cheap hash for the per-turn record. Doesn't need
+  // to match the production sha256 algorithm — these are stub-side
+  // assertions.
+  return Buffer.from(JSON.stringify(input)).toString('hex').slice(0, 16).padEnd(16, '0');
 }
 
 function loadFixture(name: string): string {
@@ -291,6 +441,250 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
     stubLlm.mode = 'echo-first-only';
     stubLlm.delayMs = 0;
     stubLlm.lastInput = undefined;
+    stubLlm.script = [];
+    stubLlm.turnCapToolCalls = [];
+  });
+
+  // Helper: build a FilesystemRepoContextProvider against a fixture's
+  // co-located `.repo/` directory. The Day-4 plan (U3) put these
+  // under apps/api/test/fixtures/diffs/<name>.repo/.
+  function repoFixture(name: string): FilesystemRepoContextProvider {
+    const dir = path.resolve(__dirname, '..', '..', 'fixtures', 'diffs', name);
+    return new FilesystemRepoContextProvider(dir);
+  }
+
+  // The HTTP path doesn't accept a repoContext at Day-4 (controller
+  // injects NullRepoContextProvider). To exercise the
+  // FilesystemRepoContextProvider end-to-end through ReviewsService
+  // we call the service directly. This mirrors how the dry-run CLI
+  // invokes it — and is what the plan's U7 AE describes are meant
+  // to exercise.
+  function runWithRepoFixture(
+    diff: string,
+    repoDirName: string,
+  ): ReturnType<ReviewsService['runDryRun']> {
+    return app.get(ReviewsService).runDryRun({
+      diff,
+      repoContext: repoFixture(repoDirName),
+    });
+  }
+
+  describe('AE1 — silent signature change (multi-turn investigation)', () => {
+    it('agent calls fetch_function_definition + fetch_related_file, then emits a finding citing the unchanged caller', async () => {
+      stubLlm.mode = 'multi-turn-script';
+      stubLlm.script = [
+        {
+          kind: 'tool',
+          name: 'fetch_function_definition',
+          input: { name: 'chargeCard' },
+        },
+        {
+          kind: 'tool',
+          name: 'fetch_related_file',
+          input: { path: 'src/retry-queue.js' },
+        },
+        {
+          kind: 'emit',
+          findings: [
+            {
+              rule_id: 'no-param-reassign',
+              title: 'Caller `src/retry-queue.js` not updated with idempotencyKey',
+              message:
+                'chargeCard now expects opts.idempotencyKey but src/retry-queue.js still calls chargeCard(order, { capture: true }) — pass an idempotency key there too.',
+              location_hint: 'src/checkout.js:25',
+              citation: null,
+            },
+          ],
+        },
+      ];
+
+      const diff = loadFixture('silent-signature-change.patch');
+      const result = await runWithRepoFixture(diff, 'silent-signature-change.repo');
+
+      expect(result.status).toBe('completed');
+      expect(result.turn_count).toBe(3);
+      expect(result.tool_calls).toHaveLength(3);
+      expect(result.tool_calls?.[0].tool_name).toBe('fetch_function_definition');
+      expect(result.tool_calls?.[1].tool_name).toBe('fetch_related_file');
+      expect(result.tool_calls?.[2].tool_name).toBe('emit_finding');
+
+      // The finding must reference the unchanged-caller file path
+      // (this is what the agent learned by reading the .repo/ dir).
+      expect(result.findings).toHaveLength(1);
+      expect(result.findings[0].message).toContain('src/retry-queue.js');
+
+      // Persisted row has the same aggregates.
+      const reviewsRepo = app.get(REVIEW_REPOSITORY);
+      const row = (reviewsRepo as { findById: (id: string) => ReviewRecord | undefined })
+        .findById(result.review_id);
+      expect(row?.turn_count).toBe(3);
+      const persistedCalls = row?.tool_calls_json as unknown as ToolCallRecord[] | null;
+      expect(persistedCalls).toHaveLength(3);
+    });
+  });
+
+  describe('AE1b — mid-loop recovery (tool error does not poison the loop)', () => {
+    it('fetch_related_file on a missing path returns is_error; agent recovers and emits on turn 3', async () => {
+      stubLlm.mode = 'multi-turn-script';
+      stubLlm.script = [
+        {
+          kind: 'tool',
+          name: 'fetch_related_file',
+          input: { path: 'src/does-not-exist.js' },
+        },
+        {
+          kind: 'tool',
+          name: 'fetch_function_definition',
+          input: { name: 'chargeCard' },
+        },
+        {
+          kind: 'emit',
+          findings: [
+            {
+              rule_id: 'no-param-reassign',
+              title: 'Inconsistent caller',
+              message: 'Recovered after a failed fetch and emitted a finding anyway.',
+              location_hint: 'src/checkout.js:25',
+              citation: null,
+            },
+          ],
+        },
+      ];
+
+      const diff = loadFixture('silent-signature-change.patch');
+      const result = await runWithRepoFixture(diff, 'silent-signature-change.repo');
+
+      expect(result.status).toBe('completed');
+      expect(result.turn_count).toBe(3);
+      // Turn 1 hit the missing file → is_error recorded.
+      expect(result.tool_calls?.[0].is_error).toBe(true);
+      // Turn 2 succeeded — no is_error flag.
+      expect(result.tool_calls?.[1].is_error).toBeUndefined();
+      // Final finding emitted normally.
+      expect(result.findings).toHaveLength(1);
+    });
+  });
+
+  describe('AE2 — dismissed eqeqeq re-run (zero findings via fetch_prior_review)', () => {
+    it('fetch_prior_review finds a dismissed prior finding; agent emits an empty findings array', async () => {
+      stubLlm.mode = 'multi-turn-script';
+      stubLlm.script = [
+        {
+          kind: 'tool',
+          name: 'fetch_prior_review',
+          input: { file_path: 'src/checkout.js', rule_id: 'eqeqeq' },
+        },
+        { kind: 'emit', findings: [] },
+      ];
+
+      const diff = loadFixture('dismissed-eqeqeq-rerun.patch');
+      const result = await runWithRepoFixture(diff, 'dismissed-eqeqeq-rerun.repo');
+
+      expect(result.status).toBe('completed');
+      expect(result.findings).toEqual([]);
+      expect(result.turn_count).toBe(2);
+      expect(result.tool_calls?.[0].tool_name).toBe('fetch_prior_review');
+      expect(result.tool_calls?.[0].is_error).toBeUndefined();
+
+      // No review_findings row was inserted for the dismissed location.
+      const findingsRepo = app.get(REVIEW_FINDING_REPOSITORY);
+      expect(
+        (findingsRepo as { findByReviewId: (id: string) => unknown[] }).findByReviewId(
+          result.review_id,
+        ),
+      ).toEqual([]);
+    });
+  });
+
+  describe('AE3 — turn cap exceeded', () => {
+    it('adapter throws turn_cap_exceeded; persisted row is failed with turn_count=6 and no findings', async () => {
+      stubLlm.mode = 'throw-turn-cap-exceeded';
+      stubLlm.turnCapToolCalls = Array.from({ length: 6 }, (_, i) => ({
+        turn_idx: i + 1,
+        tool_name: 'fetch_related_file',
+        input_hash: String(i).padStart(16, '0'),
+        result_bytes: 800,
+        latency_ms: 500 + i,
+        stop_reason: 'tool_use',
+      }));
+
+      const diff = loadFixture('silent-signature-change.patch');
+      const service = app.get(ReviewsService);
+
+      let caught: AnthropicRequestError | undefined;
+      try {
+        await service.runDryRun({
+          diff,
+          repoContext: repoFixture('silent-signature-change.repo'),
+        });
+      } catch (err) {
+        caught = err as AnthropicRequestError;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught?.errorCode).toBe('turn_cap_exceeded');
+
+      const reviewsRepo = app.get(REVIEW_REPOSITORY);
+      const failed = (
+        reviewsRepo as { findAll: () => ReviewRecord[] }
+      )
+        .findAll()
+        .find((r) => r.status === 'failed' && r.error_code === 'turn_cap_exceeded');
+      expect(failed).toBeDefined();
+      expect(failed?.turn_count).toBe(6);
+
+      // The partial loop trace (6 tool calls from
+      // AnthropicRequestError.toolCalls) must round-trip through
+      // markFailed and land in tool_calls_json — Day-6 eval needs
+      // to see how far the loop got and which tools were called
+      // before the cap.
+      const persistedToolCalls = failed?.tool_calls_json as unknown as ToolCallRecord[] | null;
+      expect(persistedToolCalls).toHaveLength(6);
+      expect(persistedToolCalls?.[0].tool_name).toBe('fetch_related_file');
+      expect(persistedToolCalls?.[5].turn_idx).toBe(6);
+
+      const findingsRepo = app.get(REVIEW_FINDING_REPOSITORY);
+      expect(
+        (findingsRepo as { findByReviewId: (id: string) => unknown[] }).findByReviewId(
+          failed?.id ?? '',
+        ),
+      ).toEqual([]);
+    });
+  });
+
+  describe('AE4 — no repoContext provided (legacy single-turn fallback)', () => {
+    it('the script still walks; tool steps return is_error; emit_finding fires normally', async () => {
+      stubLlm.mode = 'multi-turn-script';
+      stubLlm.script = [
+        {
+          kind: 'tool',
+          name: 'fetch_related_file',
+          input: { path: 'src/anything.js' },
+        },
+        {
+          kind: 'emit',
+          findings: [
+            {
+              rule_id: 'no-var',
+              title: 'fallback',
+              message: 'Fell back to emitting without repo context.',
+              location_hint: null,
+              citation: null,
+            },
+          ],
+        },
+      ];
+
+      // Call the service WITHOUT a repoContext — every tool call
+      // should surface as is_error: true in the tool_calls log, and
+      // the emit_finding step should still produce findings.
+      const diff = loadFixture('no-var-violation.patch');
+      const result = await app.get(ReviewsService).runDryRun({ diff });
+
+      expect(result.status).toBe('completed');
+      expect(result.findings).toHaveLength(1);
+      expect(result.tool_calls?.[0].is_error).toBe(true);
+    });
   });
 
   describe('happy paths', () => {

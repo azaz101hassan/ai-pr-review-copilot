@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Anthropic, { APIError } from '@anthropic-ai/sdk';
+import { createHash } from 'node:crypto';
 import { ConfigService } from '@/config';
 import {
   AnalyzeDiffInput,
@@ -9,6 +10,12 @@ import {
   PROMPT_AND_TOOL_VERSION,
   UsageStats,
 } from '@/modules/reviews/types/llm-reviewer';
+import {
+  IRepoContextProvider,
+  PriorReviewEntry,
+  RepoContextErrorReason,
+} from '@/modules/reviews/types/repo-context-provider';
+import { ToolCallRecord } from '@/modules/reviews/types/review.types';
 import { AnthropicRequestError } from './anthropic-request.error';
 
 // Loose alias for the subset of the Anthropic client surface this
@@ -33,76 +40,177 @@ type AnthropicClientLike = {
   };
 };
 
-// Generous default — the empty findings array uses ~50 tokens; a large
-// findings array caps around 2000. Set on the adapter (not per-call) so
-// the prompt-cache prefix stays byte-identical across calls.
-const MAX_TOKENS = 4096;
+// Per-turn ceiling on completion tokens. Generous enough for a
+// `emit_finding` payload with the full 10 findings (~2k tokens) and
+// modest enough that a runaway turn can't bloat. Day-3 used 4096 for
+// the single-turn forced call; Day-4 dials this to 2048 per the plan
+// since most turns either invoke a context fetcher (small input) or
+// emit_finding (capped at 10 findings).
+const MAX_TOKENS_PER_TURN = 2048;
+
+// Hard cap on agent-loop turns. Reaching turn 7 without `emit_finding`
+// throws `AnthropicRequestError({ errorCode: 'turn_cap_exceeded' })`
+// which `ReviewsService` maps to `reviews.status='failed'`. 6 is the
+// brainstorm-chosen ceiling — enough headroom for a real
+// reviewer-like pattern (file → function → prior-review → emit) plus
+// recovery, not enough for runaway oscillation.
+const TURN_CAP = 6;
 
 // SDK auto-retry behavior. Set explicitly so the troubleshooting doc
 // and runtime agree: a 429 or 529 is retried twice with exponential
-// backoff before throwing. Set to 0 to disable; bump if a transient-
-// failure pattern shows up in U4 integration / U7 smoke.
+// backoff before throwing. Set to 0 to disable.
 const SDK_MAX_RETRIES = 2;
 
-// System prompt + tool definition live at module scope (not constructed
-// per call) so the prompt-cache breakpoint hits byte-for-byte across
-// calls. CRITICAL: editing either of these requires bumping
-// PROMPT_AND_TOOL_VERSION in the same commit (the snapshot spec
-// enforces this).
+// Per-request timeout (ms) for messages.create. The SDK default is 10
+// minutes — combined with 2 retries and 6 turns that's a 3-hour
+// worst case for a single review. 60s per turn × 6 turns × (1 + 2
+// retries) caps the worst case at ~18 minutes, which is the
+// rate-limit cool-off window anyway. Day-4 reviews complete in
+// 5-30s typically; 60s is generous.
+const PER_REQUEST_TIMEOUT_MS = 60_000;
+
+// Tool name constants — referenced both by the schemas below and by
+// the loop's switch / extraction logic. Keeping them as exported
+// string constants lets test stubs reference the same identifiers
+// without stringly-typed drift.
+export const FETCH_FILE_TOOL_NAME = 'fetch_related_file';
+export const FETCH_FUNCTION_TOOL_NAME = 'fetch_function_definition';
+export const FETCH_PRIOR_REVIEW_TOOL_NAME = 'fetch_prior_review';
+export const EMIT_FINDING_TOOL_NAME = 'emit_finding';
+
+// SYSTEM PROMPT — Day 4 agentic protocol.
+//
+// Editing this requires bumping `PROMPT_AND_TOOL_VERSION` AND adding
+// the new sha256 to `PROMPT_AND_TOOL_VERSION_HASH_MAP` in the same
+// commit (the snapshot spec enforces this).
 export const SYSTEM_PROMPT = [
-  'You are an automated code reviewer for a software team.',
+  'You are an automated code reviewer for a software team. You operate as an agent: you can call tools to fetch additional context from the repository before deciding what to flag.',
   '',
-  'You will be given a unified diff and a list of retrieved rules from the team knowledge base. Your job is to identify which of the retrieved rules — and ONLY those rules — the diff violates.',
+  'You will be given a unified diff plus a list of retrieved rules from the team knowledge base. Your job is to identify which of the retrieved rules — and ONLY those rules — the diff violates.',
   '',
-  'Strict constraints:',
-  '- You MUST call the `report_findings` tool exactly once. Do not respond with free-form text.',
+  'You have four tools:',
+  `  - ${FETCH_FILE_TOOL_NAME}: read the full content of a file in the repo (give a repo-relative path).`,
+  `  - ${FETCH_FUNCTION_TOOL_NAME}: locate a function or method by name (optionally narrowed to one file).`,
+  `  - ${FETCH_PRIOR_REVIEW_TOOL_NAME}: look up prior findings on this PR / file / rule. A finding with a non-null \`dismissed_at\` was rejected by a human reviewer — do NOT re-emit it.`,
+  `  - ${EMIT_FINDING_TOOL_NAME}: the TERMINAL tool. Call this exactly once when you are ready to report your findings. The loop ends as soon as you invoke it.`,
+  '',
+  'Protocol:',
+  `  - Call any combination of the three context tools to gather information. When you are ready, call \`${EMIT_FINDING_TOOL_NAME}\` with your final findings.`,
+  '  - If a context tool returns `is_error: true`, that capability is unavailable for this review — do not retry the same input. Either try a different input (e.g., a different path) or proceed to emit your findings with the context you have.',
+  `  - You have a maximum of ${TURN_CAP} turns. Reaching the cap without calling \`${EMIT_FINDING_TOOL_NAME}\` is treated as a failed review.`,
+  '',
+  'Strict constraints (carried forward from the single-turn protocol):',
   '- You MUST only cite rules whose `rule_id` appears in the retrieved rule set. Never invent rule_ids and never quote rules from memory.',
-  '- If the diff does not violate any retrieved rule, call `report_findings` with `findings: []`. An empty findings array is a valid and expected outcome on clean diffs.',
+  `- If the diff does not violate any retrieved rule, call \`${EMIT_FINDING_TOOL_NAME}\` with \`findings: []\`. An empty findings array is a valid and expected outcome on clean diffs and on diffs whose only candidate violation has been previously dismissed (per \`${FETCH_PRIOR_REVIEW_TOOL_NAME}\`).`,
   '- One finding per distinct violation. Do not duplicate findings for the same rule on the same line.',
-  '- Keep `message` actionable: state what was violated and how to fix it in 1–3 sentences.',
+  '- Keep `message` actionable: state what was violated and how to fix it in 1–3 sentences. When you used a context tool to detect the violation, mention the supporting evidence (e.g., the unchanged caller file path).',
   '- Populate `location_hint` with a file path + line range when you can identify one from the diff hunk headers (e.g., "src/totals.js:3-5"). Leave it absent if unsure rather than guessing.',
-  '- Populate `citation` with the shortest snippet from the diff that demonstrates the violation. Omit it when no concise snippet captures the issue.',
-  '',
-  'You will receive the retrieved rules first, then the diff. Treat the retrieved rules as the only authoritative knowledge — your prior training is irrelevant for what is and is not a rule violation.',
+  '- Populate `citation` with the shortest snippet from the diff or fetched context that demonstrates the violation. Omit it when no concise snippet captures the issue.',
   '',
   'Precision discipline (false positives erode reviewer trust faster than missed violations):',
   '- When uncertain whether a fragment violates a retrieved rule, err toward NOT flagging it. A clean review on an actually-violating diff is recoverable; a noisy review on a clean diff trains the team to ignore the reviewer.',
   '- Do not flag the same logical issue under multiple rule_ids. Pick the rule that most specifically describes the violation.',
   '- Do not flag style preferences that are not explicitly stated in the retrieved rules.',
   '- Do not infer "what the team probably wants" beyond what the retrieved rule text says.',
+  `- Before re-flagging anything that looks like it could be a recurrence of a known issue, call \`${FETCH_PRIOR_REVIEW_TOOL_NAME}\`. If the prior finding has a non-null \`dismissed_at\`, the team has already decided — do not re-emit.`,
   '',
-  'Examples of correct outputs (these rule_ids are illustrative — only flag rules actually present in <retrieved_rules>):',
+  'Examples of correct outputs (rule_ids are illustrative — only flag rules actually present in <retrieved_rules>):',
   '',
-  'Example 1 — diff replaces `let`/`const` with `var`, and `no-var` is in the retrieved rules.',
-  '  Emit one finding:',
+  `Example 1 — diff replaces \`let\`/\`const\` with \`var\` and \`no-var\` is in the retrieved rules. Call \`${EMIT_FINDING_TOOL_NAME}\` directly (no context fetch needed; the violation is fully visible in the diff).`,
   '    rule_id: no-var',
   '    title: Use let or const, never var',
-  '    message: Replace `var` with `let` or `const`. `var` is function-scoped and hoisted, which leads to subtle re-declaration and closure bugs. Use `const` for bindings that are never reassigned, `let` otherwise.',
+  '    message: Replace `var` with `let` or `const`. `var` is function-scoped and hoisted, which leads to subtle re-declaration and closure bugs.',
   '    location_hint: src/totals.js:3',
   '    citation: var sum = 0;',
   '',
-  'Example 2 — diff introduces `==`/`!=` instead of strict equality, and `eqeqeq` is in the retrieved rules.',
-  '  Emit one finding per distinct violating line. Do NOT emit one finding per `==` occurrence on the same line. The `citation` field should be a single concise snippet (the line itself or the shortest fragment that captures the violation).',
+  `Example 2 — diff updates ONE call site of a function to pass a new argument shape, but other call sites might still use the old shape. Call \`${FETCH_FUNCTION_TOOL_NAME}\` to find the function definition; call \`${FETCH_FILE_TOOL_NAME}\` on the surrounding files to find unchanged call sites; then \`${EMIT_FINDING_TOOL_NAME}\` with a finding that names the inconsistent caller files in the message.`,
   '',
-  'Example 3 — diff is a doc-only change (README.md, CHANGELOG.md, a comment-only edit). No code rules apply.',
-  '  Correct response: call `report_findings` with `findings: []`. Never invent a finding to make the call non-empty.',
+  `Example 3 — diff re-applies a style violation. Before emitting, call \`${FETCH_PRIOR_REVIEW_TOOL_NAME}\`. If a prior finding at the same location has \`dismissed_at\` set, emit zero findings — the team already decided this code is intentional.`,
   '',
-  'Example 4 — diff has multiple distinct violations across multiple files (e.g., `no-var` in one file and `eqeqeq` in another), and both rules are in the retrieved set.',
-  '  Emit one finding per distinct rule per distinct location. Each finding stands on its own — do not bundle multiple rule violations into a single finding.',
+  `Example 4 — diff is a doc-only change (README.md, CHANGELOG.md, a comment-only edit). No code rules apply. Call \`${EMIT_FINDING_TOOL_NAME}\` with \`findings: []\` directly.`,
   '',
-  'Example 5 — diff includes a fragment that looks suspicious but no retrieved rule explicitly covers it (e.g., a magic number when `no-magic-numbers` is NOT in the retrieved set).',
-  '  Correct response: do not emit a finding for that fragment. Only the retrieved rule set is authoritative.',
+  `Example 5 — diff includes a fragment that looks suspicious but no retrieved rule explicitly covers it (e.g., a magic number when \`no-magic-numbers\` is NOT in the retrieved set). Do not emit a finding for that fragment. Only the retrieved rule set is authoritative.`,
 ].join('\n');
 
-// The forced single tool. `severity` is DELIBERATELY ABSENT from the
-// schema — it's sourced from the matched rule's metadata in
-// `ReviewsService` at persistence (D1 in the deepening pass). Letting
-// Claude emit severity would let it silently disagree with the rule
-// declaration; rule metadata wins.
-export const REPORT_FINDINGS_TOOL = {
-  name: 'report_findings',
+// === Tool schemas ===
+
+export const FETCH_FILE_TOOL = {
+  name: FETCH_FILE_TOOL_NAME,
   description:
-    'Report which retrieved rules the PR diff violates. Call with an empty `findings` array when the diff is clean.',
+    'Read the full content of a file in the repository. Use this when the violation requires context outside the diff hunk (e.g., to inspect callers of a function whose signature changed).',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      path: {
+        type: 'string' as const,
+        minLength: 1,
+        maxLength: 500,
+        description: 'Repo-relative path (e.g. "src/checkout.js"). No leading slash, no `..` traversal.',
+      },
+    },
+    required: ['path'] as const,
+    additionalProperties: false,
+  },
+};
+
+export const FETCH_FUNCTION_TOOL = {
+  name: FETCH_FUNCTION_TOOL_NAME,
+  description:
+    'Locate a function or method by name. Use this to inspect the canonical signature or implementation of a function referenced in the diff. Optionally narrow the search to a specific file.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      name: {
+        type: 'string' as const,
+        minLength: 1,
+        maxLength: 200,
+        description: 'Function or method name (e.g. "chargeCard"). Matched case-sensitively.',
+      },
+      file: {
+        type: 'string' as const,
+        maxLength: 500,
+        description: 'Optional repo-relative path to restrict the search to one file.',
+      },
+    },
+    required: ['name'] as const,
+    additionalProperties: false,
+  },
+};
+
+export const FETCH_PRIOR_REVIEW_TOOL = {
+  name: FETCH_PRIOR_REVIEW_TOOL_NAME,
+  description:
+    'Look up prior findings on this PR / file / rule. A finding with a non-null `dismissed_at` was previously rejected by a human reviewer — do not re-emit it. Returns an empty array when no prior reviews exist.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      pr_node_id: {
+        type: 'string' as const,
+        maxLength: 200,
+        description: 'Optional GitHub PR node id to scope the lookup.',
+      },
+      file_path: {
+        type: 'string' as const,
+        maxLength: 500,
+        description: 'Optional file path to filter prior findings.',
+      },
+      rule_id: {
+        type: 'string' as const,
+        maxLength: 200,
+        description: 'Optional rule_id to filter prior findings.',
+      },
+    },
+    additionalProperties: false,
+  },
+};
+
+// TERMINAL tool. The loop exits as soon as Claude invokes this. `severity`
+// is DELIBERATELY absent — sourced from rule metadata in `ReviewsService`
+// at persistence (D1 invariant carried forward from Day-3).
+export const EMIT_FINDING_TOOL = {
+  name: EMIT_FINDING_TOOL_NAME,
+  description:
+    'Terminal tool. Report which retrieved rules the PR diff violates and end the review. Call with an empty `findings` array when the diff is clean or when prior-review dismissals suppress the only candidate.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -120,7 +228,7 @@ export const REPORT_FINDINGS_TOOL = {
           required: ['rule_id', 'title', 'message'] as const,
           additionalProperties: false,
         },
-        maxItems: 50,
+        maxItems: 10,
       },
     },
     required: ['findings'] as const,
@@ -128,15 +236,31 @@ export const REPORT_FINDINGS_TOOL = {
   },
 };
 
+export const REGISTERED_TOOLS = [
+  FETCH_FILE_TOOL,
+  FETCH_FUNCTION_TOOL,
+  FETCH_PRIOR_REVIEW_TOOL,
+  EMIT_FINDING_TOOL,
+];
+
+// Compute the hash of the current prompt + tools at module load. The
+// `PROMPT_AND_TOOL_VERSION_HASH_MAP` is set from this so the snapshot
+// spec can assert hash drift triggers a version bump. (See the spec
+// in test/infrastructure/anthropic/anthropic-llm-reviewer.snapshot.spec.ts.)
+export function computePromptToolHash(): string {
+  return createHash('sha256')
+    .update(SYSTEM_PROMPT)
+    .update(JSON.stringify(REGISTERED_TOOLS))
+    .digest('hex');
+}
+
+// === Adapter ===
+
 @Injectable()
 export class AnthropicLlmReviewer implements ILlmReviewer {
   private readonly logger = new Logger(AnthropicLlmReviewer.name);
 
-  // Lazy. Constructor only reads config — no network. The first
-  // `analyzeDiff` call is what instantiates the SDK client. Mirrors the
-  // `ChromaVectorStore` lazy pattern so DI bootstrap stays network-free
-  // and every spec that loads `AppModule` doesn't accidentally open a
-  // socket.
+  // Lazy. Constructor only reads config — no network.
   private client: AnthropicClientLike | undefined;
 
   constructor(private readonly config: ConfigService) {}
@@ -147,115 +271,208 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
 
     // Composite id = `${source}:${rule_id}`. Two corpora can share a
     // rule_id slug, so the composite is the de-duplicated identity.
-    // This is also the key used by the hallucination filter below.
     const inputRuleKeys = new Set(
       input.rules.map((r) => `${r.source}:${r.rule_id}`),
     );
 
     const userMessage = buildUserMessage(input);
 
-    let response: Awaited<ReturnType<AnthropicClientLike['messages']['create']>>;
-    try {
-      response = await client.messages.create({
-        model,
-        max_tokens: MAX_TOKENS,
-        system: [
+    // The initial user turn carries the diff + retrieved rules. We
+    // attach BP3 (the 3rd cache breakpoint) here — the largest static
+    // prefix that survives across all turns. BP1 (end of tools) and
+    // BP2 (end of system) are attached at request-construction time.
+    const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
+      {
+        role: 'user',
+        content: [
           {
             type: 'text',
-            text: SYSTEM_PROMPT,
+            text: userMessage,
             cache_control: { type: 'ephemeral' },
           },
         ],
-        tools: [REPORT_FINDINGS_TOOL],
-        tool_choice: { type: 'tool', name: REPORT_FINDINGS_TOOL.name },
-        messages: [{ role: 'user', content: userMessage }],
-      });
-    } catch (err) {
-      throw this.wrapSdkError(err);
-    }
+      },
+    ];
 
-    // Truncated / refused responses must NEVER be silently treated as
-    // success. `tool_use` and `end_turn` are the only valid stops; any
-    // other value (max_tokens, stop_sequence, pause_turn, refusal) means
-    // the response is incomplete or off-shape.
-    if (response.stop_reason !== 'tool_use' && response.stop_reason !== 'end_turn') {
-      throw new AnthropicRequestError(
-        `Anthropic stop_reason='${response.stop_reason}' — response did not complete with a tool call`,
-        { status: 200, errorCode: 'truncated_response' },
-      );
-    }
-
-    const toolUse = extractToolUse(response.content, REPORT_FINDINGS_TOOL.name);
-    if (!toolUse) {
-      throw new AnthropicRequestError(
-        'Anthropic response did not contain a report_findings tool_use block',
-        { status: 200, errorCode: 'unexpected_response_shape' },
-      );
-    }
-
-    const rawFindings = (toolUse.input as { findings?: unknown }).findings;
-    if (!Array.isArray(rawFindings)) {
-      throw new AnthropicRequestError(
-        'Anthropic tool_use input did not contain a findings array',
-        { status: 200, errorCode: 'unexpected_response_shape' },
-      );
-    }
-
-    // Filter hallucinated rule_ids — keyed on the composite
-    // `${source}:${rule_id}` so two corpora that share a slug don't
-    // leak past the filter. The SDK validates `input_schema`
-    // server-side, so by the time we reach here each item has the
-    // required fields; this filter handles the semantic check (does
-    // the rule actually exist in the retrieved set?).
-    const findings: Finding[] = [];
-    for (const raw of rawFindings) {
-      const f = raw as Finding;
-      // We don't know the source from the finding; assume each
-      // rule_id is unique in the input set (the service builds the
-      // input). If two sources share a slug, the input ordering wins —
-      // a known minor edge case documented in the plan.
-      const matchedRule = input.rules.find((r) => r.rule_id === f.rule_id);
-      if (!matchedRule) {
-        // Log only the slug — never the full finding (which could
-        // echo back the diff in `citation`).
-        this.logger.warn(`Dropped hallucinated rule_id="${sanitizeSlug(f.rule_id)}"`);
-        continue;
-      }
-      // Re-verify the composite to be sure (the matched rule's source
-      // is the authoritative source).
-      const composite = `${matchedRule.source}:${matchedRule.rule_id}`;
-      if (!inputRuleKeys.has(composite)) {
-        this.logger.warn(`Dropped finding with unknown composite="${sanitizeSlug(composite)}"`);
-        continue;
-      }
-      findings.push({
-        rule_id: f.rule_id,
-        title: f.title,
-        message: f.message,
-        location_hint: f.location_hint ?? null,
-        citation: f.citation ?? null,
-      });
-    }
-
-    const usage: UsageStats = {
-      input_tokens: response.usage.input_tokens,
-      output_tokens: response.usage.output_tokens,
-      cache_creation_input_tokens: response.usage.cache_creation_input_tokens ?? null,
-      cache_read_input_tokens: response.usage.cache_read_input_tokens ?? null,
+    const cumulativeUsage: UsageStats = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
     };
+    const toolCalls: ToolCallRecord[] = [];
+    let lastModel = model;
+    let emittedFindings: Finding[] | null = null;
 
-    return {
-      findings,
-      usage,
-      model: response.model,
-      promptVersion: PROMPT_AND_TOOL_VERSION,
-    };
+    for (let turn = 1; turn <= TURN_CAP; turn++) {
+      const turnStartedAt = Date.now();
+      let response: Awaited<
+        ReturnType<AnthropicClientLike['messages']['create']>
+      >;
+      try {
+        response = await client.messages.create({
+          model,
+          max_tokens: MAX_TOKENS_PER_TURN,
+          system: [
+            {
+              type: 'text',
+              text: SYSTEM_PROMPT,
+              cache_control: { type: 'ephemeral' },
+            },
+          ],
+          // BP1 — attach cache_control to the LAST registered tool.
+          // The Anthropic API treats this as "cache everything up to
+          // and including this block".
+          tools: REGISTERED_TOOLS.map((tool, idx) =>
+            idx === REGISTERED_TOOLS.length - 1
+              ? { ...tool, cache_control: { type: 'ephemeral' } }
+              : tool,
+          ),
+          tool_choice: { type: 'any' },
+          messages,
+          // Per-request timeout. The SDK default (10 min) plus 2
+          // retries plus 6 turns would let a stalled call hold the
+          // review row for hours. Capping per-turn keeps the worst
+          // case bounded to ~18 minutes total.
+          timeout: PER_REQUEST_TIMEOUT_MS,
+        } as Parameters<AnthropicClientLike['messages']['create']>[0]);
+      } catch (err) {
+        throw this.wrapSdkError(err);
+      }
+
+      lastModel = response.model;
+      accumulateUsage(cumulativeUsage, response.usage);
+
+      // Find the terminal block first (a same-turn mix of
+      // `[fetch_*, emit_finding]` exits via emit_finding without
+      // invoking the non-terminal tool — otherwise we'd orphan
+      // tool_result blocks Claude never sees).
+      const emitBlock = findToolUseBlock(
+        response.content,
+        EMIT_FINDING_TOOL_NAME,
+      );
+      const nonTerminalCalls = collectToolUseBlocks(response.content).filter(
+        (b) => b.name !== EMIT_FINDING_TOOL_NAME,
+      );
+
+      if (emitBlock) {
+        // Validate emit_finding payload. The terminal tool's payload
+        // failing validation is fatal: throw `malformed_emit_finding`.
+        // Carry the partial turnCount + toolCalls so the persisted
+        // failure row reflects how far the loop got (matches the
+        // turn_cap_exceeded throw below).
+        const findings = parseEmitFindings(emitBlock.input);
+        if (!findings) {
+          throw new AnthropicRequestError(
+            'emit_finding payload failed schema validation',
+            {
+              status: 200,
+              errorCode: 'malformed_emit_finding',
+              turnCount: turn,
+              toolCalls,
+            },
+          );
+        }
+        emittedFindings = this.filterHallucinatedFindings(
+          findings,
+          input.rules,
+          inputRuleKeys,
+        );
+        const toolInputHash = hashToolInput(emitBlock.input);
+        const resultBytes = approximateBytes(emitBlock.input);
+        toolCalls.push({
+          turn_idx: turn,
+          tool_name: EMIT_FINDING_TOOL_NAME,
+          input_hash: toolInputHash,
+          result_bytes: resultBytes,
+          latency_ms: Date.now() - turnStartedAt,
+          stop_reason: response.stop_reason ?? 'unknown',
+        });
+        this.logTurn({
+          turn,
+          stop_reason: response.stop_reason,
+          tool_name: EMIT_FINDING_TOOL_NAME,
+          tool_input: emitBlock.input,
+          tool_result_excerpt: undefined,
+          usage: response.usage,
+          is_terminal: true,
+        });
+        return {
+          findings: emittedFindings,
+          usage: cumulativeUsage,
+          model: lastModel,
+          promptVersion: PROMPT_AND_TOOL_VERSION,
+          turnCount: turn,
+          toolCalls,
+        };
+      }
+
+      // No emit_finding. We expect at least one non-terminal tool_use
+      // block (because `tool_choice: 'any'`). If there is none, treat
+      // it as a protocol-level shape error.
+      if (nonTerminalCalls.length === 0) {
+        throw new AnthropicRequestError(
+          'Anthropic response did not contain any tool_use block (tool_choice="any" requires one)',
+          { status: 200, errorCode: 'unexpected_response_shape' },
+        );
+      }
+
+      // Push the assistant content verbatim. Then build one
+      // `tool_result` per `tool_use` block and group them in a single
+      // user message — Anthropic requires every tool_use_id from the
+      // previous turn to have a matching tool_result in the next.
+      messages.push({ role: 'assistant', content: response.content });
+
+      const toolResultBlocks: unknown[] = [];
+      for (const block of nonTerminalCalls) {
+        const result = await this.runToolCall(block, input.repoContext);
+        const resultExcerpt = excerpt(result.content);
+        const isError = result.is_error === true;
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          is_error: isError,
+          content: result.content,
+        });
+        toolCalls.push({
+          turn_idx: turn,
+          tool_name: block.name,
+          input_hash: hashToolInput(block.input),
+          result_bytes: approximateBytes(result.content),
+          latency_ms: Date.now() - turnStartedAt,
+          stop_reason: response.stop_reason ?? 'unknown',
+          ...(isError ? { is_error: true } : {}),
+        });
+        this.logTurn({
+          turn,
+          stop_reason: response.stop_reason,
+          tool_name: block.name,
+          tool_input: block.input,
+          tool_result_excerpt: resultExcerpt,
+          usage: response.usage,
+          is_terminal: false,
+        });
+      }
+      messages.push({ role: 'user', content: toolResultBlocks });
+    }
+
+    // Reached the turn cap without `emit_finding`. The current loop
+    // exit semantics make mid-loop emit_finding structurally
+    // impossible (handled above), so this branch is purely the cap.
+    throw new AnthropicRequestError(
+      `Agent loop exceeded ${TURN_CAP} turns without ${EMIT_FINDING_TOOL_NAME}`,
+      {
+        status: 200,
+        errorCode: 'turn_cap_exceeded',
+        turnCount: TURN_CAP,
+        toolCalls,
+      },
+    );
   }
 
   // Test seam — overridden in spec to substitute a mock client without
   // jest.mock() on the @anthropic-ai/sdk module. Production path
-  // constructs a real `Anthropic` client with `maxRetries: 2`. Same
-  // pattern as `ChromaVectorStore.createClient()`.
+  // constructs a real `Anthropic` client with `maxRetries: 2`.
   protected createClient(): AnthropicClientLike {
     return new Anthropic({
       apiKey: this.config.anthropicApiKey,
@@ -270,38 +487,178 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
     return this.client;
   }
 
+  private async runToolCall(
+    block: { name: string; id: string; input: unknown },
+    repoContext: IRepoContextProvider | undefined,
+  ): Promise<{ content: Array<{ type: 'text'; text: string }>; is_error?: boolean }> {
+    // No repoContext provider → every non-terminal tool is unavailable.
+    // Returning `is_error: true` keeps the loop alive so Claude can
+    // recover; the next turn will see the failure and decide either
+    // to try a different input or to emit.
+    if (!repoContext) {
+      return {
+        content: [{ type: 'text', text: 'tool unavailable: no repo context configured' }],
+        is_error: true,
+      };
+    }
+
+    // Per-tool input validation. Non-terminal failures become
+    // `is_error` tool_results; the loop continues.
+    try {
+      switch (block.name) {
+        case FETCH_FILE_TOOL_NAME: {
+          const input = block.input as { path?: unknown };
+          if (typeof input.path !== 'string' || input.path.length === 0) {
+            return errorToolResult(`invalid_input: \`path\` expected string`);
+          }
+          const result = await repoContext.fetchFile(input.path);
+          if (!result.ok) {
+            return errorToolResult(formatProviderError(result.reason, result.message));
+          }
+          return successToolResult(`# ${result.path}\n\n${result.content}`);
+        }
+
+        case FETCH_FUNCTION_TOOL_NAME: {
+          const input = block.input as { name?: unknown; file?: unknown };
+          if (typeof input.name !== 'string' || input.name.length === 0) {
+            return errorToolResult(`invalid_input: \`name\` expected string`);
+          }
+          if (input.file !== undefined && typeof input.file !== 'string') {
+            return errorToolResult(`invalid_input: \`file\` expected string`);
+          }
+          const result = await repoContext.fetchFunctionDefinition(
+            input.name,
+            input.file,
+          );
+          if (!result.ok) {
+            return errorToolResult(formatProviderError(result.reason, result.message));
+          }
+          return successToolResult(
+            `# ${result.path} (lines ${result.startLine}-${result.endLine})\n\n${result.content}`,
+          );
+        }
+
+        case FETCH_PRIOR_REVIEW_TOOL_NAME: {
+          const input = block.input as {
+            pr_node_id?: unknown;
+            file_path?: unknown;
+            rule_id?: unknown;
+          };
+          const query: Parameters<IRepoContextProvider['fetchPriorReview']>[0] = {};
+          if (input.pr_node_id !== undefined) {
+            if (typeof input.pr_node_id !== 'string') {
+              return errorToolResult('invalid_input: `pr_node_id` expected string');
+            }
+            query.pr_node_id = input.pr_node_id;
+          }
+          if (input.file_path !== undefined) {
+            if (typeof input.file_path !== 'string') {
+              return errorToolResult('invalid_input: `file_path` expected string');
+            }
+            query.file_path = input.file_path;
+          }
+          if (input.rule_id !== undefined) {
+            if (typeof input.rule_id !== 'string') {
+              return errorToolResult('invalid_input: `rule_id` expected string');
+            }
+            query.rule_id = input.rule_id;
+          }
+          const result = await repoContext.fetchPriorReview(query);
+          if (!result.ok) {
+            return errorToolResult(formatProviderError(result.reason, result.message));
+          }
+          return successToolResult(JSON.stringify(result.content));
+        }
+
+        default:
+          return errorToolResult(`unknown_tool: ${block.name}`);
+      }
+    } catch (err: unknown) {
+      // Provider methods aren't supposed to throw, but if one does
+      // we want to keep the loop alive rather than crash it.
+      const msg = err instanceof Error ? err.message : 'unknown error';
+      return errorToolResult(`tool_invocation_error: ${msg}`);
+    }
+  }
+
+  private filterHallucinatedFindings(
+    raw: Finding[],
+    rules: AnalyzeDiffInput['rules'],
+    inputRuleKeys: Set<string>,
+  ): Finding[] {
+    const out: Finding[] = [];
+    for (const f of raw) {
+      const matchedRule = rules.find((r) => r.rule_id === f.rule_id);
+      if (!matchedRule) {
+        this.logger.warn(
+          `Dropped hallucinated rule_id="${sanitizeSlug(f.rule_id)}"`,
+        );
+        continue;
+      }
+      const composite = `${matchedRule.source}:${matchedRule.rule_id}`;
+      if (!inputRuleKeys.has(composite)) {
+        this.logger.warn(
+          `Dropped finding with unknown composite="${sanitizeSlug(composite)}"`,
+        );
+        continue;
+      }
+      out.push({
+        rule_id: f.rule_id,
+        title: f.title,
+        message: f.message,
+        location_hint: f.location_hint ?? null,
+        citation: f.citation ?? null,
+      });
+    }
+    return out;
+  }
+
+  private logTurn(args: {
+    turn: number;
+    stop_reason: string | null;
+    tool_name: string;
+    tool_input: unknown;
+    tool_result_excerpt?: string;
+    usage: { input_tokens: number; output_tokens: number };
+    is_terminal: boolean;
+  }): void {
+    // Terminal turn logs the full input; non-terminal turns log a
+    // hash + excerpt to keep token-heavy file contents out of logs.
+    const baseFields = {
+      turn_idx: args.turn,
+      stop_reason: args.stop_reason,
+      tool_name: args.tool_name,
+      usage: args.usage,
+    };
+    if (args.is_terminal) {
+      this.logger.log(
+        `agent-turn: ${JSON.stringify({
+          ...baseFields,
+          tool_input: args.tool_input,
+        })}`,
+      );
+    } else {
+      this.logger.log(
+        `agent-turn: ${JSON.stringify({
+          ...baseFields,
+          tool_input_hash: hashToolInput(args.tool_input),
+          tool_result_excerpt: args.tool_result_excerpt,
+        })}`,
+      );
+    }
+  }
+
   private wrapSdkError(err: unknown): AnthropicRequestError {
-    // The SDK throws `APIError` subclasses for HTTP-shaped failures
-    // (4xx/5xx with a parsed body). Transport / network errors arrive
-    // as plain Errors (or `TypeError` from fetch under the hood).
     if (err instanceof APIError) {
       const status = err.status ?? 0;
-      // err.error.error.type is Anthropic's structured error_code
-      // (e.g. 'rate_limit_error', 'authentication_error',
-      // 'overloaded_error', 'invalid_request_error'). The outer
-      // err.error.type is always literal 'error'.
       const body = err.error as
         | { error?: { type?: string; message?: string } }
         | undefined;
       const rawErrorCode = body?.error?.type;
-      // The server's textual explanation (e.g. "Model not found" or
-      // "tools.0.input_schema: invalid"). Safe to surface — this is
-      // the server's reason for the failure, NOT echoed input. Capped
-      // at 500 chars defensively so a future verbose explanation
-      // can't bloat logs.
       const serverMessage = body?.error?.message
         ? truncateForLog(body.error.message)
         : undefined;
-      // Anthropic returns `invalid_request_error` for "credit balance
-      // too low" — which is opaque to the operator (the same code
-      // covers genuine schema validation errors). Pattern-match the
-      // server message and surface a clearer errorCode so the
-      // troubleshooting table + on-call alerts can branch on it.
       const errorCode = classifyErrorCode(status, rawErrorCode, serverMessage);
-      // CONSTRUCT OUR OWN MESSAGE — never reuse err.message, which
-      // contains the raw body (including any echoed input fragments).
-      // We DO include the server's `message` field because that's a
-      // server-authored explanation, not a body echo.
       const baseMsg = `Anthropic API error: HTTP ${status}${errorCode ? ` (${errorCode})` : ''}`;
       const fullMsg = serverMessage ? `${baseMsg} — ${serverMessage}` : baseMsg;
       return new AnthropicRequestError(fullMsg, {
@@ -311,7 +668,6 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
         cause: err,
       });
     }
-    // Transport-level failure (network down, DNS failure, etc).
     return new AnthropicRequestError(
       'Anthropic request failed (network or transport error)',
       { status: 0, cause: err },
@@ -319,8 +675,8 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
   }
 }
 
-// User-message builder lives at module scope so the snapshot/byte-
-// identical-args test can verify it is deterministic given the inputs.
+// === Module-scope helpers ===
+
 function buildUserMessage(input: AnalyzeDiffInput): string {
   const rulesBlock = input.rules
     .map((r) => `## ${r.rule_id} (${r.source})\n${r.document}`)
@@ -328,40 +684,166 @@ function buildUserMessage(input: AnalyzeDiffInput): string {
   return `<retrieved_rules>\n${rulesBlock}\n</retrieved_rules>\n<diff>\n${input.diff}\n</diff>`;
 }
 
-function extractToolUse(
+function findToolUseBlock(
   content: unknown[],
   toolName: string,
-): { name: string; input: unknown } | undefined {
+): { name: string; id: string; input: unknown } | undefined {
   for (const block of content) {
-    const b = block as { type?: string; name?: string; input?: unknown };
+    const b = block as {
+      type?: string;
+      name?: string;
+      id?: string;
+      input?: unknown;
+    };
     if (b.type === 'tool_use' && b.name === toolName) {
-      return { name: b.name, input: b.input };
+      return { name: b.name, id: b.id ?? '', input: b.input };
     }
   }
   return undefined;
 }
 
-// Defensive — never echo unbounded content into a log. Rule ids are
-// short slugs, but a hallucinated value could be anything Claude
-// returns, including very long strings. Cap at 80 chars.
+function collectToolUseBlocks(
+  content: unknown[],
+): Array<{ name: string; id: string; input: unknown }> {
+  const out: Array<{ name: string; id: string; input: unknown }> = [];
+  for (const block of content) {
+    const b = block as {
+      type?: string;
+      name?: string;
+      id?: string;
+      input?: unknown;
+    };
+    if (b.type === 'tool_use' && typeof b.name === 'string') {
+      out.push({ name: b.name, id: b.id ?? '', input: b.input });
+    }
+  }
+  return out;
+}
+
+function parseEmitFindings(input: unknown): Finding[] | null {
+  if (typeof input !== 'object' || input === null) return null;
+  const findings = (input as { findings?: unknown }).findings;
+  if (!Array.isArray(findings)) return null;
+  // Validate every finding has the required shape; bail (return null)
+  // if any is malformed — that triggers `malformed_emit_finding`.
+  const out: Finding[] = [];
+  for (const f of findings) {
+    if (typeof f !== 'object' || f === null) return null;
+    const item = f as Record<string, unknown>;
+    if (typeof item.rule_id !== 'string' || item.rule_id.length === 0) return null;
+    if (typeof item.title !== 'string' || item.title.length === 0) return null;
+    if (typeof item.message !== 'string' || item.message.length === 0) return null;
+    if (
+      item.location_hint !== undefined &&
+      item.location_hint !== null &&
+      typeof item.location_hint !== 'string'
+    ) {
+      return null;
+    }
+    if (
+      item.citation !== undefined &&
+      item.citation !== null &&
+      typeof item.citation !== 'string'
+    ) {
+      return null;
+    }
+    out.push({
+      rule_id: item.rule_id,
+      title: item.title,
+      message: item.message,
+      location_hint: (item.location_hint as string | undefined) ?? null,
+      citation: (item.citation as string | undefined) ?? null,
+    });
+  }
+  return out;
+}
+
+function accumulateUsage(
+  acc: UsageStats,
+  resp: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+  },
+): void {
+  acc.input_tokens += resp.input_tokens ?? 0;
+  acc.output_tokens += resp.output_tokens ?? 0;
+  acc.cache_creation_input_tokens =
+    (acc.cache_creation_input_tokens ?? 0) +
+    (resp.cache_creation_input_tokens ?? 0);
+  acc.cache_read_input_tokens =
+    (acc.cache_read_input_tokens ?? 0) + (resp.cache_read_input_tokens ?? 0);
+}
+
+function hashToolInput(input: unknown): string {
+  // 16-char SHA-256 prefix of canonical-JSON. Plenty of bits to
+  // disambiguate per-review log lines without bloating storage.
+  return createHash('sha256')
+    .update(JSON.stringify(input ?? {}))
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function approximateBytes(payload: unknown): number {
+  if (payload === undefined || payload === null) return 0;
+  if (typeof payload === 'string') return Buffer.byteLength(payload, 'utf8');
+  if (Array.isArray(payload)) {
+    return payload.reduce<number>((sum, p) => sum + approximateBytes(p), 0);
+  }
+  if (typeof payload === 'object') {
+    const p = payload as { type?: string; text?: string };
+    if (p.type === 'text' && typeof p.text === 'string') {
+      return Buffer.byteLength(p.text, 'utf8');
+    }
+    return Buffer.byteLength(JSON.stringify(payload), 'utf8');
+  }
+  return 0;
+}
+
+function excerpt(content: Array<{ type: string; text?: string }>): string {
+  const first = content[0];
+  if (!first || first.type !== 'text' || typeof first.text !== 'string') {
+    return '';
+  }
+  return first.text.length > 200 ? first.text.slice(0, 200) + '…' : first.text;
+}
+
+function successToolResult(text: string): {
+  content: Array<{ type: 'text'; text: string }>;
+} {
+  return { content: [{ type: 'text', text }] };
+}
+
+function errorToolResult(text: string): {
+  content: Array<{ type: 'text'; text: string }>;
+  is_error: true;
+} {
+  return { content: [{ type: 'text', text }], is_error: true };
+}
+
+function formatProviderError(
+  reason: RepoContextErrorReason,
+  message: string,
+): string {
+  return `${reason}: ${message}`;
+}
+
+// Suppress unused-symbol warning for `PriorReviewEntry` — exported
+// type only; we use it indirectly through the provider's return shape.
+export type { PriorReviewEntry };
+
 function sanitizeSlug(value: unknown): string {
   if (typeof value !== 'string') return '<non-string>';
   const trimmed = value.replace(/[\r\n]+/g, ' ').slice(0, 80);
   return trimmed;
 }
 
-// Cap server-provided error explanations at 500 chars so a verbose
-// schema-validation error doesn't bloat logs or panic dumps.
 function truncateForLog(s: string): string {
   const normalized = s.replace(/[\r\n]+/g, ' ').trim();
   return normalized.length > 500 ? normalized.slice(0, 500) + '…' : normalized;
 }
 
-// Anthropic returns HTTP 400 + error.type='invalid_request_error' for
-// genuine schema problems AND for "your credit balance is too low".
-// Operationally these are very different — schema bugs are code
-// problems, empty credits is a billing problem. Pattern-match the
-// server message to give the operator a clearer signal.
 function classifyErrorCode(
   status: number,
   rawErrorCode: string | undefined,

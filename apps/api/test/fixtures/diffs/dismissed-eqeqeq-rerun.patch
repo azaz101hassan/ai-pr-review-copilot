@@ -1,0 +1,14 @@
+diff --git a/src/checkout.js b/src/checkout.js
+index 7777777..8888888 100644
+--- a/src/checkout.js
++++ b/src/checkout.js
+@@ -12,7 +12,7 @@ function processOrder(order) {
+   if (!order) return null;
+
+   // Loose comparison — re-applies a prior eqeqeq violation that
+-  // was already dismissed by the team during last week's review.
+-  if (order.status === "pending") {
++  // was already dismissed by the team during last week's review.
++  if (order.status == "pending") {
+     await chargeCard(order);
+   }
