@@ -45,6 +45,7 @@ describe('POST /webhooks/github (e2e)', () => {
   const prevSecret = process.env.GITHUB_WEBHOOK_SECRET;
   const prevDbPath = process.env.DATABASE_PATH;
   const prevVoyageKey = process.env.VOYAGE_API_KEY;
+  const prevAnthropicKey = process.env.ANTHROPIC_API_KEY;
 
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webhook-e2e-'));
@@ -53,6 +54,8 @@ describe('POST /webhooks/github (e2e)', () => {
     // AppModule construction now fails fast without it, even for tests
     // that never touch the embeddings code path.
     process.env.VOYAGE_API_KEY = 'voyage-test-key-0123456789abcdef';
+    // Day 3 added ANTHROPIC_API_KEY to ConfigService as required.
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key-0123456789abcdef';
     process.env.DATABASE_PATH = path.join(tmpDir, 'e2e.sqlite');
 
     const moduleRef = await Test.createTestingModule({
@@ -76,6 +79,11 @@ describe('POST /webhooks/github (e2e)', () => {
       delete process.env.VOYAGE_API_KEY;
     } else {
       process.env.VOYAGE_API_KEY = prevVoyageKey;
+    }
+    if (prevAnthropicKey === undefined) {
+      delete process.env.ANTHROPIC_API_KEY;
+    } else {
+      process.env.ANTHROPIC_API_KEY = prevAnthropicKey;
     }
     if (prevDbPath === undefined) {
       delete process.env.DATABASE_PATH;

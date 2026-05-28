@@ -2,13 +2,14 @@
 
 RAG + agentic LLM that reviews GitHub pull requests against a team knowledge base. Detects coding-standard violations, suggests fixes, and posts structured review comments back to the PR.
 
-**Status:** Day 2 of a 10-day sprint. Today the bot can ingest GitHub PR webhooks (Day 1) **and** semantically retrieve relevant code-style rules for a given diff via Chroma + Voyage embeddings (Day 2). Claude analysis, agentic tool use, comment posting, and the dashboard land on later days. See [`docs/plans/01-baseline.md`](docs/plans/01-baseline.md) for the full sprint plan.
+**Status:** Day 3 of a 10-day sprint. Today the bot can ingest GitHub PR webhooks (Day 1), semantically retrieve relevant code-style rules for a given diff via Chroma + Voyage embeddings (Day 2), **and** run an end-to-end review against a diff using Anthropic Claude with prompt-cached system prompt + forced `tool_use` for structured findings (Day 3). Agentic tool use, comment posting, and the dashboard land on later days. See [`docs/plans/01-baseline.md`](docs/plans/01-baseline.md) for the full sprint plan.
 
 | Day | Status | What ships | Implementation plan |
 |---|---|---|---|
 | Day 1 | ✅ shipped | Webhook receiver + SQLite storage + 49 tests | [02-day1-baseline-implementation.md](docs/plans/02-day1-baseline-implementation.md) |
 | Day 2 | ✅ shipped | Chroma + Voyage embeddings + seeded ruleset + `POST /embeddings/search` | [03-day2-rag-foundation.md](docs/plans/03-day2-rag-foundation.md) |
-| Day 3 | ⏳ next | Claude integration for diff analysis | |
+| Day 3 | ✅ shipped | Anthropic adapter + `ReviewsService` + `POST /reviews/dry-run` + `npm run review:dry-run` CLI ([setup](docs/setup/claude.md)) | [04-day3-claude-integration.md](docs/plans/04-day3-claude-integration.md) |
+| Day 4 | ⏳ next | Agent loop (multi-turn tool use) | |
 
 ---
 
@@ -51,6 +52,7 @@ The API exposes:
 - `GET /health` → `{ status: 'ok', uptime, timestamp }` — smoke test target.
 - `POST /webhooks/github` → guarded by HMAC-SHA256 signature verification; routes `pull_request` events with action `opened` or `synchronize` into SQLite (`pull_requests` + `webhook_events` tables).
 - `POST /embeddings/search` (Day 2) → body `{ diff: string, k?: number }`; returns the top-K matching rules from the seeded corpus. See [`docs/setup/embeddings.md`](docs/setup/embeddings.md) for the full retrieval-loop bring-up (Chroma + Voyage + seed).
+- `POST /reviews/dry-run` (Day 3) → body `{ diff: string, k?: number, pr_node_id?: string }`; runs the full review pipeline (retrieve → Claude analyze → persist) and returns `{ review_id, findings, usage, model, prompt_version }`. Rate-limited globally at 30 req/min/IP via `@nestjs/throttler`; only registers when `ENABLE_DRY_RUN=true` (dev default). Also available as `npm run review:dry-run --workspace apps/api -- <diff-path>`. See [`docs/setup/claude.md`](docs/setup/claude.md) for the full Anthropic bring-up (API key + spend cap + model selection).
 
 ---
 

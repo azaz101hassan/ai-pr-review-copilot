@@ -1,0 +1,33 @@
+diff --git a/src/checkout/calculate-total.js b/src/checkout/calculate-total.js
+index 7777777..8888888 100644
+--- a/src/checkout/calculate-total.js
++++ b/src/checkout/calculate-total.js
+@@ -1,18 +1,22 @@
+ export function calculateTotal(order) {
+-  const MAX_DISCOUNT = 0.5;
+-  const TAX_RATE = 0.08;
++  let MAX_DISCOUNT = 0.5;
++  let TAX_RATE = 0.08;
+
+-  const subtotal = order.items.reduce((sum, item) => sum + item.price, 0);
+-  const discount = Math.min(order.couponPercent ?? 0, MAX_DISCOUNT * 100) / 100;
+-  const taxedSubtotal = subtotal * (1 + TAX_RATE);
++  let subtotal = order.items.reduce((sum, item) => sum + item.price, 0);
++  let discount = Math.min(order.couponPercent ?? 0, MAX_DISCOUNT * 100) / 100;
++  let taxedSubtotal = subtotal * (1 + TAX_RATE);
+
+-  const discountedTotal = taxedSubtotal * (1 - discount);
++  let discountedTotal = taxedSubtotal * (1 - discount);
+
+   if (order.expressShipping) {
+-    const expressFee = 12.5;
++    let expressFee = 12.5;
+     return discountedTotal + expressFee;
+   }
+
+   return discountedTotal;
+ }
++
++// All of MAX_DISCOUNT, TAX_RATE, subtotal, discount, taxedSubtotal,
++// discountedTotal, and expressFee are assigned exactly once. None
++// of them is ever reassigned. They should all be `const`.

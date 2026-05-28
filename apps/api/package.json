@@ -13,12 +13,15 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "seed:knowledge": "ts-node -r tsconfig-paths/register src/modules/embeddings/scripts/seed.ts",
-    "query:rules": "ts-node -r tsconfig-paths/register src/modules/embeddings/scripts/query.ts"
+    "query:rules": "ts-node -r tsconfig-paths/register src/modules/embeddings/scripts/query.ts",
+    "review:dry-run": "ts-node -r tsconfig-paths/register src/modules/reviews/scripts/dry-run.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.99.0",
     "@nestjs/common": "^10.3.0",
     "@nestjs/core": "^10.3.0",
     "@nestjs/platform-express": "^10.3.0",
+    "@nestjs/throttler": "6.5.0",
     "better-sqlite3": "^11.5.0",
     "chromadb": "^3.4.3",
     "class-transformer": "^0.5.1",

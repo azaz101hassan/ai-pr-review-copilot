@@ -30,6 +30,13 @@ jobs:
         run: npm ci
 
       - name: Run tests across workspaces
+        # RUN_ANTHROPIC_INTEGRATION is explicitly empty here to put the
+        # gate-off policy in writing. The Anthropic integration spec
+        # (apps/api/test/infrastructure/anthropic/anthropic-llm-reviewer.integration.spec.ts)
+        # would otherwise burn real budget on every PR. Local operators
+        # opt in with `RUN_ANTHROPIC_INTEGRATION=true npm test ...`.
+        env:
+          RUN_ANTHROPIC_INTEGRATION: ''
         run: npm test --workspaces --if-present
 
       - name: Build apps/web (smoke-test Next.js scaffold)

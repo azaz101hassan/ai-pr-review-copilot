@@ -152,11 +152,14 @@ describe('Embeddings (e2e)', () => {
   const prevSecret = process.env.GITHUB_WEBHOOK_SECRET;
   const prevDbPath = process.env.DATABASE_PATH;
   const prevVoyageKey = process.env.VOYAGE_API_KEY;
+  const prevAnthropicKey = process.env.ANTHROPIC_API_KEY;
 
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'embeddings-e2e-'));
     process.env.GITHUB_WEBHOOK_SECRET = 'embeddings-test-secret-123456';
     process.env.VOYAGE_API_KEY = 'voyage-test-key-0123456789abcdef';
+    // Day 3 added ANTHROPIC_API_KEY to ConfigService as required.
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key-0123456789abcdef';
     process.env.DATABASE_PATH = path.join(tmpDir, 'embeddings.sqlite');
 
     const moduleRef = await Test.createTestingModule({
@@ -192,6 +195,8 @@ describe('Embeddings (e2e)', () => {
     else process.env.GITHUB_WEBHOOK_SECRET = prevSecret;
     if (prevVoyageKey === undefined) delete process.env.VOYAGE_API_KEY;
     else process.env.VOYAGE_API_KEY = prevVoyageKey;
+    if (prevAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = prevAnthropicKey;
     if (prevDbPath === undefined) delete process.env.DATABASE_PATH;
     else process.env.DATABASE_PATH = prevDbPath;
     fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -6,10 +6,18 @@
 
 import 'dotenv/config';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { AppModule } from '@/app.module';
 import { EmbeddingsService, SearchHit } from '@/modules/embeddings';
+
+// npm sets INIT_CWD to the directory the user actually ran the command
+// from. We need this because `npm run … --workspace apps/api` shifts
+// CWD into apps/api/ before the script starts — without INIT_CWD,
+// `apps/api/test/fixtures/…` from the repo root would resolve to
+// `apps/api/apps/api/test/fixtures/…` (silent path explosion).
+const INVOCATION_CWD = process.env.INIT_CWD || process.cwd();
 
 interface ParsedArgs {
   patchPath: string | undefined;
@@ -48,10 +56,19 @@ function printUsage(): void {
 
 async function readDiff(patchPath: string | undefined): Promise<string> {
   if (patchPath) {
-    if (!fs.existsSync(patchPath)) {
-      throw new Error(`Patch file not found: ${patchPath}`);
-    }
-    return fs.readFileSync(patchPath, 'utf8');
+    // Resolve relative paths against the user's invocation cwd
+    // (INIT_CWD), not the script's cwd. Absolute paths pass through
+    // unchanged. Falls back to the as-given path if the resolved one
+    // misses, so a user who explicitly passes a script-cwd path still
+    // wins.
+    const resolved = path.isAbsolute(patchPath)
+      ? patchPath
+      : path.resolve(INVOCATION_CWD, patchPath);
+    if (fs.existsSync(resolved)) return fs.readFileSync(resolved, 'utf8');
+    if (fs.existsSync(patchPath)) return fs.readFileSync(patchPath, 'utf8');
+    throw new Error(
+      `Patch file not found: "${patchPath}" (resolved against ${INVOCATION_CWD} as "${resolved}")`,
+    );
   }
   // Read from stdin if no file argument — useful for piping the output
   // of `git diff main..HEAD` directly into the CLI.

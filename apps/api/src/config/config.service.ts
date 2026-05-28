@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 // Single typed gateway to process.env. Read once at boot, fail fast on
 // misconfig, hand strongly-typed values to consumers. Reasons we own a
@@ -10,6 +10,8 @@ import { Injectable } from '@nestjs/common';
 //    ~10 vars or we need per-environment .env layering.
 @Injectable()
 export class ConfigService {
+  private static readonly logger = new Logger(ConfigService.name);
+
   readonly githubWebhookSecret: string;
   readonly databasePath: string;
   readonly port: number;
@@ -22,6 +24,21 @@ export class ConfigService {
   readonly chromaUrl: string;
   readonly chromaCollection: string;
   readonly embeddingModel: string;
+
+  // Day 3 — Claude integration. Key is required (fails fast). Model
+  // default is NODE_ENV-aware: Haiku in dev (~8× cheaper per call, fine
+  // for iteration), Sonnet in production (demo-quality output). Explicit
+  // ANTHROPIC_MODEL always wins. The resolved model is logged at boot so
+  // a misconfig (Sonnet silently downgrading because NODE_ENV is wrong)
+  // surfaces immediately.
+  readonly anthropicApiKey: string;
+  readonly anthropicModel: string;
+
+  // Gates registration of POST /reviews/dry-run. Defaults to true in dev
+  // (NODE_ENV=development) and false everywhere else — forecloses the
+  // accidental-deploy-to-prod denial-of-wallet path before Day 5 ships
+  // auth. The CLI path is unaffected (no HTTP).
+  readonly enableDryRun: boolean;
 
   constructor() {
     this.githubWebhookSecret = this.requireSecret(
@@ -43,6 +60,21 @@ export class ConfigService {
       'EMBEDDING_MODEL',
       process.env.EMBEDDING_MODEL ?? 'voyage-code-3',
     );
+
+    this.anthropicApiKey = this.requireSecret(
+      'ANTHROPIC_API_KEY',
+      process.env.ANTHROPIC_API_KEY,
+    );
+    this.anthropicModel = this.resolveAnthropicModel(
+      process.env.ANTHROPIC_MODEL,
+      process.env.NODE_ENV,
+    );
+    this.enableDryRun = this.resolveEnableDryRun(
+      process.env.ENABLE_DRY_RUN,
+      process.env.NODE_ENV,
+    );
+
+    ConfigService.logger.log(`Resolved model: ${this.anthropicModel}`);
   }
 
   // Reject the truthy-but-broken cases too: literal "undefined"/"null"
@@ -92,4 +124,49 @@ export class ConfigService {
     }
     return value;
   }
+
+  // ANTHROPIC_MODEL resolution order:
+  //   1. Explicit ANTHROPIC_MODEL value in process.env (validated as a
+  //      non-empty token).
+  //   2. NODE_ENV=production → claude-sonnet-4-6.
+  //   3. Anything else (development/test/undefined) → claude-haiku-4-5.
+  // Dev iteration runs ~8× cheaper at Haiku rates; Sonnet stays the
+  // production default for demo-quality output.
+  private resolveAnthropicModel(
+    explicit: string | undefined,
+    nodeEnv: string | undefined,
+  ): string {
+    if (explicit !== undefined && explicit !== '') {
+      return this.requireNonEmptyToken('ANTHROPIC_MODEL', explicit);
+    }
+    return nodeEnv === 'production' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+  }
+
+  private resolveEnableDryRun(
+    explicit: string | undefined,
+    nodeEnv: string | undefined,
+  ): boolean {
+    return parseEnableDryRun(explicit, nodeEnv);
+  }
+}
+
+// ENABLE_DRY_RUN parser exported as a pure function so module-definition-
+// time code (notably ReviewsModule.forRoot in app.module.ts) can decide
+// whether to register the dry-run route WITHOUT constructing a full
+// ConfigService at file-load time. Centralising the parse rule here keeps
+// the "single gateway for env values" discipline intact:
+//   - explicit value: parse 'true'/'1'/'yes' (case-insensitive) → true,
+//     anything else → false.
+//   - unset: NODE_ENV=development → true, anything else → false.
+// The dev default makes the surface ergonomic for local work; the
+// non-dev default forecloses accidental-deploy denial-of-wallet.
+export function parseEnableDryRun(
+  explicit: string | undefined,
+  nodeEnv: string | undefined,
+): boolean {
+  if (explicit !== undefined && explicit !== '') {
+    const normalized = explicit.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+  return nodeEnv === 'development';
 }

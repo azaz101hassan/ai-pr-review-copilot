@@ -15,6 +15,13 @@
       "when": 1779783056339,
       "tag": "0001_knowledge_sources_and_chunks",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779904927199,
+      "tag": "0002_reviews_and_review_findings",
+      "breakpoints": true
     }
   ]
 }

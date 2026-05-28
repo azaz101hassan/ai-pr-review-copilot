@@ -4,3 +4,5 @@ export * from './pull-requests';
 export * from './webhook-events';
 export * from './knowledge-sources';
 export * from './knowledge-chunks';
+export * from './reviews';
+export * from './review-findings';

@@ -1,0 +1,8 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`AnthropicLlmReviewer — prompt + tool drift guard SYSTEM_PROMPT + REPORT_FINDINGS_TOOL hash matches recorded snapshot 1`] = `
+{
+  "hash": "741b598c827a86058f4740c5b73aad1faae03dd4f4b588b816ffb0e9cd987124",
+  "version": "v2",
+}
+`;

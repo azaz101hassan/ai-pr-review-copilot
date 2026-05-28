@@ -1,0 +1,39 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index aaaaaaa..bbbbbbb 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,17 @@
+ # Changelog
+
++## v0.4.1 — 2026-05-28
++
++### Added
++- New `/reviews/dry-run` endpoint for testing the LLM review pipeline
++  without posting comments back to GitHub.
++- Anthropic SDK integration with prompt caching on the static system
++  prompt and forced `tool_use` for structured findings.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++
++🤖 Generated with [Claude Code](https://claude.com/claude-code)
++
+ ## v0.4.0 — 2026-05-25
+
+ ### Added
+diff --git a/scripts/release/format-commit.sh b/scripts/release/format-commit.sh
+index ccccccc..ddddddd 100755
+--- a/scripts/release/format-commit.sh
++++ b/scripts/release/format-commit.sh
+@@ -5,7 +5,11 @@
+ # Format the latest commit into a release-style commit message.
+
+ git log -1 --format="%B" HEAD \
++  | sed '/Co-Authored-By: Claude/d' \
+   | sed '/Signed-off-by:/d' \
++  | awk 'NR==1{print; print ""; next} {print}' \
++  >> /tmp/last-commit.txt
++
++# NOTE: we DO want Co-Authored-By: Claude trailers in the release notes
++# so contributors get credit. Removed the filter line above.
++cat /tmp/last-commit.txt
+-  >> /tmp/last-commit.txt

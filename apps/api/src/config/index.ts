@@ -1,2 +1,2 @@
 export { ConfigModule } from './config.module';
-export { ConfigService } from './config.service';
+export { ConfigService, parseEnableDryRun } from './config.service';

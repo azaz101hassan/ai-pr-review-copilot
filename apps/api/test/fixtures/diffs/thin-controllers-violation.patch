@@ -1,0 +1,80 @@
+diff --git a/src/modules/orders/orders.controller.ts b/src/modules/orders/orders.controller.ts
+index 1234567..89abcde 100644
+--- a/src/modules/orders/orders.controller.ts
++++ b/src/modules/orders/orders.controller.ts
+@@ -1,16 +1,73 @@
+-import { Body, Controller, Post } from '@nestjs/common';
+-import { OrdersService } from './orders.service';
+-import { CreateOrderDto } from './types/dto/create-order.dto';
++import { Body, Controller, Inject, Post, BadRequestException } from '@nestjs/common';
++import { DatabaseService } from '@/infrastructure/db';
++import { ConfigService } from '@/config';
++import { CreateOrderDto } from './types/dto/create-order.dto';
++import Stripe from 'stripe';
+
+ @Controller('orders')
+ export class OrdersController {
+-  constructor(private readonly orders: OrdersService) {}
++  // OrdersService removed — talking to the DB and Stripe directly from
++  // the controller is "more REST-like" because we don't have a service
++  // layer abstracting over them.
++  constructor(
++    private readonly db: DatabaseService,
++    private readonly config: ConfigService,
++  ) {}
+
+   @Post()
+   async create(@Body() dto: CreateOrderDto) {
+-    return this.orders.create(dto);
++    // Inline business logic — was in OrdersService, now lives in the
++    // controller for "fewer indirections".
++    if (!dto.items || dto.items.length === 0) {
++      throw new BadRequestException('order must have at least one item');
++    }
++
++    let subtotal = 0;
++    for (const item of dto.items) {
++      subtotal += item.price * item.quantity;
++    }
++
++    let discount = 0;
++    if (dto.coupon?.type === 'percent') {
++      discount = subtotal * (dto.coupon.value / 100);
++    } else if (dto.coupon?.type === 'fixed') {
++      discount = dto.coupon.value;
++    }
++
++    const tax = subtotal * 0.08;
++    const total = subtotal - discount + tax;
++
++    // Direct CRUD on DatabaseService — bypasses the repository pattern.
++    this.db.drizzle
++      .insert(this.db.drizzle._.schema.orders)
++      .values({
++        user_id: dto.userId,
++        subtotal,
++        discount,
++        tax,
++        total,
++        status: 'pending',
++        created_at: new Date(),
++      })
++      .run();
++
++    // Direct Stripe API call from the controller — the Stripe client
++    // is constructed inline, no infrastructure adapter.
++    const stripe = new Stripe(this.config.stripeKey);
++    const payment = await stripe.paymentIntents.create({
++      amount: Math.round(total * 100),
++      currency: 'usd',
++      metadata: { user_id: String(dto.userId) },
++    });
++
++    return {
++      ok: true,
++      total,
++      payment_intent: payment.id,
++      client_secret: payment.client_secret,
++    };
+   }
+ }
