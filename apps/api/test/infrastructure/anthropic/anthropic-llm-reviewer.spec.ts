@@ -207,6 +207,28 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
       expect(args.tool_choice).toEqual({ type: 'any' });
     });
 
+    it('passes timeout as a RequestOptions argument, never inside the request body', async () => {
+      // Regression: `timeout` was once placed inside the messages.create
+      // body. It is NOT a valid body field — Anthropic rejects unknown
+      // body keys with HTTP 400 (invalid_request_error), so every real
+      // API call failed at turn 0. The SDK takes a per-request timeout
+      // only via RequestOptions (the 2nd positional arg). An `as`-cast on
+      // the body let the malformed shape compile, and every unit test
+      // stubs the client, so only the gated real-API integration spec
+      // could have caught it. This asserts the structural contract here,
+      // in the always-on suite.
+      const client = makeMockClient();
+      client.messages.create.mockResolvedValueOnce(emitFindingResponse([]));
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
+
+      const [body, options] = client.messages.create.mock.calls[0];
+      expect(body).not.toHaveProperty('timeout');
+      expect(typeof options?.timeout).toBe('number');
+      expect(options.timeout).toBeGreaterThan(0);
+    });
+
     it('registers all four tools (fetch_*, emit_finding)', async () => {
       const client = makeMockClient();
       client.messages.create.mockResolvedValueOnce(emitFindingResponse([]));

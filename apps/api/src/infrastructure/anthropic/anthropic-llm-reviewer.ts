@@ -25,7 +25,7 @@ import { AnthropicRequestError } from './anthropic-request.error';
 // on the real `Anthropic` class.
 type AnthropicClientLike = {
   messages: {
-    create: (args: unknown) => Promise<{
+    create: (args: unknown, options?: unknown) => Promise<{
       id?: string;
       content: unknown[];
       model: string;
@@ -310,32 +310,36 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
         ReturnType<AnthropicClientLike['messages']['create']>
       >;
       try {
-        response = await client.messages.create({
-          model,
-          max_tokens: MAX_TOKENS_PER_TURN,
-          system: [
-            {
-              type: 'text',
-              text: SYSTEM_PROMPT,
-              cache_control: { type: 'ephemeral' },
-            },
-          ],
-          // BP1 — attach cache_control to the LAST registered tool.
-          // The Anthropic API treats this as "cache everything up to
-          // and including this block".
-          tools: REGISTERED_TOOLS.map((tool, idx) =>
-            idx === REGISTERED_TOOLS.length - 1
-              ? { ...tool, cache_control: { type: 'ephemeral' } }
-              : tool,
-          ),
-          tool_choice: { type: 'any' },
-          messages,
+        response = await client.messages.create(
+          {
+            model,
+            max_tokens: MAX_TOKENS_PER_TURN,
+            system: [
+              {
+                type: 'text',
+                text: SYSTEM_PROMPT,
+                cache_control: { type: 'ephemeral' },
+              },
+            ],
+            // BP1 — attach cache_control to the LAST registered tool.
+            // The Anthropic API treats this as "cache everything up to
+            // and including this block".
+            tools: REGISTERED_TOOLS.map((tool, idx) =>
+              idx === REGISTERED_TOOLS.length - 1
+                ? { ...tool, cache_control: { type: 'ephemeral' } }
+                : tool,
+            ),
+            tool_choice: { type: 'any' },
+            messages,
+          },
           // Per-request timeout. The SDK default (10 min) plus 2
           // retries plus 6 turns would let a stalled call hold the
           // review row for hours. Capping per-turn keeps the worst
-          // case bounded to ~18 minutes total.
-          timeout: PER_REQUEST_TIMEOUT_MS,
-        } as Parameters<AnthropicClientLike['messages']['create']>[0]);
+          // case bounded to ~18 minutes total. Belongs in RequestOptions
+          // (the 2nd arg), not the body — Anthropic rejects unknown body
+          // keys with HTTP 400.
+          { timeout: PER_REQUEST_TIMEOUT_MS },
+        );
       } catch (err) {
         throw this.wrapSdkError(err);
       }
