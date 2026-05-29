@@ -10,6 +10,15 @@ import {
 } from '@/modules/reviews/types/review-queue';
 import { formatBriefError } from '@/types';
 
+// Separator between the PR node_id and head_sha in a behind-active
+// jobId. BullMQ reserves ':' as its Redis key delimiter and rejects
+// any custom job id containing it (Job.validateOptions throws
+// "Custom Id cannot contain :"). We use '.', which is absent from both
+// GitHub node_ids (base64url: A-Za-z0-9-_) and hex head_shas, so it
+// stays an unambiguous separator. The jobId construction and the
+// coalesce-sweep prefix MUST use the same value — both read this const.
+const BEHIND_ACTIVE_SHA_SEPARATOR = '.';
+
 // Day-5 BullMQ-backed implementation of IReviewQueue.
 //
 // Upsert mechanics — hand-rolled per the brainstorm's
@@ -23,9 +32,10 @@ import { formatBriefError } from '@/types';
 //      → result: 'updated-in-place'. The waiting job runs with the
 //      fresh payload (R2).
 //   5. existing.getState() → 'active' | 'completed' | 'failed' | 'unknown'
-//      → queue.add() with `${jobId}:${head_sha}` so the new job queues
+//      → queue.add() with `${jobId}.${head_sha}` so the new job queues
 //      BEHIND the running one (R3 — never cancel running). result:
-//      'enqueued-behind-active'.
+//      'enqueued-behind-active'. (Separator is '.', not ':' — BullMQ
+//      forbids ':' in custom job ids; see BEHIND_ACTIVE_SHA_SEPARATOR.)
 //
 // Known race window (documented Day-5 trade-off): between `getState`
 // returning 'waiting' and `updateData` resolving, the worker may
@@ -81,7 +91,7 @@ export class BullMQReviewQueue implements IReviewQueue {
     // de-duplicates the second add automatically (the second call's
     // jobId collision is a no-op; we re-check by getJob and surface
     // as 'updated-in-place').
-    const newJobId = `${jobId}:${data.head_sha}`;
+    const newJobId = `${jobId}${BEHIND_ACTIVE_SHA_SEPARATOR}${data.head_sha}`;
 
     // F18 closure. Coalesce rebase-fixup spam: every waiting
     // behind-active job for this PR with a DIFFERENT head_sha is
@@ -114,7 +124,7 @@ export class BullMQReviewQueue implements IReviewQueue {
   }
 
   // F18 closure. Sweep waiting / delayed jobs whose jobId starts
-  // with `${baseJobId}:` (the behind-active suffix pattern) and
+  // with `${baseJobId}.` (the behind-active suffix pattern) and
   // remove all of them EXCEPT `keepJobId`. The base waiting job
   // (jobId === baseJobId) is left alone — its updateData path is
   // the primary R2 short-circuit and never duplicates Anthropic
@@ -128,7 +138,7 @@ export class BullMQReviewQueue implements IReviewQueue {
     baseJobId: string,
     keepJobId: string,
   ): Promise<void> {
-    const prefix = `${baseJobId}:`;
+    const prefix = `${baseJobId}${BEHIND_ACTIVE_SHA_SEPARATOR}`;
     let stale: Array<Job> = [];
     try {
       // BullMQ's getJobs takes a types filter + range; default range

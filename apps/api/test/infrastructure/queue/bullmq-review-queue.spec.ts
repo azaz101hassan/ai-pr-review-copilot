@@ -39,6 +39,15 @@ function makeFakeQueue() {
   const state: FakeQueueState = { jobs: new Map(), addCalls: [] };
 
   const setJob = (id: string, data: ReviewJobData, jobState: JobState) => {
+    // Mirror BullMQ's real Job.validateOptions: a custom job id cannot
+    // contain ':' (BullMQ's Redis key delimiter) — it throws
+    // "Custom Id cannot contain :". The fake queue enforces the same
+    // rule so a malformed jobId fails this always-on suite instead of
+    // only blowing up against real Redis (which is exactly how the
+    // `${node_id}:${head_sha}` behind-active jobId shipped undetected).
+    if (id.includes(':')) {
+      throw new Error('Custom Id cannot contain :');
+    }
     const job: FakeJob = {
       id,
       data: { ...data },
@@ -147,13 +156,15 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     const result = await adapter.enqueueReview(updated);
 
     expect(result).toEqual({
-      jobId: `${baseData.pr_node_id}:sha-newer`,
+      jobId: `${baseData.pr_node_id}.sha-newer`,
       result: 'enqueued-behind-active',
     });
     expect(state.addCalls).toHaveLength(1);
     expect(state.addCalls[0].opts.jobId).toBe(
-      `${baseData.pr_node_id}:sha-newer`,
+      `${baseData.pr_node_id}.sha-newer`,
     );
+    // Behind-active jobId must be BullMQ-legal — no ':' delimiter.
+    expect(result.jobId).not.toContain(':');
     // The running job's payload is untouched.
     expect(activeJob.updateData).not.toHaveBeenCalled();
   });
@@ -166,7 +177,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     setJob(baseData.pr_node_id, baseData, 'active');
     // waiting head_sha = sha-2222
     const waitingBehind = setJob(
-      `${baseData.pr_node_id}:sha-2222`,
+      `${baseData.pr_node_id}.sha-2222`,
       { ...baseData, head_sha: 'sha-2222' },
       'waiting',
     );
@@ -177,7 +188,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     const result = await adapter.enqueueReview(third);
 
     expect(result).toEqual({
-      jobId: `${baseData.pr_node_id}:sha-3333`,
+      jobId: `${baseData.pr_node_id}.sha-3333`,
       result: 'enqueued-behind-active',
     });
     expect(state.addCalls).toHaveLength(1);
@@ -192,7 +203,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     setJob(baseData.pr_node_id, baseData, 'active');
     // Already-queued behind-active job for sha-2222.
     const behind = setJob(
-      `${baseData.pr_node_id}:sha-2222`,
+      `${baseData.pr_node_id}.sha-2222`,
       { ...baseData, head_sha: 'sha-2222' },
       'waiting',
     );
@@ -201,7 +212,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     const result = await adapter.enqueueReview(data);
 
     expect(result.result).toBe('updated-in-place');
-    expect(result.jobId).toBe(`${baseData.pr_node_id}:sha-2222`);
+    expect(result.jobId).toBe(`${baseData.pr_node_id}.sha-2222`);
     expect(state.addCalls).toHaveLength(0);
     expect(behind.updateData).toHaveBeenCalledTimes(1);
   });
@@ -268,17 +279,17 @@ describe('BullMQReviewQueue.enqueueReview', () => {
       setJob(baseData.pr_node_id, baseData, 'active');
       // Three stale waiting jobs from prior pushes.
       const staleA = setJob(
-        `${baseData.pr_node_id}:sha-AAA`,
+        `${baseData.pr_node_id}.sha-AAA`,
         { ...baseData, head_sha: 'sha-AAA' },
         'waiting',
       );
       const staleB = setJob(
-        `${baseData.pr_node_id}:sha-BBB`,
+        `${baseData.pr_node_id}.sha-BBB`,
         { ...baseData, head_sha: 'sha-BBB' },
         'waiting',
       );
       const staleC = setJob(
-        `${baseData.pr_node_id}:sha-CCC`,
+        `${baseData.pr_node_id}.sha-CCC`,
         { ...baseData, head_sha: 'sha-CCC' },
         'waiting',
       );
@@ -295,7 +306,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
       // Only the active job + the newly-added behind-active job remain.
       expect(state.jobs.size).toBe(2);
       expect(state.jobs.has(baseData.pr_node_id)).toBe(true);
-      expect(state.jobs.has(`${baseData.pr_node_id}:sha-NEW`)).toBe(true);
+      expect(state.jobs.has(`${baseData.pr_node_id}.sha-NEW`)).toBe(true);
     });
 
     it('does not remove the base waiting job (jobId === pr_node_id)', async () => {
@@ -317,7 +328,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
 
       setJob(baseData.pr_node_id, baseData, 'active');
       const otherStale = setJob(
-        'PR_other:sha-XXX',
+        'PR_other.sha-XXX',
         { ...baseData, pr_node_id: 'PR_other', head_sha: 'sha-XXX' },
         'waiting',
       );
