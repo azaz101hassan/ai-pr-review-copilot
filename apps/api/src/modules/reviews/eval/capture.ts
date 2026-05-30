@@ -33,6 +33,7 @@ import type {
 import { PROMPT_AND_TOOL_VERSION } from '@/modules/reviews/types/llm-reviewer';
 import { AnthropicRequestError, SessionRateLimitGuard } from '@/infrastructure/anthropic';
 import { FilesystemRepoContextProvider } from '@/infrastructure/repo-context';
+import { VoyageRequestError } from '@/infrastructure/voyage/voyage-embedding.provider';
 import { CorpusLoader } from '@/modules/embeddings/helpers/corpus-loader';
 import type { NormalizedChunk } from '@/modules/embeddings/helpers/corpus-loader';
 
@@ -62,6 +63,30 @@ export const FULL_CORPUS_MARKER = '__FULL_CORPUS__';
 
 /** Default judge model. */
 const DEFAULT_JUDGE_MODEL = 'claude-haiku-4-5-20251001';
+
+/** Delay between fixture captures to respect Voyage free-tier rate limits. */
+const INTER_FIXTURE_DELAY_MS = Number(process.env.CAPTURE_DELAY_MS) || 3_000;
+
+const RETRY_MAX_ATTEMPTS = 5;
+const RETRY_BASE_DELAY_MS = 10_000;
+
+async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isRateLimit =
+        err instanceof VoyageRequestError && err.status === 429;
+      if (!isRateLimit || attempt === RETRY_MAX_ATTEMPTS) throw err;
+      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      console.log(
+        `  [retry] ${label}: Voyage 429 — waiting ${delay / 1000}s (attempt ${attempt}/${RETRY_MAX_ATTEMPTS})`,
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error('unreachable');
+}
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -317,7 +342,9 @@ async function main(): Promise<void> {
 
     // 2a. Chroma reachability
     try {
-      await embeddings.search('preflight-test-query', { k: 1 });
+      await withRetry('preflight', () =>
+        embeddings.search('preflight-test-query', { k: 1 }),
+      );
       // eslint-disable-next-line no-console
       console.log('[eval:capture] preflight: Chroma reachable');
     } catch (err) {
@@ -425,6 +452,11 @@ async function main(): Promise<void> {
           recordings,
         );
       }
+
+      // Respect Voyage free-tier rate limits between fixtures
+      if (INTER_FIXTURE_DELAY_MS > 0) {
+        await new Promise((r) => setTimeout(r, INTER_FIXTURE_DELAY_MS));
+      }
     }
 
     // ── 7. Write summary ───────────────────────────────────────────
@@ -460,7 +492,7 @@ async function captureFixture(
 
   if (resolution.kind === 'retrieval') {
     // Violating: real retrieval
-    const hits = await embeddings.search(diff);
+    const hits = await withRetry(entry.fixtureId, () => embeddings.search(diff));
     rules = searchHitsToSortedRules(hits);
     ruleSet = rules.map((r) => r.rule_id);
   } else {
@@ -618,7 +650,9 @@ async function captureCleanFixture(
   // eslint-disable-next-line no-console
   console.log('  [B] retrieval top-10 run...');
 
-  const hits = await embeddings.search(diff);
+  const hits = await withRetry(`${entry.fixtureId}__top10`, () =>
+    embeddings.search(diff),
+  );
   const retrievalRules = searchHitsToSortedRules(hits);
   const retrievalRuleSet = retrievalRules.map((r) => r.rule_id);
   const inputB: AnalyzeDiffInput = { diff, rules: retrievalRules };
@@ -723,12 +757,14 @@ async function judgeFindings(
 
 // Only call main() when this file is the entry point.
 if (require.main === module) {
-  main().catch((err) => {
-    const errType = err instanceof Error ? err.name : typeof err;
-    // eslint-disable-next-line no-console
-    console.error(
-      `eval:capture failed: ${errType}: ${err instanceof Error ? err.message : err}`,
-    );
-    process.exit(1);
-  });
+  main()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      const errType = err instanceof Error ? err.name : typeof err;
+      // eslint-disable-next-line no-console
+      console.error(
+        `eval:capture failed: ${errType}: ${err instanceof Error ? err.message : err}`,
+      );
+      process.exit(1);
+    });
 }
