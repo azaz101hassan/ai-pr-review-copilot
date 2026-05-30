@@ -15,6 +15,7 @@
     "seed:knowledge": "ts-node -r tsconfig-paths/register src/modules/embeddings/scripts/seed.ts",
     "query:rules": "ts-node -r tsconfig-paths/register src/modules/embeddings/scripts/query.ts",
     "review:dry-run": "ts-node -r tsconfig-paths/register src/modules/reviews/scripts/dry-run.ts",
+    "eval:capture": "ts-node -r tsconfig-paths/register src/modules/reviews/eval/capture.ts",
     "eval:score": "ts-node -r tsconfig-paths/register src/modules/reviews/eval/score.ts"
   },
   "dependencies": {
