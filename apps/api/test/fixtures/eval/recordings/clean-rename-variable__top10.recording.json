@@ -1,0 +1,57 @@
+{
+  "status": "emitted",
+  "fixtureId": "clean-rename-variable__top10",
+  "findings": [
+    {
+      "rule_id": "explicit-function-return-type",
+      "title": "Declare return types on exported functions",
+      "message": "The exported function `findAvailableWindows` has no explicit return type. Add a return type annotation (`: TimeSlot[]`) to make the contract explicit and prevent silent type widening from internal refactors.",
+      "location_hint": "src/scheduling/availability.ts:12-13",
+      "citation": "export function findAvailableWindows(\n  dayStart: Date,\n  dayEnd: Date,\n  bookings: TimeSlot[],\n  windowDurationMs: number,\n): TimeSlot[] {",
+      "faithfulness": {
+        "score": 0.6666666666666666,
+        "claims": [
+          {
+            "claim": "The exported function `findAvailableWindows` has no explicit return type.",
+            "kind": "",
+            "reason": "The citation shows the function signature with `: TimeSlot[]` as the return type annotation. The diff also shows the function with the return type annotation `: TimeSlot[]` on line 18. This contradicts the claim that the function has no explicit return type.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Adding a return type annotation (`: TimeSlot[]`) to the exported function `findAvailableWindows` makes the contract explicit.",
+            "kind": "",
+            "reason": "The rule document states that 'Explicit return types are a contract — they prevent an internal refactor from silently widening the public type.' This principle is directly supported by the rule. However, the function already has the return type annotation in both the citation and the diff, so this claim describes a state that is already achieved, not a needed action.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Adding a return type annotation prevents silent type widening from internal refactors.",
+            "kind": "",
+            "reason": "The rule document explicitly states: 'Explicit return types are a contract — they prevent an internal refactor from silently widening the public type.' This is directly supported by the rule document.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "config-service-only",
+    "drizzle-schema-source-of-truth",
+    "explicit-function-return-type",
+    "guards-live-in-guards-dir",
+    "max-lines-per-function",
+    "no-await-in-loop",
+    "no-explicit-any",
+    "no-magic-numbers",
+    "repository-pattern",
+    "thin-controllers"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

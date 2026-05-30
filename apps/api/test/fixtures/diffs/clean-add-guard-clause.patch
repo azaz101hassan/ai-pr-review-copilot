@@ -1,0 +1,44 @@
+diff --git a/src/search/query-builder.ts b/src/search/query-builder.ts
+index cccc777..dddd888 100644
+--- a/src/search/query-builder.ts
++++ b/src/search/query-builder.ts
+@@ -5,28 +5,26 @@ export interface SearchFilter {
+   maxResults?: number;
+ }
+
++const DEFAULT_MAX_RESULTS = 25;
++
+ /**
+  * Build a sanitised search query from user-supplied filters.
+  * Returns undefined when the input is not actionable.
+  */
+ export function buildSearchQuery(
+   rawTerm: string,
+   filters: SearchFilter,
+ ): SearchQuery | undefined {
+-  if (rawTerm && rawTerm.trim().length > 0) {
+-    const term = rawTerm.trim().toLowerCase();
+-    const maxResults = filters.maxResults ?? 25;
+-
+-    if (filters.category) {
+-      return {
+-        term,
+-        category: filters.category,
+-        maxResults,
+-      };
+-    }
+-
+-    return { term, maxResults };
+-  }
++  if (!rawTerm || rawTerm.trim().length === 0) return undefined;
++
++  const term = rawTerm.trim().toLowerCase();
++  const maxResults = filters.maxResults ?? DEFAULT_MAX_RESULTS;
++
++  if (filters.category) {
++    return { term, category: filters.category, maxResults };
++  }
+
+-  return undefined;
++  return { term, maxResults };
+ }

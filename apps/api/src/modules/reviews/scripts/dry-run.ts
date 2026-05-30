@@ -238,16 +238,18 @@ async function main(): Promise<void> {
 // directly), top-level `main()` would try to read process.argv and
 // fail. Standard idiom for dual entry-point/library files.
 if (require.main === module) {
-  main().catch((err) => {
-    // Scrub discipline: log the error's name + code, never the diff
-    // body, rules, or API key.
-    const errType = err instanceof Error ? err.name : typeof err;
-    const errCode = (err as { errorCode?: string; status?: number })?.errorCode;
-    const status = (err as { status?: number })?.status;
-    // eslint-disable-next-line no-console
-    console.error(
-      `review:dry-run failed: ${errType}${status !== undefined ? ` (HTTP ${status})` : ''}${errCode ? ` [${errCode}]` : ''}: ${err instanceof Error ? err.message : err}`,
-    );
-    process.exit(1);
-  });
+  main()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      // Scrub discipline: log the error's name + code, never the diff
+      // body, rules, or API key.
+      const errType = err instanceof Error ? err.name : typeof err;
+      const errCode = (err as { errorCode?: string; status?: number })?.errorCode;
+      const status = (err as { status?: number })?.status;
+      // eslint-disable-next-line no-console
+      console.error(
+        `review:dry-run failed: ${errType}${status !== undefined ? ` (HTTP ${status})` : ''}${errCode ? ` [${errCode}]` : ''}: ${err instanceof Error ? err.message : err}`,
+      );
+      process.exit(1);
+    });
 }

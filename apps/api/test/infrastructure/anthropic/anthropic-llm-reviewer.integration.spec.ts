@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AnthropicLlmReviewer } from '@/infrastructure/anthropic';
+import { AnthropicLlmReviewer, SessionRateLimitGuard } from '@/infrastructure/anthropic';
 import { FilesystemRepoContextProvider } from '@/infrastructure/repo-context';
 import { ConfigService } from '@/config';
 
@@ -17,28 +17,13 @@ import { ConfigService } from '@/config';
 const ENABLED = process.env.RUN_ANTHROPIC_INTEGRATION === 'true';
 const describeIf = ENABLED ? describe : describe.skip;
 
-// Module-scoped session counter. If the spec runs more than 5 times in
-// any rolling 60-second window we abort with a clear error — that's
-// almost certainly a `jest --watch` loop, not intended behaviour.
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX_CALLS = 5;
-const callTimestamps: number[] = [];
-
-function enforceSessionRateLimit(): void {
-  const now = Date.now();
-  // Drop timestamps that fell out of the window.
-  while (callTimestamps.length && now - callTimestamps[0] > RATE_LIMIT_WINDOW_MS) {
-    callTimestamps.shift();
-  }
-  if (callTimestamps.length >= RATE_LIMIT_MAX_CALLS) {
-    throw new Error(
-      `SessionRateLimitExceeded: too many real Anthropic calls in this jest session ` +
-        `(${callTimestamps.length} within ${RATE_LIMIT_WINDOW_MS / 1000}s, max ${RATE_LIMIT_MAX_CALLS}) — ` +
-        `likely a jest --watch loop. Restart Jest and reset the counter.`,
-    );
-  }
-  callTimestamps.push(now);
-}
+// Module-scoped guard instance — instantiated ONCE at the file's
+// top level so its state lifetime matches the previous module-scoped
+// `callTimestamps` array. Tests call `sessionGuard.acquire()`.
+const sessionGuard = new SessionRateLimitGuard({
+  windowMs: 60_000,
+  maxCalls: 5,
+});
 
 function makeConfig(): ConfigService {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -63,7 +48,7 @@ describeIf('AnthropicLlmReviewer — real-Anthropic smoke (RUN_ANTHROPIC_INTEGRA
   jest.setTimeout(60_000);
 
   it('returns at least one finding citing the matched rule on a violation diff', async () => {
-    enforceSessionRateLimit();
+    sessionGuard.acquire();
     const reviewer = new AnthropicLlmReviewer(makeConfig());
     const diff = loadFixture('no-var-violation.patch');
 
@@ -87,7 +72,7 @@ describeIf('AnthropicLlmReviewer — real-Anthropic smoke (RUN_ANTHROPIC_INTEGRA
   });
 
   it('first call writes cache_creation_input_tokens > 0; second call reads from cache', async () => {
-    enforceSessionRateLimit();
+    sessionGuard.acquire();
     const reviewer = new AnthropicLlmReviewer(makeConfig());
     const diff = loadFixture('no-var-violation.patch');
     const rules = [
@@ -114,7 +99,7 @@ describeIf('AnthropicLlmReviewer — real-Anthropic smoke (RUN_ANTHROPIC_INTEGRA
       );
     }
 
-    enforceSessionRateLimit();
+    sessionGuard.acquire();
     const second = await reviewer.analyzeDiff({ diff, rules });
     expect(second.usage.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
   });
@@ -126,7 +111,7 @@ describeIf('AnthropicLlmReviewer — real-Anthropic smoke (RUN_ANTHROPIC_INTEGRA
   // callers in src/retry-queue.js). A correct multi-turn run lands
   // turn_count > 1 AND at least one non-emit_finding tool call.
   it('multi-turn loop fires on silent-signature-change against the real Haiku model', async () => {
-    enforceSessionRateLimit();
+    sessionGuard.acquire();
     const reviewer = new AnthropicLlmReviewer(makeConfig());
     const diff = loadFixture('silent-signature-change.patch');
     const repoDir = resolve(

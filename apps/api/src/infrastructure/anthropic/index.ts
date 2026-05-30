@@ -14,3 +14,8 @@ export {
   computePromptToolHash,
 } from './anthropic-llm-reviewer';
 export { AnthropicRequestError } from './anthropic-request.error';
+export {
+  SessionRateLimitGuard,
+  SessionRateLimitExceededError,
+  BudgetExhaustedError,
+} from './session-rate-limit-guard';

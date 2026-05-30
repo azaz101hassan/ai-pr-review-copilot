@@ -6,7 +6,7 @@ Hand-curated unified-diff fixtures used by:
 - `test/modules/reviews/reviews.e2e-spec.ts` — end-to-end LLM review loop (the stub `ILlmReviewer` only emits findings whose `rule_id` is in the retrieved set, so a fixture that produces zero findings fails this gate).
 - `npm run query:rules` / `npm run review:dry-run` — manual smoke from the CLI.
 
-There are now **two categories** of fixture:
+There are now **three categories** of fixture:
 
 1. **Retrieval-only `.patch` fixtures (Day-3 shape).** A self-contained
    diff that violates one rule from the seeded corpus
@@ -28,6 +28,15 @@ There are now **two categories** of fixture:
    only into the scenario-specific describes in `reviews.e2e-spec.ts`
    (AE1, AE1b, AE2 in the Day-4 plan).
 
+3. **Clean `.patch` fixtures (Day-6 eval shape).** A self-contained
+   diff that is provably clean against all 43 seeded rules (33 Airbnb +
+   10 team-standards). A correct reviewer should return zero findings.
+   These are used by the eval harness (`test/fixtures/eval/`) with the
+   full rule corpus injected (retrieval bypassed) to measure false
+   positive rate. They are **not wired into the retrieval or review
+   e2e specs** -- cleanliness is validated empirically by the eval
+   capture step (U5/U9).
+
 | Fixture | Category | Violates rule(s) | Source |
 | --- | --- | --- | --- |
 | `eqeqeq-violation.patch` | retrieval-only | `eqeqeq` (airbnb-eslint) | Synthetic — fictional checkout flow that swaps `===` for `==`. |
@@ -38,6 +47,11 @@ There are now **two categories** of fixture:
 | `thin-controllers-violation.patch` | retrieval-only | `thin-controllers`, `no-crud-on-database-service`, `repository-pattern`, `config-service-only` (team-standards) | Synthetic — `OrdersController` inlines business logic, calls `DatabaseService.drizzle.insert(...)` directly, constructs a Stripe client inside the controller, and bypasses the repository pattern. Multi-rule violation by design so the e2e can exercise multi-finding output. |
 | `silent-signature-change.patch` + `silent-signature-change.repo/` | agent-loop | `no-param-reassign` (closest retrieval match) | Day-4 — adds an `idempotencyKey` arg to ONE of five `chargeCard` call sites. The other four (three in `checkout.js`, one in `retry-queue.js`) are unchanged; the inconsistency is only visible when the agent fetches both files. |
 | `dismissed-eqeqeq-rerun.patch` + `dismissed-eqeqeq-rerun.repo/` | agent-loop | `eqeqeq` (airbnb-eslint) | Day-4 — re-applies an `eqeqeq` violation at a location that `.repo/reviews.json` records as previously dismissed by the team. The agent must call `fetch_prior_review`, observe the `dismissed_at` timestamp, and emit zero findings. |
+| `clean-extract-helper.patch` | clean | *(none -- expected zero findings)* | Synthetic -- extracts an inline map callback from `InvoiceService.generateInvoice` into a typed pure helper `computeLineTotal` in a `helpers/` file. Uses `const`, named exports, `@/*` path aliases, template-literal-free, proper import order. |
+| `clean-rename-variable.patch` | clean | *(none -- expected zero findings)* | Synthetic -- renames `findAvailableSlots` to `findAvailableWindows` and internal variables (`slots` to `windows`, `cursor` to `candidateStart`, `slotDurationMs` to `windowDurationMs`) across two files. Pure rename refactor with no behavioral change. |
+| `clean-tighten-return-type.patch` | clean | *(none -- expected zero findings)* | Synthetic -- adds an explicit `Promise<DeliveryResult>` return type to `NotificationService.send()` and introduces a `DeliveryResult` interface in a new types file. Tightens the public contract without changing behavior. |
+| `clean-config-constant.patch` | clean | *(none -- expected zero findings)* | Synthetic -- extracts inline string literals in `drizzle.config.ts` into named constants (`SCHEMA_GLOB`, `MIGRATIONS_DIR`) and removes the `verbose` flag. A config-file cleanup, no TS/JS rule surface. |
+| `clean-add-guard-clause.patch` | clean | *(none -- expected zero findings)* | Synthetic -- refactors `buildSearchQuery` from a positive-condition-wrapped body to an early-return guard clause with a named `DEFAULT_MAX_RESULTS` constant. Flattens nesting, improves readability. |
 
 ## Conventions
 

@@ -1,0 +1,57 @@
+{
+  "status": "emitted",
+  "fixtureId": "clean-extract-helper__top10",
+  "findings": [
+    {
+      "rule_id": "explicit-function-return-type",
+      "title": "Declare return types on exported functions",
+      "message": "The exported function `computeLineTotal` in src/billing/helpers/compute-line-total.ts lacks an explicit return type annotation. Add an explicit return type to make the contract clear and prevent silent type changes on refactoring.",
+      "location_hint": "src/billing/helpers/compute-line-total.ts:5",
+      "citation": "export function computeLineTotal(item: LineItem): InvoiceLine {",
+      "faithfulness": {
+        "score": 0.6666666666666666,
+        "claims": [
+          {
+            "claim": "The exported function `computeLineTotal` in src/billing/helpers/compute-line-total.ts has an explicit return type annotation.",
+            "kind": "",
+            "reason": "The diff shows the function definition at line 5 of the new file: `export function computeLineTotal(item: LineItem): InvoiceLine {`. The function clearly has an explicit return type annotation of `InvoiceLine` specified after the parameter list.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The exported function `computeLineTotal` lacks an explicit return type annotation.",
+            "kind": "",
+            "reason": "The diff shows the function has an explicit return type annotation `InvoiceLine` at line 5. This directly contradicts the claim that the function lacks a return type annotation.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Explicit return types on exported functions prevent silent type changes on refactoring.",
+            "kind": "",
+            "reason": "The rule document states: 'Explicit return types are a contract — they prevent an internal refactor from silently widening the public type.' This directly supports the claim about preventing silent type changes.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "complexity",
+    "explicit-function-return-type",
+    "guard-clauses",
+    "import-order",
+    "max-lines-per-function",
+    "no-await-in-loop",
+    "no-deeply-nested-callbacks",
+    "no-mocks-for-the-db",
+    "repository-pattern",
+    "thin-controllers"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

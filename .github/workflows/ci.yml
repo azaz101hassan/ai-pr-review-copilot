@@ -39,6 +39,12 @@ jobs:
           RUN_ANTHROPIC_INTEGRATION: ''
         run: npm test --workspaces --if-present
 
+      - name: Eval score (offline gate)
+        # Runs the offline eval scorer against committed recordings.
+        # No API keys needed — reads JSON recordings + manifest only.
+        # While thresholds.json is empty this is report-only (exit 0).
+        run: npm run eval:score --workspace apps/api
+
       - name: Build apps/web (smoke-test Next.js scaffold)
         run: npm run build --workspace apps/web
 

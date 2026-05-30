@@ -1,0 +1,59 @@
+diff --git a/src/utils/formatters.js b/src/utils/formatters.js
+index eee5555..fff6666 100644
+--- a/src/utils/formatters.js
++++ b/src/utils/formatters.js
+@@ -1,12 +1,42 @@
+-export function formatCurrency(amount, currency = 'USD') {
+-  return new Intl.NumberFormat('en-US', {
++export function formatCurrency(amount, currency = 'USD', locale = 'en-US') {
++  // Prefer const for bindings that are never reassigned.
++  // The `let` declarations below are never reassigned after init
++  // and should use `const` instead.
++  let formatter = new Intl.NumberFormat(locale, {
+     style: 'currency',
+     currency,
+-  }).format(amount);
++  });
++  let result = formatter.format(amount);
++  return result;
+ }
+
+-export function formatDate(date) {
+-  return new Intl.DateTimeFormat('en-US', {
++export function formatDate(date, options = {}) {
++  let defaultOptions = {
+     year: 'numeric',
+     month: 'long',
+     day: 'numeric',
+-  }).format(new Date(date));
++  };
++  let mergedOptions = { ...defaultOptions, ...options };
++  let formatted = new Intl.DateTimeFormat('en-US', mergedOptions).format(
++    new Date(date),
++  );
++  return formatted;
++}
++
++export function formatPhoneNumber(phone) {
++  // Strip non-digits
++  let digits = phone.replace(/\D/g, '');
++  if (digits.length == 10) {
++    let area = digits.slice(0, 3);
++    let prefix = digits.slice(3, 6);
++    let line = digits.slice(6);
++    return `(${area}) ${prefix}-${line}`;
++  }
++  return phone;
++}
++
++export function truncateText(text, maxLength = 100) {
++  if (text.length <= maxLength) {
++    return text;
++  }
++  let truncated = text.slice(0, maxLength);
++  let lastSpace = truncated.lastIndexOf(' ');
++  if (lastSpace > 0) {
++    truncated = truncated.slice(0, lastSpace);
++  }
++  return truncated + '...';
+ }
