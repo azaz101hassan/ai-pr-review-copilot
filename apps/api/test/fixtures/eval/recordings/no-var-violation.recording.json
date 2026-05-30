@@ -1,0 +1,93 @@
+{
+  "status": "emitted",
+  "fixtureId": "no-var-violation",
+  "findings": [
+    {
+      "rule_id": "no-var",
+      "title": "Use let or const, never var",
+      "message": "Replace `var` with `let` or `const`. The `var` keyword is function-scoped and hoisted, leading to subtle re-declaration and closure bugs. Use `const` for the outer `sum` variable (never reassigned) and the loop index/item, and `let` only if the binding must be reassigned.",
+      "location_hint": "src/totals.js:2-5",
+      "citation": "var sum = 0;\n  for (var i = 0; i < items.length; i++) {\n    var item = items[i];",
+      "faithfulness": {
+        "score": 0.75,
+        "claims": [
+          {
+            "claim": "The `var` keyword is function-scoped and hoisted, leading to subtle re-declaration and closure bugs.",
+            "kind": "",
+            "reason": "This statement is directly supported by the rule document, which explicitly states: 'var declarations are function-scoped and hoisted in confusing ways.' The rule document also contrasts this with let and const being 'block-scoped and behave predictably,' supporting the claim about the problematic nature of var.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The outer `sum` variable should use `const` because it is never reassigned.",
+            "kind": "",
+            "reason": "The finding claims the outer sum variable is never reassigned. However, the PR diff shows that `sum` is reassigned on line 5 with `sum = sum + item.price;`. This directly contradicts the claim that sum is never reassigned. The rule document states 'Prefer const by default and let only when reassignment is required,' which would mean const is only appropriate if there is no reassignment. Since the diff shows reassignment, the claim is not supported.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "The loop index/item should use `const`.",
+            "kind": "",
+            "reason": "The rule document's good example shows using `const item of items` for loop iteration, supporting the use of const for loop items. However, the diff shows the code uses `var i` and `var item`, which contradicts this recommendation. The finding's claim about what should be used is supported by the rule document, but the actual code in the diff does not follow this guidance.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `var` keyword should be replaced with `let` or `const`.",
+            "kind": "",
+            "reason": "This is directly supported by the rule document title and content: 'Use let or const, never var' and 'Prefer const by default and let only when reassignment is required.' The diff shows the code currently uses `var` for sum, i, and item, which violates this rule.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "prefer-const",
+      "title": "Use const for variables that are never reassigned",
+      "message": "`sum` is never reassigned after initialization; declare it with `const` rather than `var` or `let`. This signals immutability intent and prevents accidental reassignment.",
+      "location_hint": "src/totals.js:2",
+      "citation": "var sum = 0;",
+      "faithfulness": {
+        "score": 0.3333333333333333,
+        "claims": [
+          {
+            "claim": "The variable `sum` in src/totals.js is never reassigned after initialization.",
+            "kind": "",
+            "reason": "The diff shows that `sum` is initialized with `var sum = 0;` on line 2, and then later modified with `sum = sum + item.price;` inside the loop. This is a reassignment of the `sum` variable, which contradicts the claim that it is never reassigned.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "The variable `sum` should be declared with `const` rather than `var` or `let`.",
+            "kind": "",
+            "reason": "The rule document states that if a binding is never reassigned, it should be declared with `const`. However, the diff shows that `sum` is reassigned in the loop (`sum = sum + item.price;`), so this claim is not supported by the evidence. A variable that is reassigned should not be declared with `const`.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Declaring `sum` with `const` signals immutability intent and prevents accidental reassignment.",
+            "kind": "",
+            "reason": "This statement is consistent with the rule document, which states that 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.' However, this claim is about the general benefit of using `const`, not about whether it applies to the specific `sum` variable in the diff, which is actually reassigned.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "complexity",
+    "guard-clauses",
+    "max-lines-per-function",
+    "no-magic-numbers",
+    "no-nested-ternary",
+    "no-param-reassign",
+    "no-var",
+    "object-shorthand",
+    "prefer-const",
+    "prefer-template"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "d0d5eb3b5dfe99e2c40d0780d65dfe11b3d37909462de54b5db2671dd9267db9",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

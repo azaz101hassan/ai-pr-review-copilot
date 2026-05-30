@@ -1,0 +1,17 @@
+{
+  "status": "emitted",
+  "fixtureId": "silent-signature-change",
+  "findings": [],
+  "ruleSet": [
+    "no-param-reassign"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "964759c8096e8991b66d5c657c5acf6da85e47b8eb7eb9f696a2f8807b8af120",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

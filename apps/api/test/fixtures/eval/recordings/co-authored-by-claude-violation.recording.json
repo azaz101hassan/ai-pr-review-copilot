@@ -1,0 +1,81 @@
+{
+  "status": "emitted",
+  "fixtureId": "co-authored-by-claude-violation",
+  "findings": [
+    {
+      "rule_id": "no-co-authored-by-claude",
+      "title": "Never add Co-Authored-By: Claude to commits or PRs",
+      "message": "CHANGELOG.md contains `Co-Authored-By: Claude` and `Generated with Claude Code` trailers, which must be removed. Per team standards, the author of every commit is the human running the session. Additionally, the release script comment explicitly states \"we DO want Co-Authored-By: Claude trailers in the release notes\" — this contradicts the rule and should be removed.",
+      "location_hint": "CHANGELOG.md:10-12",
+      "citation": "Co-Authored-By: Claude <noreply@anthropic.com>\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+      "faithfulness": {
+        "score": 0.8571428571428571,
+        "claims": [
+          {
+            "claim": "CHANGELOG.md contains `Co-Authored-By: Claude` trailers.",
+            "kind": "",
+            "reason": "The diff shows CHANGELOG.md with a new section (v0.4.1) that includes the line `Co-Authored-By: Claude <noreply@anthropic.com>` at lines 10-12.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "CHANGELOG.md contains `Generated with Claude Code` trailers.",
+            "kind": "",
+            "reason": "The diff shows CHANGELOG.md with the line `🤖 Generated with [Claude Code](https://claude.com/claude-code)` immediately following the Co-Authored-By trailer.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Per team standards, the author of every commit is the human running the session.",
+            "kind": "",
+            "reason": "The rule document explicitly states: 'The author of every commit is the human running the session.' This is a direct restatement of the rule.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The release script contains a comment stating 'we DO want Co-Authored-By: Claude trailers in the release notes'.",
+            "kind": "",
+            "reason": "The diff shows the release script (scripts/release/format-commit.sh) with the exact comment: `# NOTE: we DO want Co-Authored-By: Claude trailers in the release notes`.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The comment in the release script contradicts the rule against adding Co-Authored-By: Claude.",
+            "kind": "",
+            "reason": "The rule document states that commit messages and PR descriptions must not contain `Co-Authored-By: Claude`. The release script comment explicitly states the opposite intention ('we DO want Co-Authored-By: Claude trailers'). This is a direct contradiction between the rule and the script comment.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `Co-Authored-By: Claude` and `Generated with Claude Code` trailers must be removed from CHANGELOG.md.",
+            "kind": "",
+            "reason": "The rule document states that commit messages, PR descriptions, and review comments must not contain these trailers. CHANGELOG.md is part of the commit/PR content, so the rule applies. The finding correctly identifies that these trailers violate the rule and should be removed.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The release script comment should be removed.",
+            "kind": "",
+            "reason": "The finding states the comment should be removed because it contradicts the rule. The rule document prohibits Co-Authored-By: Claude trailers, and the comment explicitly endorses including them. Removing a contradictory comment is a reasonable consequence of enforcing the rule, though the rule document does not explicitly state that such comments should be removed.",
+            "verdict": "unclear"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "drizzle-schema-source-of-truth",
+    "max-lines-per-function",
+    "no-await-in-loop",
+    "no-co-authored-by-claude",
+    "no-console",
+    "no-deeply-nested-callbacks",
+    "no-floating-promises",
+    "no-mocks-for-the-db",
+    "prefer-async-await",
+    "prefer-const"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "c672df107db3a1f636bb278fbe953c20fee9ac8024eba5dff08a6a8735cc97b4",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

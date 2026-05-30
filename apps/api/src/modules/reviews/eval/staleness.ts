@@ -57,19 +57,45 @@ export function getLatestTrackedCommit(
 
 /**
  * Check staleness of a single recording against the latest tracked commit.
+ *
+ * A recording is stale when the tracked paths were modified AFTER the
+ * recording was captured — i.e. the latest tracked commit is NOT an
+ * ancestor of (or equal to) the recording's gitSha.
  */
 export function checkStaleness(
   recording: Recording,
   latestTrackedSha: string,
+  repoRoot: string,
 ): StalenessResult {
   const recordingSha = recording.provenance.gitSha;
+
+  let stale = false;
+  if (latestTrackedSha === '' || recordingSha === '') {
+    stale = false;
+  } else if (recordingSha === latestTrackedSha) {
+    stale = false;
+  } else {
+    stale = !isAncestor(latestTrackedSha, recordingSha, repoRoot);
+  }
 
   return {
     fixtureId: recording.fixtureId,
     recordingGitSha: recordingSha,
     latestTrackedSha,
-    stale: latestTrackedSha !== '' && recordingSha !== latestTrackedSha,
+    stale,
   };
+}
+
+function isAncestor(ancestor: string, descendant: string, repoRoot: string): boolean {
+  try {
+    execSync(`git merge-base --is-ancestor ${ancestor} ${descendant}`, {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -86,7 +112,7 @@ export function checkAllStaleness(
 ): StalenessResult[] {
   const latestSha = getLatestTrackedCommit(repoRoot, trackedPaths);
 
-  return recordings.map((r) => checkStaleness(r, latestSha));
+  return recordings.map((r) => checkStaleness(r, latestSha, repoRoot));
 }
 
 /**

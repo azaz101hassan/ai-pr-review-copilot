@@ -1,0 +1,63 @@
+{
+  "status": "emitted",
+  "fixtureId": "eqeqeq-violation",
+  "findings": [
+    {
+      "rule_id": "eqeqeq",
+      "title": "Use === and !==, never == or !=",
+      "message": "Replace loose equality operators (==, !=) with strict equality (===, !==). The diff changed multiple strict equality checks to loose equality, which can hide type-coercion bugs.",
+      "location_hint": "src/checkout.js:13-27",
+      "citation": "- if (order.status === \"pending\") {\n+ if (order.status == \"pending\") {",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The diff changed strict equality checks to loose equality operators.",
+            "kind": "",
+            "reason": "The diff shows multiple lines where === was replaced with == and !== was replaced with !=. Specifically: line 13 changes `order.status === \"pending\"` to `order.status == \"pending\"`, line 16 changes `order.couponCode !== null` to `order.couponCode != null`, line 19 changes `order.user.role === \"admin\"` to `order.user.role == \"admin\"`, line 22 changes `order.tier !== \"free\"` to `order.tier != \"free\"`, and line 25 changes `order.shippingMethod === \"express\"` to `order.shippingMethod == \"express\"`. This directly demonstrates the change from strict to loose equality.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Loose equality operators (==, !=) should never be used.",
+            "kind": "",
+            "reason": "The rule document explicitly states 'Use === and !==, never == or !='. This is the core principle of the rule.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Loose equality performs type coercion that can hide bugs.",
+            "kind": "",
+            "reason": "The rule document states 'Loose equality performs type coercion that hides bugs' and provides examples like '\"0\" == false, null == undefined, etc.'",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Strict equality (===, !==) should be used instead of loose equality.",
+            "kind": "",
+            "reason": "The rule document explicitly recommends using strict equality operators (===, !==) and provides examples of good code using these operators.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "complexity",
+    "eqeqeq",
+    "guard-clauses",
+    "max-lines-per-function",
+    "no-await-in-loop",
+    "no-else-return",
+    "no-explicit-any",
+    "no-magic-numbers",
+    "no-nested-ternary",
+    "no-non-null-assertion"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "65a9ef88498c80677e698007a936ef4187cb8d7a23ac0c08181032ba6ab4f616",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

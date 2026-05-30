@@ -1,0 +1,117 @@
+{
+  "status": "emitted",
+  "fixtureId": "real-pr-react-form-handler",
+  "findings": [
+    {
+      "rule_id": "max-lines-per-function",
+      "title": "Keep functions short — under ~50 lines",
+      "message": "The `handleSubmit` function now spans 44 lines and does validation, API calls, error handling, success redirect, and state updates all in one function. Extract sub-helpers for validation and API submission to keep each function focused.",
+      "location_hint": "src/components/ContactForm.jsx:9-52",
+      "citation": "const handleSubmit = async (e) => {\n    e.preventDefault();\n    let validationErrors = {};\n    if (!name || name.trim().length == 0) { ... }\n    if (!email || !email.includes('@')) { ... }\n    if (message.length == 0) { ... }\n    if (Object.keys(validationErrors).length > 0) { ... }\n    var payload = { ... };\n    try {\n      var response = await fetch(...) { ... }\n      var data = await response.json();\n      if (data.status == 'ok') { ... }\n    } catch (err) { ... }\n  };",
+      "faithfulness": {
+        "score": 0.8571428571428571,
+        "claims": [
+          {
+            "claim": "The `handleSubmit` function spans 44 lines.",
+            "kind": "",
+            "reason": "The diff shows the `handleSubmit` function starting at line 9 (after the state declarations) and ending at line 52. Counting the lines from `const handleSubmit = async (e) => {` through the closing `};`, the function spans approximately 44 lines, which matches the finding's assertion.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function performs validation.",
+            "kind": "",
+            "reason": "The diff clearly shows validation logic within the function: checking if name is empty, if email contains '@', and if message is empty (lines 15-23). This is explicitly visible in the code.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function performs API calls.",
+            "kind": "",
+            "reason": "The diff shows an async fetch call to '/api/contact' with POST method and JSON payload (lines 34-40), which is an API call.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function performs error handling.",
+            "kind": "",
+            "reason": "The diff shows a try-catch block (lines 33-51) that catches errors and sets error state with `setErrors({ submit: errorMsg })` (line 50).",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function performs success redirect.",
+            "kind": "",
+            "reason": "The diff shows `onSubmit(payload)` being called on success (line 45), which is a callback that could redirect. However, the diff does not show an explicit redirect operation (like `window.location` or router navigation). The finding claims 'success redirect' but the code only shows a callback invocation. This is ambiguous—the callback might redirect, but the function itself does not perform a redirect.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "The `handleSubmit` function performs state updates.",
+            "kind": "",
+            "reason": "The diff shows multiple state updates: `setErrors(validationErrors)` (line 26), `setName('')`, `setEmail('')`, `setMessage('')` (lines 46-48), and `setErrors({ submit: errorMsg })` (line 50).",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The rule document recommends extracting sub-helpers for validation and API submission to keep each function focused.",
+            "kind": "",
+            "reason": "The rule document states 'Extract sub-helpers' and provides an example where a long function is refactored into smaller functions like `validate(order)`, `persist(order)`, and `notify(saved)`. The finding's recommendation to 'Extract sub-helpers for validation and API submission' aligns with the rule's guidance.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "guard-clauses",
+      "title": "Use guard clauses for invalid inputs",
+      "message": "The validation logic should use early returns (guard clauses) instead of accumulating errors and checking at the end. Add `if (!condition) { setErrors(...); return; }` for each field at the top of the function to keep the happy path unindented.",
+      "location_hint": "src/components/ContactForm.jsx:11-26",
+      "citation": "let validationErrors = {};\n    if (!name || name.trim().length == 0) { validationErrors.name = 'Name is required'; }\n    if (!email || !email.includes('@')) { validationErrors.email = 'Valid email is required'; }\n    if (message.length == 0) { validationErrors.message = 'Message is required'; }\n    if (Object.keys(validationErrors).length > 0) { setErrors(validationErrors); return; }",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The validation logic in the handleSubmit function accumulates errors in a validationErrors object and checks at the end instead of using early returns.",
+            "kind": "",
+            "reason": "The diff shows lines 14-26 where validationErrors is initialized as an empty object, then multiple if statements add properties to it, and finally at line 25-26 the code checks if there are any errors and returns. This matches the pattern described in the finding.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The rule document recommends using guard clauses with early returns at the top of the function to keep the happy path unindented.",
+            "kind": "",
+            "reason": "The rule document explicitly states: 'Handle invalid or unhappy inputs with early returns at the top of the function. This keeps the happy path at one level of indentation and removes the need for trailing else branches.' The good example shows early returns for each invalid condition.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The current code structure does not follow the guard clause pattern recommended by the rule.",
+            "kind": "",
+            "reason": "The diff shows the validation logic accumulates errors in an object and checks them all at once (lines 14-26), whereas the rule recommends individual early returns for each validation failure at the top of the function. The current approach is the 'bad' pattern shown in the rule document.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Adding guard clauses with `if (!condition) { setErrors(...); return; }` for each field at the top of the function would improve the code structure.",
+            "kind": "",
+            "reason": "The rule document demonstrates that early returns for each invalid condition keep the happy path at the outer indent level and remove nesting. The finding's suggestion to add individual guard clauses for each field aligns with the rule's recommendation.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "guard-clauses",
+    "max-lines-per-function",
+    "no-deeply-nested-callbacks",
+    "no-explicit-any",
+    "no-floating-promises",
+    "no-param-reassign",
+    "prefer-async-await",
+    "prefer-destructuring",
+    "prefer-template",
+    "react-hooks-rules"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "ab2b9b0b37a7e0c2bd9cae6ede573705b7c962f216214876519c71ae9346a300",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

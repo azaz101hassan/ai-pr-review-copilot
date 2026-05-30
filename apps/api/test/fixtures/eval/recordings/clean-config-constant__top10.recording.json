@@ -1,0 +1,57 @@
+{
+  "status": "emitted",
+  "fixtureId": "clean-config-constant__top10",
+  "findings": [
+    {
+      "rule_id": "prefer-const",
+      "title": "Use const for variables that are never reassigned",
+      "message": "The variable MIGRATIONS_DIR is assigned once and never reassigned. Declare it with const instead of let to signal intent and prevent accidental reassignment.",
+      "location_hint": "drizzle.config.ts:4",
+      "citation": "const MIGRATIONS_DIR = './src/infrastructure/db/migrations';",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The variable MIGRATIONS_DIR is assigned once and never reassigned.",
+            "kind": "",
+            "reason": "The diff shows that MIGRATIONS_DIR is declared on line 3 with the value './src/infrastructure/db/migrations' and is used on line 9 in the export default object. There is no evidence in the diff of any reassignment of MIGRATIONS_DIR after its initial declaration.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "MIGRATIONS_DIR should be declared with const instead of let.",
+            "kind": "",
+            "reason": "The rule document states: 'If a binding is never reassigned, declare it const. const signals intent and prevents accidental reassignment that breaks the reader's mental model.' The diff shows MIGRATIONS_DIR is declared with const, which aligns with the rule's requirement that variables never reassigned should use const. The finding correctly identifies that const should be used for this variable.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Using const for MIGRATIONS_DIR signals intent and prevents accidental reassignment.",
+            "kind": "",
+            "reason": "This claim directly restates the rule document's rationale: 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.' The rule document explicitly supports this statement.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "config-service-only",
+    "drizzle-schema-source-of-truth",
+    "explicit-function-return-type",
+    "module-tier-dependencies",
+    "no-crud-on-database-service",
+    "no-explicit-any",
+    "no-mocks-for-the-db",
+    "no-non-null-assertion",
+    "prefer-const",
+    "repository-pattern"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

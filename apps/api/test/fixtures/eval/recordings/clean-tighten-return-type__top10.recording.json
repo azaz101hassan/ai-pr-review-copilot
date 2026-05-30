@@ -1,0 +1,26 @@
+{
+  "status": "emitted",
+  "fixtureId": "clean-tighten-return-type__top10",
+  "findings": [],
+  "ruleSet": [
+    "config-service-only",
+    "explicit-function-return-type",
+    "guards-live-in-guards-dir",
+    "max-lines-per-function",
+    "no-await-in-loop",
+    "no-crud-on-database-service",
+    "no-floating-promises",
+    "prefer-async-await",
+    "repository-pattern",
+    "thin-controllers"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}

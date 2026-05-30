@@ -1,0 +1,177 @@
+{
+  "status": "emitted",
+  "fixtureId": "max-lines-violation",
+  "findings": [
+    {
+      "rule_id": "max-lines-per-function",
+      "title": "Keep functions short — under ~50 lines",
+      "message": "The `processOrder` function spans 67 lines and performs multiple independent tasks (validation, discount calculation, tax calculation, shipping, persistence, notification, analytics, loyalty, inventory, and audit logging). Extract these into smaller helper functions to improve readability and maintainability.",
+      "location_hint": "src/process-order.js:7-70",
+      "citation": "export function processOrder(order) {\n  // validate\n  if (!order) throw new Error('no order');\n  // ... 64 more lines of validation, computation, persistence, notification, analytics, loyalty, inventory, audit",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The processOrder function spans 67 lines.",
+            "kind": "",
+            "reason": "The diff shows the processOrder function starting at line 7 and ending at line 70 (based on the location hint src/process-order.js:7-70). Counting the lines in the diff from the opening brace to the closing brace yields approximately 67 lines of code, which matches the finding's assertion.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs validation tasks.",
+            "kind": "",
+            "reason": "The diff clearly shows validation logic at the beginning of the function (lines checking for order, order.user, order.items, item.id, item.price, etc.), which is explicitly labeled with a '// validate' comment.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs discount calculation tasks.",
+            "kind": "",
+            "reason": "The diff shows discount calculation logic (lines with '// apply discounts' comment) that handles coupon-based discounts and premium user discounts.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs tax calculation tasks.",
+            "kind": "",
+            "reason": "The diff shows tax calculation logic (lines with '// tax' comment) that computes tax based on region.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs shipping tasks.",
+            "kind": "",
+            "reason": "The diff shows shipping calculation logic (lines with '// shipping' comment) that determines shipping costs based on express option and subtotal.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs persistence tasks.",
+            "kind": "",
+            "reason": "The diff shows persistence logic (lines with '// persist' comment) that saves the order record to the database via db.orders.save(record).",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs notification tasks.",
+            "kind": "",
+            "reason": "The diff shows notification logic (lines with '// notify' comment) that sends email and SMS notifications to the user.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs analytics tasks.",
+            "kind": "",
+            "reason": "The diff shows analytics logic (lines with '// analytics' comment) that tracks the order placement event.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs loyalty tasks.",
+            "kind": "",
+            "reason": "The diff shows loyalty logic (lines with '// loyalty' comment) that adds loyalty points based on user tier.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs inventory tasks.",
+            "kind": "",
+            "reason": "The diff shows inventory logic (lines with '// inventory' comment) that decrements inventory for each item in the order.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs audit logging tasks.",
+            "kind": "",
+            "reason": "The diff shows audit logging logic (lines with '// audit log' comment) that writes an audit log entry for the order creation.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Extracting these tasks into smaller helper functions would improve readability and maintainability.",
+            "kind": "",
+            "reason": "The rule document explicitly states that functions spanning many lines are hard to keep in working memory and usually do more than one thing, and recommends extracting sub-helpers. The rule provides a 'Good' example showing how to refactor a long processOrder function into smaller helper functions (validate, persist, notify). This principle directly supports the claim that extraction would improve readability and maintainability.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "guard-clauses",
+      "title": "Use guard clauses for invalid inputs",
+      "message": "The validation section (lines 8–14) uses guard clauses correctly, but the subsequent sections (discount, tax, shipping, loyalty) contain unnecessary nested conditionals that could be flattened. Extract coupon discount logic, tax calculation, and loyalty logic into named helper functions to avoid nested if-else chains within a single large function.",
+      "location_hint": "src/process-order.js:20-27",
+      "citation": "if (order.coupon) {\n    if (order.coupon.type === 'percent') {\n      discount = subtotal * (order.coupon.value / 100);\n    } else if (order.coupon.type === 'fixed') {\n      discount = order.coupon.value;\n    }\n  }",
+      "faithfulness": {
+        "score": 0.1111111111111111,
+        "claims": [
+          {
+            "claim": "The validation section (lines 8–14) uses guard clauses correctly.",
+            "kind": "",
+            "reason": "The diff shows lines 8-14 contain guard clauses with early returns: `if (!order) throw new Error('no order');`, `if (!order.user) throw new Error('no user');`, `if (!order.items) throw new Error('no items');`, and `if (order.items.length === 0) throw new Error('empty');`. These are guard clauses that validate inputs and exit early, matching the rule document's definition of correct guard clause usage.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The discount section contains unnecessary nested conditionals that could be flattened.",
+            "kind": "",
+            "reason": "The diff shows lines 20-27 contain nested if-else statements: `if (order.coupon) { if (order.coupon.type === 'percent') { ... } else if (order.coupon.type === 'fixed') { ... } }`. This is a nested conditional structure. However, the rule document focuses on guard clauses for invalid inputs at the top of functions, not on flattening nested conditionals within valid code paths. The rule does not address whether nested conditionals within the happy path (after validation) should be flattened.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "The tax section contains unnecessary nested conditionals that could be flattened.",
+            "kind": "",
+            "reason": "The diff shows lines 31-34 contain a chain of if-else statements for tax calculation: `if (region === 'CA') tax = subtotal * 0.0725; else if (region === 'NY') tax = subtotal * 0.08875; else if (region === 'TX') tax = subtotal * 0.0625; else tax = subtotal * 0.05;`. This is a nested conditional structure. However, the rule document does not address whether such conditionals within the happy path should be flattened; it focuses on guard clauses for invalid inputs.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "The shipping section contains unnecessary nested conditionals that could be flattened.",
+            "kind": "",
+            "reason": "The diff shows lines 37-39 contain if-else statements for shipping: `if (order.shipping?.express) shipping = 25; else if (subtotal > 50) shipping = 0; else shipping = 8;`. This is a conditional structure. However, the rule document does not address whether such conditionals within the happy path should be flattened; it focuses on guard clauses for invalid inputs.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "The loyalty section contains unnecessary nested conditionals that could be flattened.",
+            "kind": "",
+            "reason": "The diff shows lines 56-59 contain an if-else statement for loyalty: `if (order.user.tier === 'premium') { loyalty.addPoints(order.user.id, Math.floor(total)); } else { loyalty.addPoints(order.user.id, Math.floor(total / 2)); }`. This is a conditional structure. However, the rule document does not address whether such conditionals within the happy path should be flattened; it focuses on guard clauses for invalid inputs.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "Coupon discount logic should be extracted into a named helper function.",
+            "kind": "",
+            "reason": "The finding recommends extracting coupon discount logic into a named helper function. The rule document does not mention extracting logic into helper functions; it focuses on using guard clauses for invalid inputs. The diff does not show any helper functions being created for coupon discount logic. This recommendation goes beyond the scope of the cited rule document.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Tax calculation logic should be extracted into a named helper function.",
+            "kind": "",
+            "reason": "The finding recommends extracting tax calculation logic into a named helper function. The rule document does not mention extracting logic into helper functions; it focuses on using guard clauses for invalid inputs. The diff does not show any helper functions being created for tax calculation. This recommendation goes beyond the scope of the cited rule document.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Loyalty logic should be extracted into a named helper function.",
+            "kind": "",
+            "reason": "The finding recommends extracting loyalty logic into a named helper function. The rule document does not mention extracting logic into helper functions; it focuses on using guard clauses for invalid inputs. The diff does not show any helper functions being created for loyalty logic. This recommendation goes beyond the scope of the cited rule document.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Extracting coupon discount logic, tax calculation, and loyalty logic into named helper functions would avoid nested if-else chains within a single large function.",
+            "kind": "",
+            "reason": "The finding claims that extracting these sections into helper functions would avoid nested if-else chains. While this is a reasonable software engineering principle, the rule document does not address this approach. The rule document focuses on guard clauses for invalid inputs, not on extracting logic into helper functions to reduce nesting. This claim goes beyond what the rule document supports.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "complexity",
+    "guard-clauses",
+    "max-lines-per-function",
+    "no-await-in-loop",
+    "no-deeply-nested-callbacks",
+    "no-explicit-any",
+    "no-floating-promises",
+    "no-non-null-assertion",
+    "no-throw-literal",
+    "repository-pattern"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "80878730eb1078d6de9e168103498e51f79470182b1e64046f24682bbfd9cd7b",
+    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+  }
+}
