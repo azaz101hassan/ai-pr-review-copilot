@@ -197,7 +197,7 @@ describe('manifest loader', () => {
       );
       const manifest = loadManifest(manifestPath);
 
-      expect(manifest.entries).toHaveLength(8);
+      expect(manifest.entries).toHaveLength(13);
       expect(manifest.manifestVersion).toMatch(/^[0-9a-f]{64}$/);
 
       // Verify the multi-rule fixture
