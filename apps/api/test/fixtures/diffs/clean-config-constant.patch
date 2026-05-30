@@ -2,7 +2,7 @@ diff --git a/drizzle.config.ts b/drizzle.config.ts
 index aaaa444..bbbb555 100644
 --- a/drizzle.config.ts
 +++ b/drizzle.config.ts
-@@ -1,12 +1,14 @@
+@@ -1,10 +1,12 @@
  import type { Config } from 'drizzle-kit';
 
 +const SCHEMA_GLOB = './src/infrastructure/db/schema/*.ts';
@@ -17,6 +17,5 @@ index aaaa444..bbbb555 100644
    dbCredentials: {
      url: process.env.DATABASE_URL ?? './data/local.sqlite',
    },
--  verbose: true,
    strict: true,
  } satisfies Config;

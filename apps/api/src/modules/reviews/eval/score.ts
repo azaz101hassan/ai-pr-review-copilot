@@ -26,13 +26,17 @@ import {
   aggregateMetrics,
   assertThresholds,
   allThresholdsPassed,
+  computeCleanABDelta,
 } from '@/modules/reviews/eval/metrics';
 import type {
   FixtureScore,
   AggregateMetrics,
   Thresholds,
   ThresholdResult,
+  CleanABDelta,
 } from '@/modules/reviews/eval/metrics';
+import type { EmittedRecording } from '@/modules/reviews/eval/recording';
+import { isEmittedRecording } from '@/modules/reviews/eval/recording';
 import {
   checkAllStaleness,
   hasStaleRecordings,
@@ -103,6 +107,12 @@ export function strictJoin(
 
     // Missing recording.
     if (!recording) {
+      if (!entry.gates) {
+        console.warn(
+          `[score] skipping non-gating fixture "${entry.fixtureId}" — no recording found`,
+        );
+        continue;
+      }
       throw new ScoreJoinError(
         `Missing recording: fixture "${entry.fixtureId}" has a manifest entry but no recording. ` +
           `Run eval:capture to generate recordings.`,
@@ -133,6 +143,7 @@ export interface ScoreResult {
   nonGatingAggregate: AggregateMetrics | null;
   thresholdResults: ThresholdResult[];
   stalenessResults: StalenessResult[];
+  cleanABDeltas: CleanABDelta[];
   allPassed: boolean;
   /** Whether any recordings are stale. */
   hasStale: boolean;
@@ -278,6 +289,20 @@ export function formatMarkdownSummary(result: ScoreResult): string {
     lines.push('');
   }
 
+  // ── Clean A/B delta ──────────────────────────────────────────
+  if (result.cleanABDeltas.length > 0) {
+    lines.push('## Clean Fixture A/B (full-corpus vs top-10 retrieval)');
+    lines.push('');
+    lines.push('| Fixture | Full-Corpus Findings | Top-10 Findings | Delta |');
+    lines.push('|---------|---------------------|-----------------|-------|');
+    for (const d of result.cleanABDeltas) {
+      lines.push(
+        `| ${d.fixtureId} | ${d.fullCorpusFindingCount} | ${d.top10FindingCount} | ${d.delta > 0 ? '+' : ''}${d.delta} |`,
+      );
+    }
+    lines.push('');
+  }
+
   // ── Non-gating (held-out) ────────────────────────────────────
   if (result.nonGatingAggregate) {
     const ng = result.nonGatingAggregate;
@@ -325,12 +350,17 @@ export function runScore(
   // 3. Load recordings.
   const recordings = readAllRecordings(evalDir);
 
+  // 3b. Separate A/B sidecar recordings (clean __top10) from primary recordings.
+  const AB_SUFFIX = '__top10';
+  const abRecordings = recordings.filter((r) => r.fixtureId.endsWith(AB_SUFFIX));
+  const primaryRecordings = recordings.filter((r) => !r.fixtureId.endsWith(AB_SUFFIX));
+
   // 4. Handle the pre-capture state: no recordings exist yet.
   //    When thresholds are unset (report-only mode), this is not
   //    an error — the step exits 0 so CI is never blocked before
   //    baseline recordings are committed. With thresholds active,
   //    missing recordings is always a hard failure.
-  if (recordings.length === 0 && !thresholdsActive) {
+  if (primaryRecordings.length === 0 && !thresholdsActive) {
     const empty = aggregateMetrics([], true);
     return {
       fixtureScores: [],
@@ -338,14 +368,15 @@ export function runScore(
       nonGatingAggregate: null,
       thresholdResults: [],
       stalenessResults: [],
+      cleanABDeltas: [],
       allPassed: true,
       hasStale: false,
       thresholdsActive: false,
     };
   }
 
-  // 5. Strict join.
-  const joined = strictJoin(manifest.entries, recordings);
+  // 5. Strict join (primary recordings only; A/B sidecars excluded).
+  const joined = strictJoin(manifest.entries, primaryRecordings);
 
   // 6. Score each fixture.
   const fixtureScores = joined.map(({ entry, recording }) =>
@@ -366,14 +397,28 @@ export function runScore(
   const thresholdResults = assertThresholds(gatingAggregate, thresholds);
   const gatesPassed = allThresholdsPassed(thresholdResults);
 
-  // 10. Check staleness.
+  // 10. Check staleness (primary recordings only).
   const stalenessResults = checkAllStaleness(
-    recordings,
+    primaryRecordings,
     repoRoot,
   );
   const hasStale = hasStaleRecordings(stalenessResults);
 
-  // 11. Determine overall pass/fail.
+  // 11. Clean A/B deltas.
+  const abMap = new Map<string, Recording>();
+  for (const r of abRecordings) abMap.set(r.fixtureId, r);
+  const cleanABDeltas: CleanABDelta[] = [];
+  for (const { entry, recording } of joined) {
+    if (entry.category !== 'clean') continue;
+    const abId = `${entry.fixtureId}${AB_SUFFIX}`;
+    const abRec = abMap.get(abId);
+    const fullCorpus = isEmittedRecording(recording) ? recording as EmittedRecording : null;
+    const top10 = abRec && isEmittedRecording(abRec) ? abRec as EmittedRecording : null;
+    const delta = computeCleanABDelta(fullCorpus, top10, entry.fixtureId);
+    if (delta) cleanABDeltas.push(delta);
+  }
+
+  // 12. Determine overall pass/fail.
   // Stale recordings are a hard failure when thresholds are set.
   const allPassed = gatesPassed && !(thresholdsActive && hasStale);
 
@@ -383,6 +428,7 @@ export function runScore(
     nonGatingAggregate,
     thresholdResults,
     stalenessResults,
+    cleanABDeltas,
     allPassed,
     hasStale,
     thresholdsActive,

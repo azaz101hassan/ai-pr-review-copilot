@@ -6,7 +6,7 @@ index aaaa111..bbbb222 100644
  import { Injectable } from '@nestjs/common';
 
  import { InvoiceRepository } from '@/modules/billing/types/invoice.repository';
-+import { computeLineTotal } from './helpers/compute-line-total';
++import { computeLineTotal } from '@/modules/billing/helpers/compute-line-total';
 
  @Injectable()
  export class InvoiceService {
@@ -38,10 +38,11 @@ index 0000000..cccc333
 @@ -0,0 +1,17 @@
 +import type { LineItem, InvoiceLine } from '@/modules/billing/types/invoice.types';
 +
-+/** Pure helper -- computes a single invoice line from an order item. */
++const PERCENT_DIVISOR = 100;
++
 +export function computeLineTotal(item: LineItem): InvoiceLine {
 +  const basePrice = item.unitPrice * item.quantity;
-+  const discountFraction = item.discountPercent / 100;
++  const discountFraction = item.discountPercent / PERCENT_DIVISOR;
 +  const discountAmount = basePrice * discountFraction;
 +  const afterDiscount = basePrice - discountAmount;
 +  const taxAmount = afterDiscount * item.taxRate;

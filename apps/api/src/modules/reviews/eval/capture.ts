@@ -375,10 +375,11 @@ async function main(): Promise<void> {
 
     const manifest = loadManifest(manifestPath);
     const gatingEntries = manifest.entries.filter((e) => e.gates);
+    const allEntries = manifest.entries;
     // eslint-disable-next-line no-console
     console.log(
-      `[eval:capture] manifest loaded: ${manifest.entries.length} entries, ` +
-        `${gatingEntries.length} gating`,
+      `[eval:capture] manifest loaded: ${allEntries.length} entries ` +
+        `(${gatingEntries.length} gating, ${allEntries.length - gatingEntries.length} held-out)`,
     );
 
     // ── 4. Rate limit guard ────────────────────────────────────────
@@ -403,7 +404,7 @@ async function main(): Promise<void> {
 
     const recordings: Recording[] = [];
 
-    for (const entry of gatingEntries) {
+    for (const entry of allEntries) {
       // eslint-disable-next-line no-console
       console.log(
         `\n[eval:capture] fixture: ${entry.fixtureId} (${entry.category})`,
