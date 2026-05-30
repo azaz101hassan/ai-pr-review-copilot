@@ -549,3 +549,60 @@ export function assertThresholds(
 export function allThresholdsPassed(results: ThresholdResult[]): boolean {
   return results.every((r) => r.passed);
 }
+
+// ── Calibration: Cohen's κ ────────────────────────────────────────
+
+export interface CalibrationLabel {
+  fixtureId: string;
+  findingIndex: number;
+  humanVerdict: 'supported' | 'not_supported';
+  judgeVerdict: 'supported' | 'not_supported';
+}
+
+export interface CalibrationResult {
+  n: number;
+  rawAgreement: number;
+  cohensKappa: number | null;
+}
+
+/**
+ * Compute Cohen's κ and raw % agreement between human labels and judge
+ * verdicts on a stratified subset of findings.
+ *
+ * Both verdicts are binary: supported vs not_supported (unclear is
+ * pre-mapped to not_supported before calling this function).
+ *
+ * Returns null κ when p_e = 1 (both raters always choose the same
+ * category — κ is undefined).
+ */
+export function computeCalibration(labels: CalibrationLabel[]): CalibrationResult {
+  const n = labels.length;
+  if (n === 0) {
+    return { n: 0, rawAgreement: 0, cohensKappa: null };
+  }
+
+  let agree = 0;
+  let humanSupported = 0;
+  let judgeSupported = 0;
+
+  for (const l of labels) {
+    if (l.humanVerdict === l.judgeVerdict) agree++;
+    if (l.humanVerdict === 'supported') humanSupported++;
+    if (l.judgeVerdict === 'supported') judgeSupported++;
+  }
+
+  const rawAgreement = agree / n;
+
+  const pHumanSupported = humanSupported / n;
+  const pHumanNot = 1 - pHumanSupported;
+  const pJudgeSupported = judgeSupported / n;
+  const pJudgeNot = 1 - pJudgeSupported;
+
+  const pExpected =
+    pHumanSupported * pJudgeSupported + pHumanNot * pJudgeNot;
+
+  const cohensKappa =
+    pExpected === 1 ? null : (rawAgreement - pExpected) / (1 - pExpected);
+
+  return { n, rawAgreement, cohensKappa };
+}

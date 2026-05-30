@@ -4,6 +4,7 @@ import {
   assertThresholds,
   allThresholdsPassed,
   computeCleanABDelta,
+  computeCalibration,
 } from '@/modules/reviews/eval/metrics';
 import type {
   FixtureScore,
@@ -825,5 +826,78 @@ describe('assertThresholds', () => {
     expect(results).toHaveLength(1);
     expect(results[0].actual).toBeNull();
     expect(results[0].passed).toBe(false);
+  });
+});
+
+// ── Cohen's κ calibration ──────────────────────────────────────────
+
+describe('computeCalibration', () => {
+  it('computes κ + raw agreement for 15 labels where 13 agree', () => {
+    const labels = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        fixtureId: `f${i}`,
+        findingIndex: 0,
+        humanVerdict: 'supported' as const,
+        judgeVerdict: 'supported' as const,
+      })),
+      ...Array.from({ length: 3 }, (_, i) => ({
+        fixtureId: `f${10 + i}`,
+        findingIndex: 0,
+        humanVerdict: 'not_supported' as const,
+        judgeVerdict: 'not_supported' as const,
+      })),
+      {
+        fixtureId: 'f13',
+        findingIndex: 0,
+        humanVerdict: 'supported' as const,
+        judgeVerdict: 'not_supported' as const,
+      },
+      {
+        fixtureId: 'f14',
+        findingIndex: 0,
+        humanVerdict: 'not_supported' as const,
+        judgeVerdict: 'supported' as const,
+      },
+    ];
+
+    const result = computeCalibration(labels);
+
+    expect(result.n).toBe(15);
+    expect(result.rawAgreement).toBeCloseTo(13 / 15);
+    expect(result.cohensKappa).not.toBeNull();
+    expect(result.cohensKappa!).toBeGreaterThan(0);
+    expect(result.cohensKappa!).toBeLessThan(1);
+  });
+
+  it('returns κ = 1 for perfect agreement', () => {
+    const labels = Array.from({ length: 10 }, (_, i) => ({
+      fixtureId: `f${i}`,
+      findingIndex: 0,
+      humanVerdict: (i < 7 ? 'supported' : 'not_supported') as 'supported' | 'not_supported',
+      judgeVerdict: (i < 7 ? 'supported' : 'not_supported') as 'supported' | 'not_supported',
+    }));
+
+    const result = computeCalibration(labels);
+
+    expect(result.rawAgreement).toBe(1);
+    expect(result.cohensKappa).toBeCloseTo(1);
+  });
+
+  it('returns κ null for empty labels', () => {
+    const result = computeCalibration([]);
+    expect(result.n).toBe(0);
+    expect(result.cohensKappa).toBeNull();
+  });
+
+  it('surfaces small N explicitly — markdown framing depends on this', () => {
+    const labels = Array.from({ length: 5 }, (_, i) => ({
+      fixtureId: `f${i}`,
+      findingIndex: 0,
+      humanVerdict: 'supported' as const,
+      judgeVerdict: 'supported' as const,
+    }));
+
+    const result = computeCalibration(labels);
+    expect(result.n).toBe(5);
   });
 });
