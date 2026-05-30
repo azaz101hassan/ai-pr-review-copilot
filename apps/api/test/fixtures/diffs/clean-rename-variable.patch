@@ -1,0 +1,67 @@
+diff --git a/src/scheduling/availability.ts b/src/scheduling/availability.ts
+index 3333aaa..4444bbb 100644
+--- a/src/scheduling/availability.ts
++++ b/src/scheduling/availability.ts
+@@ -3,25 +3,25 @@
+
+ export interface TimeSlot {
+   start: Date;
+   end: Date;
+ }
+
+ /**
+- * Returns available slots for the given day, filtering out any that
+- * overlap with existing bookings.
++ * Returns available time windows for the given day, filtering out
++ * any that overlap with existing bookings.
+  */
+-export function findAvailableSlots(
++export function findAvailableWindows(
+   dayStart: Date,
+   dayEnd: Date,
+   bookings: TimeSlot[],
+-  slotDurationMs: number,
++  windowDurationMs: number,
+ ): TimeSlot[] {
+-  const slots: TimeSlot[] = [];
+-  let cursor = new Date(dayStart.getTime());
++  const windows: TimeSlot[] = [];
++  let candidateStart = new Date(dayStart.getTime());
+
+-  while (cursor.getTime() + slotDurationMs <= dayEnd.getTime()) {
+-    const candidateEnd = new Date(cursor.getTime() + slotDurationMs);
+-    const candidate: TimeSlot = { start: new Date(cursor.getTime()), end: candidateEnd };
++  while (candidateStart.getTime() + windowDurationMs <= dayEnd.getTime()) {
++    const candidateEnd = new Date(candidateStart.getTime() + windowDurationMs);
++    const candidate: TimeSlot = { start: new Date(candidateStart.getTime()), end: candidateEnd };
+
+     const hasConflict = bookings.some(
+       (booking) =>
+@@ -30,10 +30,10 @@ export function findAvailableSlots(
+     );
+
+     if (!hasConflict) {
+-      slots.push(candidate);
++      windows.push(candidate);
+     }
+
+-    cursor = candidateEnd;
++    candidateStart = candidateEnd;
+   }
+
+-  return slots;
++  return windows;
+ }
+diff --git a/src/scheduling/calendar.controller.ts b/src/scheduling/calendar.controller.ts
+index 5555ccc..6666ddd 100644
+--- a/src/scheduling/calendar.controller.ts
++++ b/src/scheduling/calendar.controller.ts
+@@ -1,7 +1,7 @@
+ import { Controller, Get, Query } from '@nestjs/common';
+
+ import { CalendarService } from './calendar.service';
+-import { findAvailableSlots } from './availability';
++import { findAvailableWindows } from './availability';
+
+ @Controller('calendar')
+ export class CalendarController {

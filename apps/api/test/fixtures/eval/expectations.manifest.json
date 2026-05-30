@@ -1,0 +1,110 @@
+[
+  {
+    "fixtureId": "eqeqeq-violation",
+    "path": "test/fixtures/diffs/eqeqeq-violation.patch",
+    "category": "violating",
+    "expected": ["eqeqeq"],
+    "needsRepoContext": false
+  },
+  {
+    "fixtureId": "no-var-violation",
+    "path": "test/fixtures/diffs/no-var-violation.patch",
+    "category": "violating",
+    "expected": ["no-var"],
+    "needsRepoContext": false
+  },
+  {
+    "fixtureId": "max-lines-violation",
+    "path": "test/fixtures/diffs/max-lines-violation.patch",
+    "category": "violating",
+    "expected": ["max-lines-per-function"],
+    "needsRepoContext": false
+  },
+  {
+    "fixtureId": "prefer-const-violation",
+    "path": "test/fixtures/diffs/prefer-const-violation.patch",
+    "category": "violating",
+    "expected": ["prefer-const"],
+    "needsRepoContext": false
+  },
+  {
+    "fixtureId": "co-authored-by-claude-violation",
+    "path": "test/fixtures/diffs/co-authored-by-claude-violation.patch",
+    "category": "violating",
+    "expected": ["no-co-authored-by-claude"],
+    "needsRepoContext": false
+  },
+  {
+    "fixtureId": "thin-controllers-violation",
+    "path": "test/fixtures/diffs/thin-controllers-violation.patch",
+    "category": "violating",
+    "expected": [
+      "thin-controllers",
+      "no-crud-on-database-service",
+      "repository-pattern",
+      "config-service-only"
+    ],
+    "needsRepoContext": false
+  },
+  {
+    "fixtureId": "silent-signature-change",
+    "path": "test/fixtures/diffs/silent-signature-change.patch",
+    "category": "agent-loop",
+    "expected": ["no-param-reassign"],
+    "needsRepoContext": true,
+    "injectedRules": ["no-param-reassign"]
+  },
+  {
+    "fixtureId": "dismissed-eqeqeq-rerun",
+    "path": "test/fixtures/diffs/dismissed-eqeqeq-rerun.patch",
+    "category": "suppression",
+    "expected": [],
+    "needsRepoContext": true,
+    "injectedRules": ["eqeqeq"]
+  },
+  {
+    "fixtureId": "clean-extract-helper",
+    "path": "test/fixtures/diffs/clean-extract-helper.patch",
+    "category": "clean",
+    "expected": [],
+    "needsRepoContext": false,
+    "injectedRules": ["__FULL_CORPUS__"],
+    "gates": true
+  },
+  {
+    "fixtureId": "clean-rename-variable",
+    "path": "test/fixtures/diffs/clean-rename-variable.patch",
+    "category": "clean",
+    "expected": [],
+    "needsRepoContext": false,
+    "injectedRules": ["__FULL_CORPUS__"],
+    "gates": true
+  },
+  {
+    "fixtureId": "clean-tighten-return-type",
+    "path": "test/fixtures/diffs/clean-tighten-return-type.patch",
+    "category": "clean",
+    "expected": [],
+    "needsRepoContext": false,
+    "injectedRules": ["__FULL_CORPUS__"],
+    "gates": true
+  },
+  {
+    "fixtureId": "clean-config-constant",
+    "path": "test/fixtures/diffs/clean-config-constant.patch",
+    "category": "clean",
+    "expected": [],
+    "needsRepoContext": false,
+    "injectedRules": ["__FULL_CORPUS__"],
+    "gates": true
+  },
+  {
+    "fixtureId": "clean-add-guard-clause",
+    "path": "test/fixtures/diffs/clean-add-guard-clause.patch",
+    "category": "clean",
+    "expected": [],
+    "needsRepoContext": false,
+    "injectedRules": ["__FULL_CORPUS__"],
+    "gates": true
+  }
+]
