@@ -106,5 +106,29 @@
     "needsRepoContext": false,
     "injectedRules": ["__FULL_CORPUS__"],
     "gates": true
+  },
+  {
+    "fixtureId": "real-pr-express-middleware",
+    "path": "test/fixtures/eval/real-pr/real-pr-express-middleware.patch",
+    "category": "violating",
+    "expected": ["no-var", "eqeqeq"],
+    "needsRepoContext": false,
+    "gates": false
+  },
+  {
+    "fixtureId": "real-pr-react-form-handler",
+    "path": "test/fixtures/eval/real-pr/real-pr-react-form-handler.patch",
+    "category": "violating",
+    "expected": ["no-var", "eqeqeq", "max-lines-per-function"],
+    "needsRepoContext": false,
+    "gates": false
+  },
+  {
+    "fixtureId": "real-pr-utility-refactor",
+    "path": "test/fixtures/eval/real-pr/real-pr-utility-refactor.patch",
+    "category": "violating",
+    "expected": ["prefer-const", "eqeqeq"],
+    "needsRepoContext": false,
+    "gates": false
   }
 ]

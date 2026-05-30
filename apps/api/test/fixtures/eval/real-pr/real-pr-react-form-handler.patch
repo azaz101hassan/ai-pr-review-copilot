@@ -1,0 +1,72 @@
+diff --git a/src/components/ContactForm.jsx b/src/components/ContactForm.jsx
+index ccc3333..ddd4444 100644
+--- a/src/components/ContactForm.jsx
++++ b/src/components/ContactForm.jsx
+@@ -1,22 +1,58 @@
+-import React, { useState } from 'react';
++import React, { useState, useEffect } from 'react';
+
+ function ContactForm({ onSubmit }) {
+   const [name, setName] = useState('');
+   const [email, setEmail] = useState('');
++  const [message, setMessage] = useState('');
++  const [errors, setErrors] = useState({});
+
+-  const handleSubmit = (e) => {
++  const handleSubmit = async (e) => {
+     e.preventDefault();
+-    onSubmit({ name, email });
++
++    // Validate fields inline — this handler is growing large.
++    // It now does validation, transformation, API call, error handling,
++    // success redirect, and analytics tracking all in one function.
++    let validationErrors = {};
++    if (!name || name.trim().length == 0) {
++      validationErrors.name = 'Name is required';
++    }
++    if (!email || !email.includes('@')) {
++      validationErrors.email = 'Valid email is required';
++    }
++    if (message.length == 0) {
++      validationErrors.message = 'Message is required';
++    }
++    if (Object.keys(validationErrors).length > 0) {
++      setErrors(validationErrors);
++      return;
++    }
++
++    var payload = {
++      name: name.trim(),
++      email: email.toLowerCase(),
++      message: message,
++      timestamp: Date.now(),
++    };
++
++    try {
++      var response = await fetch('/api/contact', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify(payload),
++      });
++      var data = await response.json();
++      if (data.status == 'ok') {
++        onSubmit(payload);
++        setName('');
++        setEmail('');
++        setMessage('');
++      }
++    } catch (err) {
++      var errorMsg = err.message;
++      setErrors({ submit: errorMsg });
++    }
+   };
+
+   return (
+     <form onSubmit={handleSubmit}>
+       <input value={name} onChange={(e) => setName(e.target.value)} />
+       <input value={email} onChange={(e) => setEmail(e.target.value)} />
++      <textarea value={message} onChange={(e) => setMessage(e.target.value)} />
+       <button type="submit">Send</button>
+     </form>
+   );
+ }

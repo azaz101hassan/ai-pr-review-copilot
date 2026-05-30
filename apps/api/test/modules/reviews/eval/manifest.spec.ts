@@ -197,7 +197,7 @@ describe('manifest loader', () => {
       );
       const manifest = loadManifest(manifestPath);
 
-      expect(manifest.entries).toHaveLength(13);
+      expect(manifest.entries).toHaveLength(16);
       expect(manifest.manifestVersion).toMatch(/^[0-9a-f]{64}$/);
 
       // Verify the multi-rule fixture
@@ -232,14 +232,15 @@ describe('manifest loader', () => {
       expect(agentLoop!.injectedRules).toEqual(['no-param-reassign']);
       expect(agentLoop!.needsRepoContext).toBe(true);
 
-      // All 6 violating entries gate by default
+      // All 9 violating entries (6 gating + 3 held-out real-PR)
       const violating = manifest.entries.filter(
         (e) => e.category === 'violating',
       );
-      expect(violating).toHaveLength(6);
-      for (const v of violating) {
-        expect(v.gates).toBe(true);
-      }
+      expect(violating).toHaveLength(9);
+      const gatingViolating = violating.filter((v) => v.gates);
+      expect(gatingViolating).toHaveLength(6);
+      const heldOut = violating.filter((v) => !v.gates);
+      expect(heldOut).toHaveLength(3);
     });
   });
 });
