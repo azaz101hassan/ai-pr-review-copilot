@@ -1,0 +1,22 @@
+diff --git a/drizzle.config.ts b/drizzle.config.ts
+index aaaa444..bbbb555 100644
+--- a/drizzle.config.ts
++++ b/drizzle.config.ts
+@@ -1,12 +1,14 @@
+ import type { Config } from 'drizzle-kit';
+
++const SCHEMA_GLOB = './src/infrastructure/db/schema/*.ts';
++const MIGRATIONS_DIR = './src/infrastructure/db/migrations';
++
+ export default {
+   dialect: 'sqlite',
+-  schema: './src/infrastructure/db/schema/*.ts',
+-  out: './src/infrastructure/db/migrations',
++  schema: SCHEMA_GLOB,
++  out: MIGRATIONS_DIR,
+   dbCredentials: {
+     url: process.env.DATABASE_URL ?? './data/local.sqlite',
+   },
+-  verbose: true,
+   strict: true,
+ } satisfies Config;

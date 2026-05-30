@@ -1,0 +1,51 @@
+diff --git a/src/notifications/notification.service.ts b/src/notifications/notification.service.ts
+index 7777aaa..8888bbb 100644
+--- a/src/notifications/notification.service.ts
++++ b/src/notifications/notification.service.ts
+@@ -1,6 +1,7 @@
+ import { Injectable, Logger } from '@nestjs/common';
+
+ import type { NotificationRecord } from '@/modules/notifications/types/notification.types';
++import type { DeliveryResult } from '@/modules/notifications/types/delivery.types';
+
+ @Injectable()
+ export class NotificationService {
+@@ -8,7 +9,12 @@ export class NotificationService {
+
+   constructor(private readonly logger: Logger) {}
+
+-  async send(userId: string, channel: string, payload: Record<string, unknown>) {
++  async send(
++    userId: string,
++    channel: string,
++    payload: Record<string, unknown>,
++  ): Promise<DeliveryResult> {
+     const notification: NotificationRecord = {
+       id: crypto.randomUUID(),
+       userId,
+@@ -22,6 +28,11 @@ export class NotificationService {
+       `Notification ${notification.id} dispatched to ${channel} for user ${userId}`,
+     );
+
+-    return notification;
++    return {
++      notificationId: notification.id,
++      channel,
++      delivered: true,
++      timestamp: notification.createdAt,
++    };
+   }
+ }
+diff --git a/src/notifications/types/delivery.types.ts b/src/notifications/types/delivery.types.ts
+new file mode 100644
+index 0000000..9999ccc
+--- /dev/null
++++ b/src/notifications/types/delivery.types.ts
+@@ -0,0 +1,8 @@
++/** Result shape returned by NotificationService.send(). */
++export interface DeliveryResult {
++  notificationId: string;
++  channel: string;
++  delivered: boolean;
++  timestamp: number;
++}
