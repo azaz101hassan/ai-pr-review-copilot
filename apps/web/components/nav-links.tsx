@@ -16,7 +16,7 @@ export function NavLinks() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex items-center gap-1">
+    <nav className="flex items-center gap-6" aria-label="Primary">
       {NAV_ITEMS.map(({ label, href }) => {
         const isActive =
           href === '/' ? pathname === '/' : pathname.startsWith(href);
@@ -25,14 +25,21 @@ export function NavLinks() {
           <Link
             key={href}
             href={href}
+            aria-current={isActive ? 'page' : undefined}
             className={cn(
-              'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+              'relative py-4 text-sm transition-colors',
               isActive
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                ? 'font-medium text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
             )}
           >
             {label}
+            {isActive && (
+              <span
+                aria-hidden="true"
+                className="absolute inset-x-0 -bottom-px h-px bg-foreground"
+              />
+            )}
           </Link>
         );
       })}

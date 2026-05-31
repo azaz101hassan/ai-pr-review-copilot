@@ -1,64 +1,91 @@
-// Analytics page — Server Component skeleton.
-// The full implementation (live SSE tiles, filter bar, analytics data fetch)
-// lands in U8. This skeleton mounts successfully so `next build` passes and
-// the nav shell is visible end-to-end with the U6 foundation.
-import { Suspense } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+// Analytics page — Server Component scaffold.
+// The full implementation (live SSE tiles, filter bar, analytics data
+// fetch) lands in U8. This scaffold sets the tile hierarchy U8 inherits:
+//   - Primary row (top, larger): Volume + Severity rollup — the
+//     "what's happening" headline; readable at a glance.
+//   - Secondary row (smaller): Latency p50 / p95 and token cost —
+//     the "how is the bot performing" detail.
+//   - Supporting list (full-width, below): Top-N rules — context.
+// Uniform 4-up grids are deliberately avoided; the hierarchy IS the UX.
 import { EmptyState } from '@/components/empty-state';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function AnalyticsPage() {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Review activity overview
+    <div className="space-y-10">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          Analytics
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Review pipeline at a glance.
         </p>
-      </div>
+      </header>
 
-      {/* Filter bar placeholder — wired in U8 */}
-      <Suspense fallback={<Skeleton className="h-8 w-64" />}>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-8 w-36" />
-          <Skeleton className="h-8 w-32" />
-        </div>
-      </Suspense>
+      <section
+        aria-label="Headline metrics"
+        className="grid gap-4 sm:grid-cols-2"
+      >
+        <PrimaryTile label="Reviews" value="—" />
+        <PrimaryTile label="Findings by severity" value="—" />
+      </section>
 
-      {/* Primary metric tiles */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard title="Total Reviews" value="—" />
-        <MetricCard title="Completed" value="—" />
-        <MetricCard title="Failed" value="—" />
-        <MetricCard title="In Progress" value="—" />
-      </div>
+      <section
+        aria-label="Supporting metrics"
+        className="grid gap-4 sm:grid-cols-3"
+      >
+        <SecondaryTile label="Latency p50" value="—" />
+        <SecondaryTile label="Latency p95" value="—" />
+        <SecondaryTile label="Tokens" value="—" />
+      </section>
 
-      {/* Secondary metric tiles */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <MetricCard title="Latency p50" value="—" />
-        <MetricCard title="Latency p95" value="—" />
-        <MetricCard title="Total Tokens" value="—" />
-      </div>
-
-      {/* Empty state — shown until U8 wires real data */}
       <EmptyState
-        title="Analytics loading in U8"
-        description="Run npm run seed:dev to populate the database with sample reviews."
+        title="No reviews yet"
+        description={
+          <>
+            Run <code className="font-mono text-foreground">npm run seed:dev</code>{' '}
+            to populate the local store with sample reviews, or open a PR
+            against a watched repository.
+          </>
+        }
       />
     </div>
   );
 }
 
-function MetricCard({ title, value }: { title: string; value: string }) {
+// Headline metric tile. Larger value, more vertical room, designed to read
+// from across the desk per the type-led hierarchy.
+function PrimaryTile({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {title}
+    <Card className="border-border">
+      <CardHeader className="pb-1">
+        <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-bold">{value}</p>
+        <p className="font-mono text-4xl font-semibold tabular-nums tracking-tight text-foreground">
+          {value}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Supporting metric tile. Smaller value, calmer surface; reachable but
+// secondary to the headline tiles.
+function SecondaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <Card className="border-border">
+      <CardHeader className="pb-1">
+        <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="font-mono text-2xl font-medium tabular-nums text-foreground">
+          {value}
+        </p>
       </CardContent>
     </Card>
   );

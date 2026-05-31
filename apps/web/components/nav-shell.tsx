@@ -10,16 +10,20 @@ interface NavShellProps {
 
 export function NavShell({ children }: NavShellProps) {
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto flex h-14 items-center px-4">
-          <div className="mr-6 flex items-center">
-            <span className="font-semibold text-sm">PR Review Copilot</span>
-          </div>
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="sticky top-0 z-40 border-b border-border bg-background">
+        <div className="mx-auto flex h-14 max-w-6xl items-center gap-8 px-6">
+          <a
+            href="/"
+            className="font-mono text-[13px] font-medium tracking-tight text-foreground"
+            aria-label="PR Review Copilot home"
+          >
+            pr-review-copilot
+          </a>
           <NavLinks />
         </div>
       </header>
-      <main className="container mx-auto px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-6xl px-6 py-10">{children}</main>
     </div>
   );
 }

@@ -116,11 +116,15 @@ export function FilterBar({ repos = [], authors = [], className }: FilterBarProp
       )}
 
       {/* Pending indicator — visible while Next.js refetches the Server Component */}
-      {isPending && (
-        <span className="text-xs text-muted-foreground" aria-live="polite">
-          Loading…
-        </span>
-      )}
+      <span
+        className={cn(
+          'text-sm text-muted-foreground transition-opacity duration-150',
+          isPending ? 'opacity-100' : 'opacity-0',
+        )}
+        aria-live="polite"
+      >
+        {isPending ? 'Updating' : ''}
+      </span>
     </div>
   );
 }
