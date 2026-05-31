@@ -106,9 +106,15 @@ const DEFAULT_K = 10;
 const STALE_IN_PROGRESS_CUTOFF_MS = 10 * 60_000;
 // Severity values that match the rule corpus's metadata.severity field.
 // Sourced from rule metadata at persistence; the adapter never emits
-// severity (see D1 in the plan).
-const ALLOWED_SEVERITIES = new Set(['error', 'warning', 'info']);
-const DEFAULT_SEVERITY: 'error' | 'warning' | 'info' = 'warning';
+// severity (see D1 in the plan). Exported so SettingsResponseDto can
+// reference them without instantiating the service.
+export type SeverityLevel = 'error' | 'warning' | 'info';
+export const ALLOWED_SEVERITIES: ReadonlySet<SeverityLevel> = new Set<SeverityLevel>([
+  'error',
+  'warning',
+  'info',
+]);
+export const DEFAULT_SEVERITY: SeverityLevel = 'warning';
 
 @Injectable()
 export class ReviewsService implements OnModuleInit {
@@ -393,10 +399,10 @@ function hashSortedComposites(composites: string[]): string {
 function resolveSeverity(
   hit: SearchHit,
   logger: Logger,
-): 'error' | 'warning' | 'info' {
+): SeverityLevel {
   const candidate = hit.metadata?.severity;
-  if (typeof candidate === 'string' && ALLOWED_SEVERITIES.has(candidate)) {
-    return candidate as 'error' | 'warning' | 'info';
+  if (typeof candidate === 'string' && ALLOWED_SEVERITIES.has(candidate as SeverityLevel)) {
+    return candidate as SeverityLevel;
   }
   logger.warn(
     `Severity missing or unrecognised for rule_id="${sanitizeSlug(hit.rule_id)}" — defaulting to "${DEFAULT_SEVERITY}"`,

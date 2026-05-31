@@ -147,6 +147,12 @@ function makeProcessor(
     markFailedIfInProgress: jest.fn().mockReturnValue(1),
     sweepStaleInProgress: jest.fn().mockReturnValue(0),
     findRecentInProgressForPr,
+    findFiltered: jest.fn().mockReturnValue([]),
+    countFiltered: jest.fn().mockReturnValue(0),
+    findByIdWithFindings: jest.fn().mockReturnValue(null),
+    aggregateByFilter: jest.fn(),
+    distinctRepos: jest.fn().mockReturnValue([]),
+    distinctAuthors: jest.fn().mockReturnValue([]),
   };
 
   const findingsRepo: IReviewFindingRepository = {
@@ -582,6 +588,12 @@ describe('ReviewsProcessor.drainGracefully', () => {
       markFailedIfInProgress: jest.fn().mockReturnValue(1),
       sweepStaleInProgress: jest.fn().mockReturnValue(0),
       findRecentInProgressForPr: jest.fn(),
+      findFiltered: jest.fn().mockReturnValue([]),
+      countFiltered: jest.fn().mockReturnValue(0),
+      findByIdWithFindings: jest.fn().mockReturnValue(null),
+      aggregateByFilter: jest.fn(),
+      distinctRepos: jest.fn().mockReturnValue([]),
+      distinctAuthors: jest.fn().mockReturnValue([]),
     };
     const findingsRepo: IReviewFindingRepository = {
       insertMany: jest.fn(),

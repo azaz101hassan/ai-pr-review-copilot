@@ -1,14 +1,42 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, gt, lt } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  gt,
+  isNotNull,
+  lt,
+  lte,
+  notInArray,
+  sql,
+  sum,
+} from 'drizzle-orm';
 import { DatabaseService } from '../database.service';
-import { reviews } from '../schema';
-import { IReviewRepository } from '@/modules/reviews/types/review.repository';
+import { pullRequests, reviewFindings, reviews } from '../schema';
+import {
+  AnalyticsAggregate,
+  IReviewRepository,
+  ReviewFilterSpec,
+  ReviewListEntry,
+} from '@/modules/reviews/types/review.repository';
 import {
   ReviewCompletionPatch,
   ReviewFailurePatch,
   ReviewInsert,
   ReviewRecord,
 } from '@/modules/reviews/types/review.types';
+import { ReviewFindingRecord } from '@/modules/reviews/types/review-finding.types';
+import { computeLatencyPercentiles } from '@/modules/dashboard/helpers/latency-percentile';
+
+// Prompt version values that indicate a standalone (pre-LLM) failure or
+// empty-diff case. These rows are excluded from all analytics aggregates
+// because they have no findings, zero or null token fields, and would
+// distort every metric. The list page (findFiltered / countFiltered) still
+// shows them so the displayed row count matches the actual DB count.
+const STANDALONE_VERSIONS = ['standalone-failure', 'standalone-empty-diff'] as const;
 
 @Injectable()
 export class SqliteReviewsRepository implements IReviewRepository {
@@ -101,9 +129,7 @@ export class SqliteReviewsRepository implements IReviewRepository {
           ? { tool_calls_json: patch.tool_calls }
           : {}),
       })
-      .where(
-        and(eq(reviews.id, id), eq(reviews.status, 'in_progress')),
-      )
+      .where(and(eq(reviews.id, id), eq(reviews.status, 'in_progress')))
       .run();
     return Number(result.changes);
   }
@@ -147,4 +173,273 @@ export class SqliteReviewsRepository implements IReviewRepository {
       .run();
     return Number(result.changes);
   }
+
+  // ---------------------------------------------------------------------------
+  // Dashboard read-side methods (Day 7, R3, R4, R6, R7, R10)
+  // ---------------------------------------------------------------------------
+
+  // LEFT JOIN reviews → pull_requests to expose PR metadata. NULL when
+  // pr_node_id is null (dry-run reviews). Does NOT exclude standalone rows
+  // so the list page count matches the DB row count.
+  findFiltered(
+    spec: ReviewFilterSpec,
+    opts: { limit: number; offset?: number },
+  ): ReviewListEntry[] {
+    const offset = opts.offset ?? 0;
+    const rows = this.db.drizzle
+      .select({
+        id: reviews.id,
+        pr_node_id: reviews.pr_node_id,
+        created_by: reviews.created_by,
+        diff_length: reviews.diff_length,
+        model: reviews.model,
+        prompt_version: reviews.prompt_version,
+        top_k: reviews.top_k,
+        retrieved_chunk_ids: reviews.retrieved_chunk_ids,
+        retrieved_chunk_ids_hash: reviews.retrieved_chunk_ids_hash,
+        status: reviews.status,
+        error_status: reviews.error_status,
+        error_code: reviews.error_code,
+        input_tokens: reviews.input_tokens,
+        output_tokens: reviews.output_tokens,
+        cache_creation_input_tokens: reviews.cache_creation_input_tokens,
+        cache_read_input_tokens: reviews.cache_read_input_tokens,
+        turn_count: reviews.turn_count,
+        tool_calls_json: reviews.tool_calls_json,
+        created_at: reviews.created_at,
+        completed_at: reviews.completed_at,
+        repo_full_name: pullRequests.repo_full_name,
+        pr_number: pullRequests.number,
+        pr_title: pullRequests.title,
+        author_login: pullRequests.author_login,
+      })
+      .from(reviews)
+      .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+      .where(buildFilterCondition(spec))
+      .orderBy(desc(reviews.created_at))
+      .limit(opts.limit)
+      .offset(offset)
+      .all();
+
+    return rows as ReviewListEntry[];
+  }
+
+  // Total count of rows matching the filter. Does NOT exclude standalone rows.
+  countFiltered(spec: ReviewFilterSpec): number {
+    const result = this.db.drizzle
+      .select({ total: count() })
+      .from(reviews)
+      .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+      .where(buildFilterCondition(spec))
+      .get();
+    return result?.total ?? 0;
+  }
+
+  // Single review + its findings. Returns null for unknown id.
+  // Findings ordered by created_at ASC.
+  findByIdWithFindings(
+    id: string,
+  ): { review: ReviewRecord; findings: ReviewFindingRecord[] } | null {
+    const review = this.db.drizzle
+      .select()
+      .from(reviews)
+      .where(eq(reviews.id, id))
+      .get();
+
+    if (!review) return null;
+
+    const findings = this.db.drizzle
+      .select()
+      .from(reviewFindings)
+      .where(eq(reviewFindings.review_id, id))
+      .orderBy(asc(reviewFindings.created_at))
+      .all();
+
+    return { review, findings };
+  }
+
+  // Runs five queries inside a single read transaction and returns
+  // aggregated analytics. All five queries exclude standalone rows:
+  //   WHERE prompt_version NOT IN ('standalone-failure', 'standalone-empty-diff')
+  aggregateByFilter(spec: ReviewFilterSpec): AnalyticsAggregate {
+    return this.db.transaction(() => {
+      const filterCond = buildFilterCondition(spec);
+      const standaloneExclusion = notInArray(reviews.prompt_version, [...STANDALONE_VERSIONS]);
+
+      const baseWhere = filterCond
+        ? and(filterCond, standaloneExclusion)
+        : standaloneExclusion;
+
+      // 1. Status breakdown: GROUP BY status
+      const statusRows = this.db.drizzle
+        .select({ status: reviews.status, cnt: count() })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .where(baseWhere)
+        .groupBy(reviews.status)
+        .all();
+
+      const statusBreakdown = { completed: 0, failed: 0, in_progress: 0 };
+      for (const row of statusRows) {
+        if (row.status === 'completed') statusBreakdown.completed = row.cnt;
+        else if (row.status === 'failed') statusBreakdown.failed = row.cnt;
+        else if (row.status === 'in_progress') statusBreakdown.in_progress = row.cnt;
+      }
+
+      // 2. Severity rollup: JOIN review_findings, GROUP BY severity
+      const severityRows = this.db.drizzle
+        .select({ severity: reviewFindings.severity, cnt: count() })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .innerJoin(reviewFindings, eq(reviews.id, reviewFindings.review_id))
+        .where(baseWhere)
+        .groupBy(reviewFindings.severity)
+        .all();
+
+      const severityRollup = { error: 0, warning: 0, info: 0 };
+      for (const row of severityRows) {
+        if (row.severity === 'error') severityRollup.error = row.cnt;
+        else if (row.severity === 'warning') severityRollup.warning = row.cnt;
+        else if (row.severity === 'info') severityRollup.info = row.cnt;
+      }
+
+      // 3. Top-10 rules: GROUP BY rule_id ORDER BY count DESC LIMIT 10
+      const topRuleRows = this.db.drizzle
+        .select({ rule_id: reviewFindings.rule_id, cnt: count() })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .innerJoin(reviewFindings, eq(reviews.id, reviewFindings.review_id))
+        .where(baseWhere)
+        .groupBy(reviewFindings.rule_id)
+        .orderBy(desc(count()))
+        .limit(10)
+        .all();
+
+      const topRules = topRuleRows.map((r) => ({ rule_id: r.rule_id, count: r.cnt }));
+
+      // 4. Token totals: SUM over four token columns
+      const tokenRow = this.db.drizzle
+        .select({
+          input_tokens: sum(reviews.input_tokens),
+          output_tokens: sum(reviews.output_tokens),
+          cache_creation_input_tokens: sum(reviews.cache_creation_input_tokens),
+          cache_read_input_tokens: sum(reviews.cache_read_input_tokens),
+        })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .where(baseWhere)
+        .get();
+
+      const tokenTotals = {
+        input_tokens: Number(tokenRow?.input_tokens ?? 0),
+        output_tokens: Number(tokenRow?.output_tokens ?? 0),
+        cache_creation_input_tokens: Number(tokenRow?.cache_creation_input_tokens ?? 0),
+        cache_read_input_tokens: Number(tokenRow?.cache_read_input_tokens ?? 0),
+      };
+
+      // 5. Latency: fetch (completed_at - created_at) in ms for completed rows
+      //    then compute p50/p95 in TS (SQLite has no percentile_cont).
+      const latencyRows = this.db.drizzle
+        .select({
+          duration_ms: sql<number>`(${reviews.completed_at} - ${reviews.created_at})`,
+        })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .where(
+          and(
+            baseWhere,
+            eq(reviews.status, 'completed'),
+            isNotNull(reviews.completed_at),
+          ),
+        )
+        .all();
+
+      const durations = latencyRows
+        .map((r) => r.duration_ms)
+        .filter((d): d is number => typeof d === 'number' && d >= 0);
+
+      const latency = computeLatencyPercentiles(durations);
+
+      return {
+        statusBreakdown,
+        severityRollup,
+        topRules,
+        tokenTotals,
+        latency,
+      };
+    });
+  }
+
+  // SELECT DISTINCT repo_full_name from joined pull_requests, sorted.
+  // Reviews with null pr_node_id produce no row (LEFT JOIN yields null
+  // repo_full_name, which is filtered out by isNotNull).
+  distinctRepos(spec: ReviewFilterSpec, limit: number): string[] {
+    const filterCond = buildFilterCondition(spec);
+    const rows = this.db.drizzle
+      .selectDistinct({ repo_full_name: pullRequests.repo_full_name })
+      .from(reviews)
+      .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+      .where(
+        filterCond
+          ? and(filterCond, isNotNull(pullRequests.repo_full_name))
+          : isNotNull(pullRequests.repo_full_name),
+      )
+      .orderBy(asc(pullRequests.repo_full_name))
+      .limit(limit)
+      .all();
+
+    return rows.map((r) => r.repo_full_name as string);
+  }
+
+  // SELECT DISTINCT author_login from joined pull_requests, sorted.
+  // Reviews with null pr_node_id do not surface a null entry (filtered by
+  // isNotNull on author_login).
+  distinctAuthors(spec: ReviewFilterSpec, limit: number): string[] {
+    const filterCond = buildFilterCondition(spec);
+    const rows = this.db.drizzle
+      .selectDistinct({ author_login: pullRequests.author_login })
+      .from(reviews)
+      .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+      .where(
+        filterCond
+          ? and(filterCond, isNotNull(pullRequests.author_login))
+          : isNotNull(pullRequests.author_login),
+      )
+      .orderBy(asc(pullRequests.author_login))
+      .limit(limit)
+      .all();
+
+    return rows.map((r) => r.author_login as string);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared WHERE-clause builder for the filter spec
+// ---------------------------------------------------------------------------
+
+// Translates a ReviewFilterSpec into a Drizzle condition. Returns undefined
+// when the spec is empty (so callers can skip the .where() call entirely).
+// Time bounds are inclusive: sinceMs <= created_at <= untilMs.
+function buildFilterCondition(spec: ReviewFilterSpec) {
+  const conditions = [];
+
+  if (spec.repo) {
+    conditions.push(eq(pullRequests.repo_full_name, spec.repo));
+  }
+  if (spec.author) {
+    conditions.push(eq(pullRequests.author_login, spec.author));
+  }
+  if (spec.prNodeId) {
+    conditions.push(eq(reviews.pr_node_id, spec.prNodeId));
+  }
+  if (spec.sinceMs !== undefined) {
+    conditions.push(gte(reviews.created_at, new Date(spec.sinceMs)));
+  }
+  if (spec.untilMs !== undefined) {
+    conditions.push(lte(reviews.created_at, new Date(spec.untilMs)));
+  }
+
+  if (conditions.length === 0) return undefined;
+  if (conditions.length === 1) return conditions[0];
+  return and(...conditions);
 }

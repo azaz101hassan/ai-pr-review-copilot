@@ -4,6 +4,99 @@ import {
   ReviewInsert,
   ReviewRecord,
 } from './review.types';
+import { ReviewFindingRecord } from './review-finding.types';
+
+// ---------------------------------------------------------------------------
+// Dashboard read-side types
+// ---------------------------------------------------------------------------
+
+// Filter spec used by the dashboard endpoints. All fields are optional;
+// the time bounds are inclusive. The controller maps validated query DTOs
+// to this shape before calling repository methods.
+export interface ReviewFilterSpec {
+  repo?: string;
+  author?: string;
+  prNodeId?: string;
+  sinceMs?: number;
+  untilMs?: number;
+}
+
+// Single row returned by findFiltered. The LEFT JOIN over pull_requests
+// surfaces PR metadata; all PR columns are null when pr_node_id is null.
+export interface ReviewListEntry {
+  // All columns from reviews
+  id: string;
+  pr_node_id: string | null;
+  created_by: string | null;
+  diff_length: number;
+  model: string;
+  prompt_version: string;
+  top_k: number;
+  retrieved_chunk_ids: string;
+  retrieved_chunk_ids_hash: string;
+  status: 'completed' | 'failed' | 'in_progress';
+  error_status: number | null;
+  error_code: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  turn_count: number;
+  tool_calls_json: unknown;
+  created_at: Date;
+  completed_at: Date | null;
+  // LEFT JOIN from pull_requests
+  repo_full_name: string | null;
+  pr_number: number | null;
+  pr_title: string | null;
+  author_login: string | null;
+}
+
+// Severity breakdown: how many findings per severity level across matched reviews.
+export interface SeverityRollup {
+  error: number;
+  warning: number;
+  info: number;
+}
+
+// Status breakdown: count per terminal status across matched reviews.
+export interface StatusBreakdown {
+  completed: number;
+  failed: number;
+  in_progress: number;
+}
+
+// Top-N rule breakdown entry.
+export interface TopRuleEntry {
+  rule_id: string;
+  count: number;
+}
+
+// Token totals summed over matched reviews.
+export interface TokenTotals {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+}
+
+// Latency percentiles, computed in TS from raw durations.
+export interface LatencyPercentiles {
+  p50: number | null;
+  p95: number | null;
+}
+
+// Aggregate return shape from aggregateByFilter.
+// All five aggregate queries run inside one read transaction.
+// Standalone rows (prompt_version IN ('standalone-failure',
+// 'standalone-empty-diff')) are excluded from every aggregate query.
+export interface AnalyticsAggregate {
+  statusBreakdown: StatusBreakdown;
+  severityRollup: SeverityRollup;
+  topRules: TopRuleEntry[];
+  tokenTotals: TokenTotals;
+  latency: LatencyPercentiles;
+}
 
 export const REVIEW_REPOSITORY = Symbol('ReviewRepository');
 
@@ -57,4 +150,43 @@ export interface IReviewRepository {
     prNodeId: string,
     withinMs: number,
   ): ReviewRecord | undefined;
+
+  // ---------------------------------------------------------------------------
+  // Dashboard read-side methods (Day 7)
+  // ---------------------------------------------------------------------------
+
+  // Returns reviews matching the filter spec, joined with pull_requests
+  // via LEFT JOIN so PR metadata is available (NULL when pr_node_id is
+  // null). Ordered by created_at DESC. Offset-based pagination; defaults
+  // to offset=0. Does NOT exclude standalone rows — the list page shows
+  // all reviews so the UI row count matches the DB count.
+  findFiltered(
+    spec: ReviewFilterSpec,
+    opts: { limit: number; offset?: number },
+  ): ReviewListEntry[];
+
+  // Returns the total count of rows matching the filter, used by the
+  // frontend for "showing N–M of TOTAL" and next-page disabling.
+  // Does NOT exclude standalone rows (same scope as findFiltered).
+  countFiltered(spec: ReviewFilterSpec): number;
+
+  // Returns a single review and its findings, or null when the id
+  // does not exist. Findings are ordered by created_at ASC.
+  findByIdWithFindings(id: string): { review: ReviewRecord; findings: ReviewFindingRecord[] } | null;
+
+  // Runs five queries inside a single read transaction and returns
+  // the aggregated analytics for the matched filter window.
+  // All five queries exclude standalone rows:
+  //   WHERE prompt_version NOT IN ('standalone-failure', 'standalone-empty-diff')
+  aggregateByFilter(spec: ReviewFilterSpec): AnalyticsAggregate;
+
+  // Returns sorted distinct repo_full_name values from the joined
+  // pull_requests table for reviews matching the filter. Bounded by limit.
+  distinctRepos(spec: ReviewFilterSpec, limit: number): string[];
+
+  // Returns sorted distinct author_login values from the joined
+  // pull_requests table for reviews matching the filter. Reviews with
+  // null pr_node_id do not surface a null entry in the result.
+  // Bounded by limit.
+  distinctAuthors(spec: ReviewFilterSpec, limit: number): string[];
 }

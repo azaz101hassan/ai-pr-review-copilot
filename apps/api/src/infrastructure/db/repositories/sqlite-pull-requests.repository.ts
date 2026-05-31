@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { DatabaseService } from '../database.service';
 import { pullRequests } from '../schema';
-import { IPullRequestRepository } from '@/modules/webhooks/types/pull-request.repository';
+import {
+  IPullRequestRepository,
+  PullRequestSummary,
+} from '@/modules/webhooks/types/pull-request.repository';
 import { PullRequestRecord } from '@/modules/webhooks/types/pull-request.types';
+import { ReviewFilterSpec } from '@/modules/reviews/types/review.repository';
 
 // Drizzle-backed implementation of IPullRequestRepository. The webhooks
 // module depends on the interface (via the PULL_REQUEST_REPOSITORY
@@ -43,5 +47,43 @@ export class SqlitePullRequestsRepository implements IPullRequestRepository {
       .from(pullRequests)
       .where(eq(pullRequests.node_id, nodeId))
       .get();
+  }
+
+  // Day-7 dashboard filter picker. Returns a trimmed PR summary matching
+  // the filter spec (repo and/or author), ordered by created_at DESC,
+  // bounded by limit. Used to populate the single-PR selection dropdown.
+  findRecentMatching(spec: ReviewFilterSpec, limit: number): PullRequestSummary[] {
+    const conditions = [];
+
+    if (spec.repo) {
+      conditions.push(eq(pullRequests.repo_full_name, spec.repo));
+    }
+    if (spec.author) {
+      conditions.push(eq(pullRequests.author_login, spec.author));
+    }
+
+    const where =
+      conditions.length === 0
+        ? undefined
+        : conditions.length === 1
+          ? conditions[0]
+          : and(...conditions);
+
+    const rows = this.db.drizzle
+      .select({
+        node_id: pullRequests.node_id,
+        repo_full_name: pullRequests.repo_full_name,
+        number: pullRequests.number,
+        title: pullRequests.title,
+        author_login: pullRequests.author_login,
+        created_at: pullRequests.created_at,
+      })
+      .from(pullRequests)
+      .where(where)
+      .orderBy(desc(pullRequests.created_at))
+      .limit(limit)
+      .all();
+
+    return rows;
   }
 }
