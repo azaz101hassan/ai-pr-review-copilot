@@ -145,7 +145,7 @@ function collectSseBytes(
 ): Promise<{ contentType: string; body: string; req: http.ClientRequest }> {
   return new Promise((resolve, reject) => {
     const addr = server.address();
-    const port = addr && typeof addr === 'object' ? addr.port : 3001;
+    const port = addr && typeof addr === 'object' ? addr.port : 4001;
     let body = '';
     let contentType = '';
 
@@ -174,7 +174,7 @@ function openNConnections(
   n: number,
 ): Promise<http.ClientRequest[]> {
   const addr = server.address();
-  const port = addr && typeof addr === 'object' ? addr.port : 3001;
+  const port = addr && typeof addr === 'object' ? addr.port : 4001;
   const reqs: http.ClientRequest[] = [];
   return new Promise((resolve, reject) => {
     let ready = 0;
@@ -323,7 +323,7 @@ describe('DashboardEventsController SSE wire format (e2e)', () => {
   it('terminal event wire bytes are `data: <json>\\nid: N\\n\\n` (default message channel)', async () => {
     const server = app.getHttpServer() as http.Server;
     const addr = server.address();
-    const port = addr && typeof addr === 'object' ? addr.port : 3001;
+    const port = addr && typeof addr === 'object' ? addr.port : 4001;
 
     // The literal bytes asserted by this test for a terminal review event:
     //   data: {"review_id":"sse-e2e-rev-1","status":"completed",...}\nid: N\n\n
@@ -421,7 +421,7 @@ describe('DashboardEventsController SSE wire format (e2e)', () => {
     // 11th connection should receive a single cap-reached frame + response close.
     const capFrame = await new Promise<string>((resolve, reject) => {
       const addr = server.address();
-      const port = addr && typeof addr === 'object' ? addr.port : 3001;
+      const port = addr && typeof addr === 'object' ? addr.port : 4001;
       let data = '';
       const req = http.get(
         `http://127.0.0.1:${port}/dashboard/events`,
@@ -455,7 +455,7 @@ describe('DashboardEventsController SSE wire format (e2e)', () => {
   it('after one disconnect, previously-capped 11th client connects successfully', async () => {
     const server = app.getHttpServer() as http.Server;
     const addr = server.address();
-    const port = addr && typeof addr === 'object' ? addr.port : 3001;
+    const port = addr && typeof addr === 'object' ? addr.port : 4001;
 
     // Open 10 connections.
     const openConnections = await openNConnections(server, 10);

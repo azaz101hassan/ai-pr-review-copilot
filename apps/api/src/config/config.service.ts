@@ -67,7 +67,7 @@ export class ConfigService {
       process.env.GITHUB_WEBHOOK_SECRET,
     );
     this.databasePath = process.env.DATABASE_PATH ?? './data/app.sqlite';
-    this.port = Number(process.env.PORT) || 3001;
+    this.port = Number(process.env.PORT) || 4001;
 
     this.voyageApiKey = this.requireSecret('VOYAGE_API_KEY', process.env.VOYAGE_API_KEY);
     this.chromaUrl = this.validateChromaUrl(

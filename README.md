@@ -40,10 +40,10 @@ npm install
 cp .env.example apps/api/.env
 # then edit apps/api/.env and set GITHUB_WEBHOOK_SECRET=<your secret>
 
-# 3. Boot the API on http://localhost:3001.
+# 3. Boot the API on http://localhost:4001.
 npm run dev:api
 
-# 4. (Optional) Boot the dashboard placeholder on http://localhost:3000.
+# 4. (Optional) Boot the dashboard placeholder on http://localhost:4000.
 npm run dev:web
 ```
 
@@ -62,7 +62,7 @@ To receive PR webhooks from a real GitHub repo, follow [`docs/setup/github-app.m
 
 1. Register a GitHub App (Pull requests Read & write, Contents Read, Metadata Read; subscribe to "Pull request" event).
 2. Set the webhook secret to the value you put in `apps/api/.env`.
-3. Run `ngrok http 3001` and paste the HTTPS URL into the App's webhook URL (suffixed with `/webhooks/github`).
+3. Run `ngrok http 4001` and paste the HTTPS URL into the App's webhook URL (suffixed with `/webhooks/github`).
 4. Install the App on a test repo.
 5. Open or update a PR. Watch the API log it.
 

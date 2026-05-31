@@ -4,7 +4,7 @@
   "private": true,
   "description": "PR Review Copilot dashboard — Next.js 14 App Router with Tailwind v4 + shadcn/ui",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 4000",
     "build": "next build",
     "start": "next start"
   },

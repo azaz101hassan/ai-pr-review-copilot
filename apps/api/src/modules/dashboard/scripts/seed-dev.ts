@@ -443,7 +443,7 @@ async function main(): Promise<void> {
   db.close();
 
   // eslint-disable-next-line no-console
-  console.log(`seed:dev — done. Open localhost:3001/dashboard/reviews to verify.`);
+  console.log(`seed:dev — done. Open localhost:4001/dashboard/reviews to verify.`);
 }
 
 // Only invoke main() when this file is run directly (not when imported by tests).

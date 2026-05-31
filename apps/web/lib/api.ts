@@ -1,7 +1,7 @@
 // Fetch helper for the dashboard API.
 //
 // Server-side (Server Components — current sole usage):
-//   Goes directly to API_INTERNAL_URL (default http://localhost:3001).
+//   Goes directly to API_INTERNAL_URL (default http://localhost:4001).
 //   Node's fetch requires an absolute URL, and the next.config.js rewrites
 //   proxy only exists at the browser layer — so SSR must talk to the API
 //   host directly.
@@ -41,7 +41,7 @@ export async function fetchDashboard<T>(
   const isServer = typeof window === 'undefined';
   const url = isServer
     ? new URL(
-        `${process.env.API_INTERNAL_URL ?? 'http://localhost:3001'}/dashboard${path}`,
+        `${process.env.API_INTERNAL_URL ?? 'http://localhost:4001'}/dashboard${path}`,
       )
     : new URL(`/api/dashboard${path}`, 'http://localhost');
 

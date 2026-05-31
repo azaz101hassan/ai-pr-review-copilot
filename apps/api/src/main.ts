@@ -26,9 +26,9 @@ export async function bootstrap() {
     }),
   );
 
-  const port = Number(process.env.PORT) || 3001;
+  const port = Number(process.env.PORT) || 4001;
   // R15 (Day-7 plan): bind to loopback so the API is not reachable from
-  // the LAN. ngrok http 3001 already targets 127.0.0.1 by default, so
+  // the LAN. ngrok http 4001 already targets 127.0.0.1 by default, so
   // the Day-5 webhook smoke loop continues to work unchanged.
   await app.listen(port, '127.0.0.1');
 
