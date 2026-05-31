@@ -58,24 +58,43 @@ export function getLatestTrackedCommit(
 /**
  * Check staleness of a single recording against the latest tracked commit.
  *
- * A recording is stale when the tracked paths were modified AFTER the
- * recording was captured — i.e. the latest tracked commit is NOT an
- * ancestor of (or equal to) the recording's gitSha.
+ * A recording is stale when the tracked paths' CONTENT differs between the
+ * recording's gitSha and the latest tracked SHA. The check is layered:
+ *
+ *   1. SHA equality — trivially fresh.
+ *   2. SHA ancestry (latest is ancestor of recording) — fresh, recording was
+ *      captured at or after the latest tracked change.
+ *   3. Content equality (`git diff` on tracked paths is empty) — fresh.
+ *      Handles squash-merges (recording captured on a now-orphaned branch
+ *      that integrated into the trunk with identical tree content) and
+ *      merge commits that the topology check would otherwise flag.
+ *
+ * If both reachable SHAs disagree on content, the recording is stale.
+ * If a SHA is unreachable (shallow clone of an orphan branch), we fall
+ * through to "stale" — safer to over-fail than to under-fail.
  */
 export function checkStaleness(
   recording: Recording,
   latestTrackedSha: string,
   repoRoot: string,
+  trackedPaths: string[] = STALENESS_TRACKED_PATHS,
 ): StalenessResult {
   const recordingSha = recording.provenance.gitSha;
 
-  let stale = false;
+  let stale: boolean;
   if (latestTrackedSha === '' || recordingSha === '') {
     stale = false;
   } else if (recordingSha === latestTrackedSha) {
     stale = false;
+  } else if (isAncestor(latestTrackedSha, recordingSha, repoRoot)) {
+    stale = false;
   } else {
-    stale = !isAncestor(latestTrackedSha, recordingSha, repoRoot);
+    stale = !trackedPathsContentEqual(
+      recordingSha,
+      latestTrackedSha,
+      repoRoot,
+      trackedPaths,
+    );
   }
 
   return {
@@ -99,6 +118,28 @@ function isAncestor(ancestor: string, descendant: string, repoRoot: string): boo
 }
 
 /**
+ * True when the tracked paths have byte-identical content at both SHAs.
+ * Returns false on any error (unreachable SHA, no git, etc.) so the
+ * caller treats the recording as stale rather than silently fresh.
+ */
+function trackedPathsContentEqual(
+  a: string,
+  b: string,
+  repoRoot: string,
+  trackedPaths: string[],
+): boolean {
+  try {
+    const diff = execSync(
+      `git diff ${a} ${b} -- ${trackedPaths.map((p) => `"${p}"`).join(' ')}`,
+      { cwd: repoRoot, encoding: 'utf-8' },
+    );
+    return diff.trim() === '';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check staleness of all recordings against the latest tracked commit.
  *
  * @param recordings - All recordings to check.
@@ -110,9 +151,10 @@ export function checkAllStaleness(
   repoRoot: string,
   trackedPaths?: string[],
 ): StalenessResult[] {
-  const latestSha = getLatestTrackedCommit(repoRoot, trackedPaths);
+  const paths = trackedPaths ?? STALENESS_TRACKED_PATHS;
+  const latestSha = getLatestTrackedCommit(repoRoot, paths);
 
-  return recordings.map((r) => checkStaleness(r, latestSha, repoRoot));
+  return recordings.map((r) => checkStaleness(r, latestSha, repoRoot, paths));
 }
 
 /**
