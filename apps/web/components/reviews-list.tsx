@@ -156,6 +156,7 @@ export function ReviewsList({ items }: ReviewsListProps) {
   return (
     <ul
       role="list"
+      data-keynav-list
       className="rounded-md border border-border"
     >
       {items.map((review) => (
