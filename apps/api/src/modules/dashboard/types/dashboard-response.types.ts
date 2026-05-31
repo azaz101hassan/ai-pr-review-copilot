@@ -40,10 +40,16 @@ export type HydratedChunk =
       missing: true;
     };
 
+// PR-side metadata anchored to the detail view. Mirrors PullRequestSummary
+// in shape but ships as a separate sibling rather than flattened onto the
+// review row, so consumers of the detail endpoint can distinguish "the
+// review record" from "the PR it was run against." Null for standalone
+// reviews (no pr_node_id) or when the PR row has since been purged.
 export interface ReviewDetailResponse {
   review: ReviewRecord;
   findings: ReviewFindingRecord[];
   retrievedChunks: HydratedChunk[];
+  pr: PullRequestSummary | null;
 }
 
 // ---------------------------------------------------------------------------

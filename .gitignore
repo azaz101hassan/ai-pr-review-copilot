@@ -52,6 +52,10 @@ AGENTS.local.md
 GEMINI.local.md
 .codex/
 
+# Visual-spec scratch (DESIGN.md is local-only; the visible system lives in
+# apps/web/app/globals.css and component files)
+DESIGN.md
+
 # Coverage / test artifacts
 coverage/
 .nyc_output/

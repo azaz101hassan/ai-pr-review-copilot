@@ -1,10 +1,10 @@
 // Reviews list page — Server Component.
 // Reads searchParams for filter spec + pagination, calls the dashboard API,
-// renders FilterBar (in Suspense) + ReviewsTable + PaginationControls.
+// renders FilterBar (in Suspense) + ReviewsList + PaginationControls.
 import { Suspense } from 'react';
 import { fetchDashboard, toURLSearchParams } from '@/lib/api';
 import { FilterBar } from '@/components/filter-bar';
-import { ReviewsTable } from '@/components/reviews-table';
+import { ReviewsList } from '@/components/reviews-list';
 import { PaginationControls } from '@/components/pagination-controls';
 import { EmptyState } from '@/components/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -104,7 +104,7 @@ export default async function ReviewsPage({ searchParams }: ReviewsPageProps) {
         )
       ) : (
         <>
-          <ReviewsTable items={list.items} />
+          <ReviewsList items={list.items} />
 
           {/* Pagination — Client Component; must be wrapped in Suspense */}
           <Suspense fallback={null}>

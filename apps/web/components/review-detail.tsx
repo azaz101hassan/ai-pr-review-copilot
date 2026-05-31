@@ -3,10 +3,9 @@
 // findings (headline section) → retrieved chunks + token breakdown (supporting context).
 //
 // The API returns the detail as three siblings (review / findings /
-// retrievedChunks); this component takes them as separate props rather than
-// stitching them into one synthetic object. The review record itself has
-// no PR-join fields — those land in the list endpoint, not detail — so the
-// metadata strip stays minimal.
+// retrievedChunks / pr); this component takes them as separate props.
+// The `pr` sibling carries PR identity (repo, number, title, author); when
+// null the header collapses to standalone-review mode.
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -17,8 +16,10 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table';
+import { ReviewDetailHeader } from '@/components/review-detail-header';
 import type {
   ReviewDetailRecord,
+  ReviewDetailPrSummary,
   ReviewFindingRecord,
   HydratedChunk,
   SeverityLevel,
@@ -27,17 +28,6 @@ import type {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function formatDate(input: string | number): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(input));
-}
 
 function formatMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -69,42 +59,6 @@ function SeverityBadge({ level }: { level: SeverityLevel }) {
     >
       {level}
     </Badge>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Metadata strip (quiet — muted foreground, compact)
-// The detail endpoint doesn't return PR join fields, so we surface what we
-// have: review id, dry-run pill when there's no PR, timestamp, prompt version.
-// ---------------------------------------------------------------------------
-
-interface MetaStripProps {
-  review: ReviewDetailRecord;
-}
-
-function MetaStrip({ review }: MetaStripProps) {
-  const hasNoPr = review.pr_node_id == null;
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm text-muted-foreground">
-      <span>
-        Review{' '}
-        <span className="font-mono text-xs text-foreground">{review.id}</span>
-      </span>
-      {hasNoPr && (
-        <span className="inline-flex items-center rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-          dry-run
-        </span>
-      )}
-      <span>
-        <time dateTime={new Date(review.created_at).toISOString()}>
-          {formatDate(review.created_at)}
-        </time>
-      </span>
-      {review.prompt_version && (
-        <span className="font-mono text-xs">{review.prompt_version}</span>
-      )}
-      <span className="font-mono text-xs">{review.model}</span>
-    </div>
   );
 }
 
@@ -324,24 +278,21 @@ interface ReviewDetailProps {
   review: ReviewDetailRecord;
   findings: ReviewFindingRecord[];
   retrievedChunks: HydratedChunk[];
+  pr: ReviewDetailPrSummary | null;
 }
 
 export function ReviewDetail({
   review,
   findings,
   retrievedChunks,
+  pr,
 }: ReviewDetailProps) {
   const hasChunks = retrievedChunks.length > 0;
 
   return (
     <article className="space-y-8">
-      {/* Metadata strip — quiet, contextual */}
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <StatusBadge status={review.status} />
-          <MetaStrip review={review} />
-        </div>
-      </header>
+      {/* PR identity header — anchors the page in GitHub context */}
+      <ReviewDetailHeader review={review} pr={pr} />
 
       <Separator />
 

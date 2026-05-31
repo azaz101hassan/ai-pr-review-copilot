@@ -1,11 +1,12 @@
-// Server-presentational component: renders analytics tiles from an
-// AnalyticsResponse snapshot. No client hooks; call site owns Suspense.
+// Server-presentational component: renders analytics metrics as a dense
+// one-line strip in the GitHub Insights style. No client hooks; call site
+// owns Suspense.
 //
-// Tile hierarchy (deliberate, per design principle 4):
-//   Primary row  — Volume + Severity rollup. Larger, headline-weight.
-//   Secondary row — Latency p50/p95 + Token cost. Calmer, smaller.
-//   Supporting list — Top-N rules table. Full-width, below tiles.
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+// Strip hierarchy (three rows, flat against the page surface):
+//   Row 1 — Volume + status breakdown (is anything flowing?)
+//   Row 2 — Severity rollup + proportional bar (is the bot finding things?)
+//   Row 3 — Latency + token cost (how expensive and fast?)
+//   Below  — Top-N rules table (supporting detail, preserved as-is)
 import {
   Table,
   TableHeader,
@@ -17,177 +18,236 @@ import {
 import { analyticsVolume, type AnalyticsResponse } from '@/lib/api-types';
 
 // ---------------------------------------------------------------------------
-// Tile components
+// Helpers
 // ---------------------------------------------------------------------------
 
-interface PrimaryTileProps {
-  label: string;
-  children: React.ReactNode;
+/** Format milliseconds as a human duration string with unit. */
+function formatLatency(ms: number | null): string {
+  if (ms === null) return 'no data';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function PrimaryTile({ label, children }: PrimaryTileProps) {
+/** Format a raw token count with thousands grouping. */
+function formatTokenCount(n: number): string {
+  return new Intl.NumberFormat('en').format(n);
+}
+
+// ---------------------------------------------------------------------------
+// Row 1: Volume + status breakdown
+// ---------------------------------------------------------------------------
+
+interface VolumeRowProps {
+  volume: number;
+  completed: number;
+  failed: number;
+  in_progress: number;
+}
+
+function VolumeRow({ volume, completed, failed, in_progress }: VolumeRowProps) {
   return (
-    <Card className="border-border">
-      <CardHeader className="pb-1">
-        <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
+    <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-muted-foreground">
+      <span className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+        {volume}
+      </span>
+      <span>reviews</span>
+      <span aria-hidden="true">·</span>
+      <span>
+        <span className="font-mono tabular-nums text-foreground">
+          {completed}
+        </span>{' '}
+        completed
+      </span>
+      <span aria-hidden="true">·</span>
+      <span>
+        <span
+          className={`font-mono tabular-nums ${failed > 0 ? 'text-[var(--severity-error)]' : 'text-muted-foreground'}`}
+        >
+          {failed}
+        </span>{' '}
+        failed
+      </span>
+      <span aria-hidden="true">·</span>
+      <span>
+        <span
+          className={`font-mono tabular-nums ${in_progress > 0 ? 'text-[var(--severity-warning)]' : 'text-muted-foreground'}`}
+        >
+          {in_progress}
+        </span>{' '}
+        in progress
+      </span>
+    </p>
   );
 }
 
-interface SecondaryTileProps {
-  label: string;
-  value: string;
-  unit?: string;
-}
-
-function SecondaryTile({ label, value, unit }: SecondaryTileProps) {
-  return (
-    <Card className="border-border">
-      <CardHeader className="pb-1">
-        <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex items-baseline gap-1">
-        <p className="font-mono text-2xl font-medium tabular-nums text-foreground">
-          {value}
-        </p>
-        {unit && (
-          <span className="text-xs text-muted-foreground">{unit}</span>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 // ---------------------------------------------------------------------------
-// Severity breakdown bar
-// Proportional segments in error / warning / info order.
-// Each segment is labeled so color is not the only signal.
+// Row 2: Severity rollup + proportional bar
 // ---------------------------------------------------------------------------
 
-interface SeverityBarProps {
+interface SeverityRowProps {
   error: number;
   warning: number;
   info: number;
 }
 
-function SeverityBar({ error, warning, info }: SeverityBarProps) {
-  const totalFindings = error + warning + info;
-
-  if (totalFindings === 0) {
-    return (
-      <p className="font-mono text-4xl font-semibold tabular-nums text-foreground">
-        0
-      </p>
-    );
-  }
-
-  const segments: Array<{ count: number; color: string; label: string }> = [
-    { count: error, color: 'bg-[var(--severity-error)]', label: 'error' },
-    {
-      count: warning,
-      color: 'bg-[var(--severity-warning)]',
-      label: 'warning',
-    },
-    { count: info, color: 'bg-[var(--severity-info)]', label: 'info' },
-  ].filter((s) => s.count > 0);
+function SeverityRow({ error, warning, info }: SeverityRowProps) {
+  const total = error + warning + info;
 
   return (
-    <div className="space-y-3">
-      {/* Total count */}
-      <p className="font-mono text-4xl font-semibold tabular-nums text-foreground">
-        {totalFindings}
+    <div className="space-y-2">
+      {/* Inline summary line */}
+      <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-muted-foreground">
+        <span className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+          {total}
+        </span>
+        <span>findings</span>
+        <span aria-hidden="true">·</span>
+        <span>
+          <span
+            className={`font-mono tabular-nums ${error > 0 ? 'text-[var(--severity-error)]' : 'text-muted-foreground'}`}
+          >
+            {error}
+          </span>{' '}
+          error
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>
+          <span
+            className={`font-mono tabular-nums ${warning > 0 ? 'text-[var(--severity-warning)]' : 'text-muted-foreground'}`}
+          >
+            {warning}
+          </span>{' '}
+          warning
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>
+          <span
+            className={`font-mono tabular-nums ${info > 0 ? 'text-[var(--severity-info)]' : 'text-muted-foreground'}`}
+          >
+            {info}
+          </span>{' '}
+          info
+        </span>
       </p>
 
-      {/* Proportional bar */}
-      <div
-        className="flex h-1.5 overflow-hidden rounded-full bg-border"
-        role="img"
-        aria-label={`Findings: ${error} error, ${warning} warning, ${info} info`}
-      >
-        {segments.map(({ count, color, label }) => (
-          <span
-            key={label}
-            className={color}
-            style={{ width: `${(count / totalFindings) * 100}%` }}
-            aria-hidden="true"
-          />
-        ))}
-      </div>
+      {/* Proportional bar — only rendered when there are findings */}
+      {total > 0 && (
+        <div className="space-y-1.5">
+          <div
+            className="flex h-1 w-full overflow-hidden rounded-full bg-border"
+            role="img"
+            aria-label={`Findings: ${error} error, ${warning} warning, ${info} info`}
+          >
+            {error > 0 && (
+              <span
+                className="bg-[var(--severity-error)]"
+                style={{ width: `${(error / total) * 100}%` }}
+                aria-hidden="true"
+              />
+            )}
+            {warning > 0 && (
+              <span
+                className="bg-[var(--severity-warning)]"
+                style={{ width: `${(warning / total) * 100}%` }}
+                aria-hidden="true"
+              />
+            )}
+            {info > 0 && (
+              <span
+                className="bg-[var(--severity-info)]"
+                style={{ width: `${(info / total) * 100}%` }}
+                aria-hidden="true"
+              />
+            )}
+          </div>
 
-      {/* Per-severity counts — text labels alongside color */}
-      <dl className="flex gap-4 text-xs">
-        {error > 0 && (
-          <div className="flex items-center gap-1">
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-[var(--severity-error)]"
-              aria-hidden="true"
-            />
-            <dt className="sr-only">Error</dt>
-            <dd className="tabular-nums text-muted-foreground">
-              <span className="font-medium text-foreground">{error}</span>{' '}
-              error
-            </dd>
-          </div>
-        )}
-        {warning > 0 && (
-          <div className="flex items-center gap-1">
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-[var(--severity-warning)]"
-              aria-hidden="true"
-            />
-            <dt className="sr-only">Warning</dt>
-            <dd className="tabular-nums text-muted-foreground">
-              <span className="font-medium text-foreground">{warning}</span>{' '}
-              warning
-            </dd>
-          </div>
-        )}
-        {info > 0 && (
-          <div className="flex items-center gap-1">
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-[var(--severity-info)]"
-              aria-hidden="true"
-            />
-            <dt className="sr-only">Info</dt>
-            <dd className="tabular-nums text-muted-foreground">
-              <span className="font-medium text-foreground">{info}</span> info
-            </dd>
-          </div>
-        )}
-      </dl>
+          {/* Dot legend — color + text label, never color alone */}
+          <dl className="flex flex-wrap gap-x-4 gap-y-1">
+            {error > 0 && (
+              <div className="flex items-center gap-1">
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-[var(--severity-error)]"
+                  aria-hidden="true"
+                />
+                <dt className="sr-only">Error</dt>
+                <dd className="text-xs text-muted-foreground">
+                  <span className="font-mono tabular-nums text-foreground">
+                    {error}
+                  </span>{' '}
+                  error
+                </dd>
+              </div>
+            )}
+            {warning > 0 && (
+              <div className="flex items-center gap-1">
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-[var(--severity-warning)]"
+                  aria-hidden="true"
+                />
+                <dt className="sr-only">Warning</dt>
+                <dd className="text-xs text-muted-foreground">
+                  <span className="font-mono tabular-nums text-foreground">
+                    {warning}
+                  </span>{' '}
+                  warning
+                </dd>
+              </div>
+            )}
+            {info > 0 && (
+              <div className="flex items-center gap-1">
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-[var(--severity-info)]"
+                  aria-hidden="true"
+                />
+                <dt className="sr-only">Info</dt>
+                <dd className="text-xs text-muted-foreground">
+                  <span className="font-mono tabular-nums text-foreground">
+                    {info}
+                  </span>{' '}
+                  info
+                </dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Row 3: Latency + token totals
 // ---------------------------------------------------------------------------
 
-function formatMs(ms: number | null): string {
-  if (ms === null) return '—';
-  if (ms < 1000) return `${Math.round(ms)}`;
-  return `${(ms / 1000).toFixed(1)}`;
+interface StatsRowProps {
+  p50: number | null;
+  p95: number | null;
+  tokenTotal: number;
 }
 
-function msUnit(ms: number | null): string {
-  if (ms === null) return '';
-  return ms < 1000 ? 'ms' : 's';
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
+function StatsRow({ p50, p95, tokenTotal }: StatsRowProps) {
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-muted-foreground">
+      <span>Latency p50</span>
+      <span className="font-mono tabular-nums text-foreground">
+        {formatLatency(p50)}
+      </span>
+      <span aria-hidden="true">·</span>
+      <span>p95</span>
+      <span className="font-mono tabular-nums text-foreground">
+        {formatLatency(p95)}
+      </span>
+      <span aria-hidden="true">·</span>
+      <span>Tokens</span>
+      <span className="font-mono tabular-nums text-foreground">
+        {formatTokenCount(tokenTotal)}
+      </span>
+    </p>
+  );
 }
 
 // ---------------------------------------------------------------------------
-// Top-N rules table
+// Top-N rules table (preserved — structure and copy unchanged)
 // ---------------------------------------------------------------------------
 
 interface TopRulesProps {
@@ -199,7 +259,7 @@ function TopRulesTable({ rules }: TopRulesProps) {
 
   return (
     <section aria-label="Top rules by finding count">
-      <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <h2 className="mb-3 text-sm font-medium text-muted-foreground">
         Top rules
       </h2>
       <Table>
@@ -240,64 +300,48 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
   const { statusBreakdown, severityRollup, latency, tokenTotals, topRules } =
     data;
   const volume = analyticsVolume(data);
-  const totalTokens = tokenTotals.input_tokens + tokenTotals.output_tokens;
+  const tokenTotal =
+    tokenTotals.input_tokens +
+    tokenTotals.output_tokens +
+    tokenTotals.cache_creation_input_tokens +
+    tokenTotals.cache_read_input_tokens;
 
   return (
-    <div className="space-y-8">
-      {/* Primary row: volume + severity — readable at a glance */}
-      <section
-        aria-label="Headline metrics"
-        className="grid gap-4 sm:grid-cols-2"
-      >
-        <PrimaryTile label="Reviews">
-          <p className="font-mono text-4xl font-semibold tabular-nums text-foreground">
-            {volume}
-          </p>
-          {(statusBreakdown.completed > 0 || statusBreakdown.failed > 0) && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {statusBreakdown.completed} completed
-              {statusBreakdown.failed > 0
-                ? `, ${statusBreakdown.failed} failed`
-                : ''}
-              {statusBreakdown.in_progress > 0
-                ? `, ${statusBreakdown.in_progress} in progress`
-                : ''}
-            </p>
-          )}
-        </PrimaryTile>
-
-        <PrimaryTile label="Findings by severity">
-          <SeverityBar
-            error={severityRollup.error}
-            warning={severityRollup.warning}
-            info={severityRollup.info}
-          />
-        </PrimaryTile>
+    <div className="space-y-5">
+      {/* Row 1: volume + status breakdown */}
+      <section aria-label="Review volume and status">
+        <VolumeRow
+          volume={volume}
+          completed={statusBreakdown.completed}
+          failed={statusBreakdown.failed}
+          in_progress={statusBreakdown.in_progress}
+        />
       </section>
 
-      {/* Secondary row: latency + tokens — reachable but calmer */}
-      <section
-        aria-label="Performance metrics"
-        className="grid gap-4 sm:grid-cols-3"
-      >
-        <SecondaryTile
-          label="Latency p50"
-          value={formatMs(latency.p50)}
-          unit={msUnit(latency.p50)}
+      {/* Row 2: severity rollup + proportional bar */}
+      <section aria-label="Findings by severity">
+        <SeverityRow
+          error={severityRollup.error}
+          warning={severityRollup.warning}
+          info={severityRollup.info}
         />
-        <SecondaryTile
-          label="Latency p95"
-          value={formatMs(latency.p95)}
-          unit={msUnit(latency.p95)}
-        />
-        <SecondaryTile
-          label="Tokens"
-          value={volume > 0 ? formatTokens(totalTokens) : '—'}
+      </section>
+
+      {/* Row 3: latency + token totals */}
+      <section aria-label="Performance metrics">
+        <StatsRow
+          p50={latency.p50}
+          p95={latency.p95}
+          tokenTotal={tokenTotal}
         />
       </section>
 
       {/* Supporting list: top rules */}
-      {topRules.length > 0 && <TopRulesTable rules={topRules} />}
+      {topRules.length > 0 && (
+        <div className="pt-3">
+          <TopRulesTable rules={topRules} />
+        </div>
+      )}
     </div>
   );
 }
