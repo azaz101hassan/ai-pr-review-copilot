@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import './globals.css';
+import { NavShell } from '@/components/nav-shell';
 
 export const metadata: Metadata = {
   title: 'AI PR Review Copilot',
@@ -9,17 +11,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body
-        style={{
-          margin: 0,
-          fontFamily:
-            'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-          background: '#0b0d10',
-          color: '#e8edf3',
-        }}
-      >
-        {children}
+    <html lang="en" className="dark">
+      <body>
+        <NavShell>{children}</NavShell>
       </body>
     </html>
   );
