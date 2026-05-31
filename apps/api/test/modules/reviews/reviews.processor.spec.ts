@@ -147,6 +147,18 @@ function makeProcessor(
     markFailedIfInProgress: jest.fn().mockReturnValue(1),
     sweepStaleInProgress: jest.fn().mockReturnValue(0),
     findRecentInProgressForPr,
+    findFiltered: jest.fn().mockReturnValue([]),
+    countFiltered: jest.fn().mockReturnValue(0),
+    findByIdWithFindings: jest.fn().mockReturnValue(null),
+    aggregateByFilter: jest.fn().mockReturnValue({
+      statusBreakdown: { completed: 0, failed: 0, in_progress: 0 },
+      severityRollup: { error: 0, warning: 0, info: 0 },
+      topRules: [],
+      tokenTotals: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      latency: { p50: null, p95: null },
+    }),
+    distinctRepos: jest.fn().mockReturnValue([]),
+    distinctAuthors: jest.fn().mockReturnValue([]),
   };
 
   const findingsRepo: IReviewFindingRepository = {
@@ -582,6 +594,18 @@ describe('ReviewsProcessor.drainGracefully', () => {
       markFailedIfInProgress: jest.fn().mockReturnValue(1),
       sweepStaleInProgress: jest.fn().mockReturnValue(0),
       findRecentInProgressForPr: jest.fn(),
+      findFiltered: jest.fn().mockReturnValue([]),
+      countFiltered: jest.fn().mockReturnValue(0),
+      findByIdWithFindings: jest.fn().mockReturnValue(null),
+      aggregateByFilter: jest.fn().mockReturnValue({
+        statusBreakdown: { completed: 0, failed: 0, in_progress: 0 },
+        severityRollup: { error: 0, warning: 0, info: 0 },
+        topRules: [],
+        tokenTotals: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        latency: { p50: null, p95: null },
+      }),
+      distinctRepos: jest.fn().mockReturnValue([]),
+      distinctAuthors: jest.fn().mockReturnValue([]),
     };
     const findingsRepo: IReviewFindingRepository = {
       insertMany: jest.fn(),

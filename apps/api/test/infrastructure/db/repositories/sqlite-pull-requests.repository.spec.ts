@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { DatabaseService } from '@/infrastructure/db';
 import { SqlitePullRequestsRepository } from '../../../../src/infrastructure/db/repositories/sqlite-pull-requests.repository';
 import { PullRequestRecord } from '@/modules/webhooks/types/pull-request.types';
+import { ReviewFilterSpec } from '@/modules/reviews/types/review.repository';
 
 function makePr(overrides: Partial<PullRequestRecord> = {}): PullRequestRecord {
   return {
@@ -60,5 +61,76 @@ describe('SqlitePullRequestsRepository', () => {
 
   it('returns undefined for unknown node_id', () => {
     expect(repo.findByNodeId('PR_doesnotexist')).toBeUndefined();
+  });
+
+  describe('findRecentMatching', () => {
+    const BASE_AT = new Date('2026-05-27T10:00:00Z');
+
+    function savePr(overrides: Partial<PullRequestRecord> = {}): PullRequestRecord {
+      const pr = makePr(overrides);
+      repo.save(pr);
+      return pr;
+    }
+
+    it('returns all PRs when spec is empty, ordered by created_at DESC', () => {
+      savePr({ node_id: 'PR_1', number: 1, created_at: new Date(BASE_AT.getTime()) });
+      savePr({ node_id: 'PR_2', number: 2, created_at: new Date(BASE_AT.getTime() + 1_000) });
+      savePr({ node_id: 'PR_3', number: 3, created_at: new Date(BASE_AT.getTime() + 2_000) });
+
+      const result = repo.findRecentMatching({}, 10);
+      expect(result).toHaveLength(3);
+      expect(result[0].node_id).toBe('PR_3');
+      expect(result[1].node_id).toBe('PR_2');
+      expect(result[2].node_id).toBe('PR_1');
+    });
+
+    it('filters by repo_full_name when spec.repo is set', () => {
+      savePr({ node_id: 'PR_main', number: 1, repo_full_name: 'octocat/hello-world' });
+      savePr({ node_id: 'PR_other', number: 2, repo_full_name: 'org/other' });
+
+      const spec: ReviewFilterSpec = { repo: 'octocat/hello-world' };
+      const result = repo.findRecentMatching(spec, 10);
+      expect(result).toHaveLength(1);
+      expect(result[0].node_id).toBe('PR_main');
+    });
+
+    it('filters by author_login when spec.author is set', () => {
+      savePr({ node_id: 'PR_octocat', number: 1, author_login: 'octocat' });
+      savePr({ node_id: 'PR_alice', number: 2, author_login: 'alice' });
+
+      const spec: ReviewFilterSpec = { author: 'alice' };
+      const result = repo.findRecentMatching(spec, 10);
+      expect(result).toHaveLength(1);
+      expect(result[0].node_id).toBe('PR_alice');
+    });
+
+    it('respects the limit', () => {
+      for (let i = 0; i < 5; i++) {
+        savePr({ node_id: `PR_lim_${i}`, number: i + 10 });
+      }
+      const result = repo.findRecentMatching({}, 3);
+      expect(result).toHaveLength(3);
+    });
+
+    it('returns empty array when no PRs match', () => {
+      savePr({ node_id: 'PR_one', number: 1 });
+      const result = repo.findRecentMatching({ repo: 'nobody/norepo' }, 10);
+      expect(result).toEqual([]);
+    });
+
+    it('returned shape has expected PullRequestSummary fields', () => {
+      savePr({ node_id: 'PR_shape', number: 99 });
+      const result = repo.findRecentMatching({}, 1);
+      expect(result[0]).toMatchObject({
+        node_id: 'PR_shape',
+        repo_full_name: expect.any(String),
+        number: expect.any(Number),
+        title: expect.any(String),
+        author_login: expect.any(String),
+        created_at: expect.any(Date),
+      });
+      // raw_payload must NOT be present in the summary
+      expect((result[0] as unknown as Record<string, unknown>).raw_payload).toBeUndefined();
+    });
   });
 });
