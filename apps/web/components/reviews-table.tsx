@@ -10,7 +10,7 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table';
-import type { ReviewListItem, ReviewStatus } from '@/lib/api-types';
+import type { ReviewListEntry, ReviewStatus } from '@/lib/api-types';
 
 function statusVariant(
   status: ReviewStatus,
@@ -35,14 +35,14 @@ function statusLabel(status: ReviewStatus): string {
       return 'Failed';
     case 'in_progress':
       return 'In progress';
-    case 'pending':
-      return 'Pending';
     default:
       return status;
   }
 }
 
-function formatDate(epochMs: number): string {
+// Accept either an ISO 8601 string (what the API returns now that Drizzle
+// timestamp_ms columns JSON-stringify as Date) or an epoch-ms number.
+function formatDate(input: string | number): string {
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -50,7 +50,7 @@ function formatDate(epochMs: number): string {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).format(new Date(epochMs));
+  }).format(new Date(input));
 }
 
 function DryRunPill() {
@@ -62,7 +62,7 @@ function DryRunPill() {
 }
 
 interface ReviewsTableProps {
-  items: ReviewListItem[];
+  items: ReviewListEntry[];
 }
 
 export function ReviewsTable({ items }: ReviewsTableProps) {
@@ -108,7 +108,7 @@ export function ReviewsTable({ items }: ReviewsTableProps) {
             </TableCell>
             <TableCell>
               <Link
-                href={`/reviews/${item.id}`}
+                href={`/reviews/${encodeURIComponent(item.id)}`}
                 className="line-clamp-1 text-foreground underline-offset-2 hover:underline focus-visible:underline"
               >
                 {item.pr_title ?? (

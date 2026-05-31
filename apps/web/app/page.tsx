@@ -12,7 +12,11 @@ import { FilterBar } from '@/components/filter-bar';
 import { AnalyticsTiles } from '@/components/analytics-tiles';
 import { AnalyticsLive } from '@/components/analytics-live';
 import { EmptyState } from '@/components/empty-state';
-import type { AnalyticsResponse, FilterOptionsResponse } from '@/lib/api-types';
+import {
+  analyticsVolume,
+  type AnalyticsResponse,
+  type FilterOptionsResponse,
+} from '@/lib/api-types';
 
 interface AnalyticsPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -25,15 +29,15 @@ function scalar(v: string | string[] | undefined): string | undefined {
 
 // Zero-valued aggregate for total-failure fallback rendering.
 const ZERO_AGGREGATE: AnalyticsResponse = {
-  volume: 0,
-  status_breakdown: { completed: 0, failed: 0, pending: 0, in_progress: 0 },
-  severity_rollup: { error: 0, warning: 0, info: 0 },
-  top_rules: [],
+  statusBreakdown: { completed: 0, failed: 0, in_progress: 0 },
+  severityRollup: { error: 0, warning: 0, info: 0 },
+  topRules: [],
   latency: { p50: null, p95: null },
-  token_totals: {
-    total_input_tokens: 0,
-    total_output_tokens: 0,
-    cached_input_tokens: 0,
+  tokenTotals: {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
   },
 };
 
@@ -71,7 +75,7 @@ export default async function AnalyticsPage({
   // Build the filter query string (without leading '?') for the SSE client.
   const filterQuery = queryParams.toString();
 
-  const showEmpty = aggregate.volume === 0;
+  const showEmpty = analyticsVolume(aggregate) === 0;
 
   return (
     <div className="space-y-8">
@@ -124,12 +128,6 @@ export default async function AnalyticsPage({
           )}
         </>
       ) : (
-        // AnalyticsLive is a Client Component that:
-        //   - Renders the filter bar (passed as a slot to avoid prop-drilling)
-        //   - Subscribes to SSE and applies event deltas to tile state
-        //   - Shows the SseStatusBadge
-        // The <Suspense> wrapper is required because AnalyticsLive uses
-        // useSearchParams internally (via the filter bar slot).
         <Suspense fallback={<AnalyticsTiles data={aggregate} />}>
           <AnalyticsLive
             initialAggregate={aggregate}

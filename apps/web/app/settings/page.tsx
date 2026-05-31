@@ -1,6 +1,6 @@
 // Settings page — Server Component.
 // Fetches /api/dashboard/settings and renders the positive-allowlist fields.
-// Read-only: no edit affordances. No eval baseline section (see U4 rationale).
+// Read-only: no edit affordances. No eval baseline section (Day-8 territory).
 import { fetchDashboard } from '@/lib/api';
 import { SettingsCard, SettingsRow } from '@/components/settings-card';
 import { EmptyState } from '@/components/empty-state';
@@ -17,7 +17,7 @@ export default async function SettingsPage() {
           Settings
         </h1>
         <p className="text-sm text-muted-foreground">
-          Bot configuration. Read-only — edit in source to change.
+          Bot configuration. Read-only: edit in source to change.
         </p>
       </header>
 
@@ -27,11 +27,11 @@ export default async function SettingsPage() {
           <SettingsRow label="Review model" value={settings.model} />
           <SettingsRow
             label="Embedding model"
-            value={settings.embedding_model}
+            value={settings.embeddingModel}
           />
           <SettingsRow
             label="Chroma collection"
-            value={settings.chroma_collection}
+            value={settings.chromaCollection}
             isLast
           />
         </dl>
@@ -39,7 +39,7 @@ export default async function SettingsPage() {
 
       {/* Knowledge sources */}
       <SettingsCard title="Knowledge sources">
-        {settings.knowledge_sources.length === 0 ? (
+        {settings.knowledgeSources.length === 0 ? (
           <EmptyState
             title="No sources configured yet."
             description={
@@ -55,7 +55,7 @@ export default async function SettingsPage() {
           />
         ) : (
           <dl>
-            {settings.knowledge_sources.map((src, idx) => (
+            {settings.knowledgeSources.map((src, idx) => (
               <SettingsRow
                 key={src.id}
                 label={src.name}
@@ -70,7 +70,7 @@ export default async function SettingsPage() {
                     </span>
                   )
                 }
-                isLast={idx === settings.knowledge_sources.length - 1}
+                isLast={idx === settings.knowledgeSources.length - 1}
               />
             ))}
           </dl>
@@ -82,11 +82,11 @@ export default async function SettingsPage() {
         <dl>
           <SettingsRow
             label="Allowed severities"
-            value={settings.severity_gate.allowed.join(', ')}
+            value={settings.severityGate.allowed.join(', ')}
           />
           <SettingsRow
             label="Default severity"
-            value={settings.severity_gate.default}
+            value={settings.severityGate.default}
             isLast
           />
         </dl>

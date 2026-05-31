@@ -14,7 +14,7 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table';
-import type { AnalyticsResponse } from '@/lib/api-types';
+import { analyticsVolume, type AnalyticsResponse } from '@/lib/api-types';
 
 // ---------------------------------------------------------------------------
 // Tile components
@@ -74,11 +74,12 @@ interface SeverityBarProps {
   error: number;
   warning: number;
   info: number;
-  total: number;
 }
 
-function SeverityBar({ error, warning, info, total }: SeverityBarProps) {
-  if (total === 0) {
+function SeverityBar({ error, warning, info }: SeverityBarProps) {
+  const totalFindings = error + warning + info;
+
+  if (totalFindings === 0) {
     return (
       <p className="font-mono text-4xl font-semibold tabular-nums text-foreground">
         0
@@ -95,8 +96,6 @@ function SeverityBar({ error, warning, info, total }: SeverityBarProps) {
     },
     { count: info, color: 'bg-[var(--severity-info)]', label: 'info' },
   ].filter((s) => s.count > 0);
-
-  const totalFindings = error + warning + info;
 
   return (
     <div className="space-y-3">
@@ -192,7 +191,7 @@ function formatTokens(n: number): string {
 // ---------------------------------------------------------------------------
 
 interface TopRulesProps {
-  rules: AnalyticsResponse['top_rules'];
+  rules: AnalyticsResponse['topRules'];
 }
 
 function TopRulesTable({ rules }: TopRulesProps) {
@@ -238,9 +237,10 @@ interface AnalyticsTilesProps {
 }
 
 export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
-  const { volume, severity_rollup, latency, token_totals, top_rules } = data;
-  const totalTokens =
-    token_totals.total_input_tokens + token_totals.total_output_tokens;
+  const { statusBreakdown, severityRollup, latency, tokenTotals, topRules } =
+    data;
+  const volume = analyticsVolume(data);
+  const totalTokens = tokenTotals.input_tokens + tokenTotals.output_tokens;
 
   return (
     <div className="space-y-8">
@@ -253,23 +253,24 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
           <p className="font-mono text-4xl font-semibold tabular-nums text-foreground">
             {volume}
           </p>
-          {data.status_breakdown.completed > 0 ||
-          data.status_breakdown.failed > 0 ? (
+          {(statusBreakdown.completed > 0 || statusBreakdown.failed > 0) && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {data.status_breakdown.completed} completed
-              {data.status_breakdown.failed > 0
-                ? `, ${data.status_breakdown.failed} failed`
+              {statusBreakdown.completed} completed
+              {statusBreakdown.failed > 0
+                ? `, ${statusBreakdown.failed} failed`
+                : ''}
+              {statusBreakdown.in_progress > 0
+                ? `, ${statusBreakdown.in_progress} in progress`
                 : ''}
             </p>
-          ) : null}
+          )}
         </PrimaryTile>
 
         <PrimaryTile label="Findings by severity">
           <SeverityBar
-            error={severity_rollup.error}
-            warning={severity_rollup.warning}
-            info={severity_rollup.info}
-            total={volume}
+            error={severityRollup.error}
+            warning={severityRollup.warning}
+            info={severityRollup.info}
           />
         </PrimaryTile>
       </section>
@@ -296,7 +297,7 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
       </section>
 
       {/* Supporting list: top rules */}
-      {top_rules.length > 0 && <TopRulesTable rules={top_rules} />}
+      {topRules.length > 0 && <TopRulesTable rules={topRules} />}
     </div>
   );
 }

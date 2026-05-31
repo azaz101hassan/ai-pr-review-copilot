@@ -1,6 +1,12 @@
 // Server-presentational component: renders a single review's detail view.
-// Hierarchy per design principle 4: PR metadata (quiet top strip) →
+// Hierarchy per design principle 4: PR/review metadata (quiet top strip) →
 // findings (headline section) → retrieved chunks + token breakdown (supporting context).
+//
+// The API returns the detail as three siblings (review / findings /
+// retrievedChunks); this component takes them as separate props rather than
+// stitching them into one synthetic object. The review record itself has
+// no PR-join fields — those land in the list endpoint, not detail — so the
+// metadata strip stays minimal.
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -12,9 +18,9 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import type {
-  ReviewDetailItem,
-  ReviewFindingSummary,
-  RetrievedChunk,
+  ReviewDetailRecord,
+  ReviewFindingRecord,
+  HydratedChunk,
   SeverityLevel,
 } from '@/lib/api-types';
 
@@ -22,7 +28,7 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(epochMs: number): string {
+function formatDate(input: string | number): string {
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -30,7 +36,7 @@ function formatDate(epochMs: number): string {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).format(new Date(epochMs));
+  }).format(new Date(input));
 }
 
 function formatMs(ms: number): string {
@@ -67,45 +73,27 @@ function SeverityBadge({ level }: { level: SeverityLevel }) {
 }
 
 // ---------------------------------------------------------------------------
-// PR metadata strip (quiet — muted foreground, compact)
+// Metadata strip (quiet — muted foreground, compact)
+// The detail endpoint doesn't return PR join fields, so we surface what we
+// have: review id, dry-run pill when there's no PR, timestamp, prompt version.
 // ---------------------------------------------------------------------------
 
 interface MetaStripProps {
-  review: ReviewDetailItem;
+  review: ReviewDetailRecord;
 }
 
 function MetaStrip({ review }: MetaStripProps) {
-  const hasNoId = review.pr_node_id == null;
+  const hasNoPr = review.pr_node_id == null;
   return (
     <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm text-muted-foreground">
       <span>
         Review{' '}
-        <span className="tabular-nums text-foreground">#{review.id}</span>
+        <span className="font-mono text-xs text-foreground">{review.id}</span>
       </span>
-      {hasNoId ? (
+      {hasNoPr && (
         <span className="inline-flex items-center rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
           dry-run
         </span>
-      ) : (
-        <>
-          {review.repo_full_name && (
-            <span className="font-mono text-xs">{review.repo_full_name}</span>
-          )}
-          {review.pr_number != null && (
-            <span>
-              PR{' '}
-              <span className="tabular-nums text-foreground">
-                #{review.pr_number}
-              </span>
-            </span>
-          )}
-          {review.author_login && (
-            <span>
-              by{' '}
-              <span className="text-foreground">{review.author_login}</span>
-            </span>
-          )}
-        </>
       )}
       <span>
         <time dateTime={new Date(review.created_at).toISOString()}>
@@ -115,20 +103,8 @@ function MetaStrip({ review }: MetaStripProps) {
       {review.prompt_version && (
         <span className="font-mono text-xs">{review.prompt_version}</span>
       )}
+      <span className="font-mono text-xs">{review.model}</span>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// PR title (visible only when present)
-// ---------------------------------------------------------------------------
-
-function PrTitle({ title }: { title: string | null }) {
-  if (!title) return null;
-  return (
-    <h1 className="text-xl font-semibold text-foreground" style={{ textWrap: 'balance' }}>
-      {title}
-    </h1>
   );
 }
 
@@ -145,7 +121,7 @@ function StatusBadge({ status }: { status: string }) {
         : 'outline';
   return (
     <Badge variant={variant} className="capitalize">
-      {status}
+      {status.replace('_', ' ')}
     </Badge>
   );
 }
@@ -155,7 +131,7 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 interface FindingsTableProps {
-  findings: ReviewFindingSummary[];
+  findings: ReviewFindingRecord[];
 }
 
 function FindingsTable({ findings }: FindingsTableProps) {
@@ -226,10 +202,12 @@ function FindingsTable({ findings }: FindingsTableProps) {
 
 // ---------------------------------------------------------------------------
 // Retrieved chunks list (supporting context)
+// HydratedChunk is a discriminated union: { missing: false, title, body, ... }
+// or { missing: true, id }.
 // ---------------------------------------------------------------------------
 
 interface ChunkCardProps {
-  chunk: RetrievedChunk;
+  chunk: HydratedChunk;
 }
 
 function ChunkCard({ chunk }: ChunkCardProps) {
@@ -249,41 +227,35 @@ function ChunkCard({ chunk }: ChunkCardProps) {
   return (
     <div className="rounded-lg border border-border px-4 py-3">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
-        {chunk.rule_id && (
-          <span className="font-mono text-[11px] font-medium text-foreground">
-            {chunk.rule_id}
-          </span>
-        )}
-        {chunk.source_path && (
-          <span className="font-mono text-[11px] text-muted-foreground">
-            {chunk.source_path}
-          </span>
-        )}
+        <span className="font-mono text-[11px] font-medium text-foreground">
+          {chunk.rule_id}
+        </span>
+        <span className="text-xs text-muted-foreground">{chunk.title}</span>
+        <span className="font-mono text-[11px] text-muted-foreground/70">
+          {chunk.source_id}
+        </span>
       </div>
-      {chunk.text_preview && (
-        <p className="mt-1.5 line-clamp-3 text-sm text-muted-foreground">
-          {chunk.text_preview}
-        </p>
-      )}
+      <p className="mt-1.5 line-clamp-3 text-sm text-muted-foreground">
+        {chunk.body}
+      </p>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Token breakdown (supporting context — quieter, smaller)
+// Uses the raw Anthropic-named token columns from the review row.
 // ---------------------------------------------------------------------------
 
 interface TokenBreakdownProps {
-  review: ReviewDetailItem;
+  review: ReviewDetailRecord;
 }
 
 function TokenBreakdown({ review }: TokenBreakdownProps) {
-  const hasTokens =
-    review.total_input_tokens != null || review.total_output_tokens != null;
-
   const duration =
     review.completed_at != null
-      ? review.completed_at - review.created_at
+      ? new Date(review.completed_at).getTime() -
+        new Date(review.created_at).getTime()
       : null;
 
   return (
@@ -291,37 +263,53 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
       <div>
         <dt className="text-muted-foreground">Input tokens</dt>
         <dd className="tabular-nums text-foreground">
-          {hasTokens && review.total_input_tokens != null
-            ? review.total_input_tokens.toLocaleString()
-            : <span className="text-muted-foreground/40">&mdash;</span>}
+          {review.input_tokens != null ? (
+            review.input_tokens.toLocaleString()
+          ) : (
+            <span className="text-muted-foreground/40">&mdash;</span>
+          )}
         </dd>
       </div>
       <div>
         <dt className="text-muted-foreground">Output tokens</dt>
         <dd className="tabular-nums text-foreground">
-          {hasTokens && review.total_output_tokens != null
-            ? review.total_output_tokens.toLocaleString()
-            : <span className="text-muted-foreground/40">&mdash;</span>}
+          {review.output_tokens != null ? (
+            review.output_tokens.toLocaleString()
+          ) : (
+            <span className="text-muted-foreground/40">&mdash;</span>
+          )}
         </dd>
       </div>
       <div>
-        <dt className="text-muted-foreground">Cached input</dt>
+        <dt className="text-muted-foreground">Cache write</dt>
         <dd className="tabular-nums text-foreground">
-          {review.cached_input_tokens != null
-            ? review.cached_input_tokens.toLocaleString()
-            : <span className="text-muted-foreground/40">&mdash;</span>}
+          {review.cache_creation_input_tokens != null ? (
+            review.cache_creation_input_tokens.toLocaleString()
+          ) : (
+            <span className="text-muted-foreground/40">&mdash;</span>
+          )}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-muted-foreground">Cache read</dt>
+        <dd className="tabular-nums text-foreground">
+          {review.cache_read_input_tokens != null ? (
+            review.cache_read_input_tokens.toLocaleString()
+          ) : (
+            <span className="text-muted-foreground/40">&mdash;</span>
+          )}
         </dd>
       </div>
       <div>
         <dt className="text-muted-foreground">Turns</dt>
-        <dd className="tabular-nums text-foreground">
-          {review.turn_count ?? <span className="text-muted-foreground/40">&mdash;</span>}
-        </dd>
+        <dd className="tabular-nums text-foreground">{review.turn_count}</dd>
       </div>
       {duration != null && (
         <div>
           <dt className="text-muted-foreground">Duration</dt>
-          <dd className="tabular-nums text-foreground">{formatMs(duration)}</dd>
+          <dd className="tabular-nums text-foreground">
+            {formatMs(duration)}
+          </dd>
         </div>
       )}
     </dl>
@@ -333,21 +321,26 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
 // ---------------------------------------------------------------------------
 
 interface ReviewDetailProps {
-  review: ReviewDetailItem;
+  review: ReviewDetailRecord;
+  findings: ReviewFindingRecord[];
+  retrievedChunks: HydratedChunk[];
 }
 
-export function ReviewDetail({ review }: ReviewDetailProps) {
-  const hasChunks = review.retrieved_chunks.length > 0;
+export function ReviewDetail({
+  review,
+  findings,
+  retrievedChunks,
+}: ReviewDetailProps) {
+  const hasChunks = retrievedChunks.length > 0;
 
   return (
     <article className="space-y-8">
-      {/* PR metadata strip — quiet, contextual */}
+      {/* Metadata strip — quiet, contextual */}
       <header className="space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge status={review.status} />
           <MetaStrip review={review} />
         </div>
-        <PrTitle title={review.pr_title} />
       </header>
 
       <Separator />
@@ -359,13 +352,13 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
           className="mb-4 text-base font-semibold text-foreground"
         >
           Findings
-          {review.findings.length > 0 && (
+          {findings.length > 0 && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">
-              ({review.findings.length})
+              ({findings.length})
             </span>
           )}
         </h2>
-        <FindingsTable findings={review.findings} />
+        <FindingsTable findings={findings} />
       </section>
 
       <Separator />
@@ -379,14 +372,14 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
           Knowledge context
           {hasChunks && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">
-              ({review.retrieved_chunks.length} chunk
-              {review.retrieved_chunks.length !== 1 ? 's' : ''})
+              ({retrievedChunks.length} chunk
+              {retrievedChunks.length !== 1 ? 's' : ''})
             </span>
           )}
         </h2>
         {hasChunks ? (
           <div className="flex flex-col gap-2">
-            {review.retrieved_chunks.map((chunk, i) => (
+            {retrievedChunks.map((chunk, i) => (
               <ChunkCard key={chunk.id ?? i} chunk={chunk} />
             ))}
           </div>

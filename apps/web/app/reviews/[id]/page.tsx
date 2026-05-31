@@ -29,7 +29,11 @@ export default async function ReviewDetailPage({
 
   return (
     <div className="max-w-4xl">
-      <ReviewDetail review={data.review} />
+      <ReviewDetail
+        review={data.review}
+        findings={data.findings}
+        retrievedChunks={data.retrievedChunks}
+      />
     </div>
   );
 }

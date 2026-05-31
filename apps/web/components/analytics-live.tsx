@@ -21,7 +21,10 @@ import {
 import { useSearchParams } from 'next/navigation';
 import { AnalyticsTiles } from '@/components/analytics-tiles';
 import { SseStatusBadge, type SseState } from '@/components/sse-status-badge';
-import type { AnalyticsResponse, TerminalReviewEvent } from '@/lib/api-types';
+import type {
+  AnalyticsResponse,
+  TerminalReviewEvent,
+} from '@/lib/api-types';
 
 interface AnalyticsLiveProps {
   initialAggregate: AnalyticsResponse;
@@ -52,45 +55,49 @@ async function fetchLatestAggregate(
 }
 
 // Produce a shallow clone of the aggregate with SSE event deltas applied.
+// Volume isn't stored explicitly — it's derived from statusBreakdown — so
+// incrementing the right status bucket is all we need.
 function applyDelta(
   agg: AnalyticsResponse,
   ev: TerminalReviewEvent,
 ): AnalyticsResponse {
-  const next: AnalyticsResponse = {
+  const tokenDelta = ev.token_totals;
+  return {
     ...agg,
-    volume: agg.volume + 1,
-    status_breakdown: {
-      ...agg.status_breakdown,
+    statusBreakdown: {
+      ...agg.statusBreakdown,
       completed:
         ev.status === 'completed'
-          ? agg.status_breakdown.completed + 1
-          : agg.status_breakdown.completed,
+          ? agg.statusBreakdown.completed + 1
+          : agg.statusBreakdown.completed,
       failed:
         ev.status === 'failed'
-          ? agg.status_breakdown.failed + 1
-          : agg.status_breakdown.failed,
+          ? agg.statusBreakdown.failed + 1
+          : agg.statusBreakdown.failed,
     },
-    severity_rollup: {
-      error: agg.severity_rollup.error + (ev.severity_counts?.error ?? 0),
-      warning:
-        agg.severity_rollup.warning + (ev.severity_counts?.warning ?? 0),
-      info: agg.severity_rollup.info + (ev.severity_counts?.info ?? 0),
+    severityRollup: {
+      error: agg.severityRollup.error + (ev.finding_counts?.error ?? 0),
+      warning: agg.severityRollup.warning + (ev.finding_counts?.warning ?? 0),
+      info: agg.severityRollup.info + (ev.finding_counts?.info ?? 0),
     },
     // Token totals: accumulate when the event carries token data.
-    token_totals: {
-      total_input_tokens:
-        agg.token_totals.total_input_tokens +
-        (ev.total_input_tokens ?? 0),
-      total_output_tokens:
-        agg.token_totals.total_output_tokens +
-        (ev.total_output_tokens ?? 0),
-      cached_input_tokens: agg.token_totals.cached_input_tokens,
-    },
-    // top_rules and latency require re-fetch to stay accurate; leave them.
-    top_rules: agg.top_rules,
+    tokenTotals: tokenDelta
+      ? {
+          input_tokens: agg.tokenTotals.input_tokens + tokenDelta.input_tokens,
+          output_tokens:
+            agg.tokenTotals.output_tokens + tokenDelta.output_tokens,
+          cache_creation_input_tokens:
+            agg.tokenTotals.cache_creation_input_tokens +
+            (tokenDelta.cache_creation_input_tokens ?? 0),
+          cache_read_input_tokens:
+            agg.tokenTotals.cache_read_input_tokens +
+            (tokenDelta.cache_read_input_tokens ?? 0),
+        }
+      : agg.tokenTotals,
+    // topRules and latency require re-fetch to stay accurate; leave them.
+    topRules: agg.topRules,
     latency: agg.latency,
   };
-  return next;
 }
 
 // Parse the filter query string into key → value pairs for matching.
