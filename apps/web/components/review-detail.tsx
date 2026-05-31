@@ -34,6 +34,19 @@ function formatMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+// Empty-cell placeholder. The em-dash is visual only; screen readers get
+// "No value" so a missing field is announced instead of silently skipped.
+function EmptyCell() {
+  return (
+    <>
+      <span className="text-muted-foreground" aria-hidden>
+        &mdash;
+      </span>
+      <span className="sr-only">No value</span>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Severity badge: uses severity tokens from globals.css, never raw destructive
 // ---------------------------------------------------------------------------
@@ -128,9 +141,7 @@ function FindingsTable({ findings }: FindingsTableProps) {
                   {f.file_path}
                 </span>
               ) : (
-                <span className="text-muted-foreground/40" aria-hidden>
-                  &mdash;
-                </span>
+                <EmptyCell />
               )}
             </TableCell>
             <TableCell>
@@ -142,9 +153,7 @@ function FindingsTable({ findings }: FindingsTableProps) {
                     : ''}
                 </span>
               ) : (
-                <span className="text-muted-foreground/40" aria-hidden>
-                  &mdash;
-                </span>
+                <EmptyCell />
               )}
             </TableCell>
           </TableRow>
@@ -171,7 +180,7 @@ function ChunkCard({ chunk }: ChunkCardProps) {
         <p className="text-xs font-medium text-muted-foreground">
           Knowledge source removed
         </p>
-        <p className="mt-0.5 font-mono text-xs text-muted-foreground/60">
+        <p className="mt-0.5 font-mono text-xs text-muted-foreground">
           {chunk.id}
         </p>
       </div>
@@ -185,7 +194,7 @@ function ChunkCard({ chunk }: ChunkCardProps) {
           {chunk.rule_id}
         </span>
         <span className="text-xs text-muted-foreground">{chunk.title}</span>
-        <span className="font-mono text-[11px] text-muted-foreground/70">
+        <span className="font-mono text-[11px] text-muted-foreground">
           {chunk.source_id}
         </span>
       </div>
@@ -220,7 +229,7 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
           {review.input_tokens != null ? (
             review.input_tokens.toLocaleString()
           ) : (
-            <span className="text-muted-foreground/40">&mdash;</span>
+            <EmptyCell />
           )}
         </dd>
       </div>
@@ -230,7 +239,7 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
           {review.output_tokens != null ? (
             review.output_tokens.toLocaleString()
           ) : (
-            <span className="text-muted-foreground/40">&mdash;</span>
+            <EmptyCell />
           )}
         </dd>
       </div>
@@ -240,7 +249,7 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
           {review.cache_creation_input_tokens != null ? (
             review.cache_creation_input_tokens.toLocaleString()
           ) : (
-            <span className="text-muted-foreground/40">&mdash;</span>
+            <EmptyCell />
           )}
         </dd>
       </div>
@@ -250,7 +259,7 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
           {review.cache_read_input_tokens != null ? (
             review.cache_read_input_tokens.toLocaleString()
           ) : (
-            <span className="text-muted-foreground/40">&mdash;</span>
+            <EmptyCell />
           )}
         </dd>
       </div>
