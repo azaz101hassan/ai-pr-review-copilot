@@ -16,7 +16,8 @@
     "query:rules": "ts-node -r tsconfig-paths/register src/modules/embeddings/scripts/query.ts",
     "review:dry-run": "ts-node -r tsconfig-paths/register src/modules/reviews/scripts/dry-run.ts",
     "eval:capture": "ts-node -r tsconfig-paths/register src/modules/reviews/eval/capture.ts",
-    "eval:score": "ts-node -r tsconfig-paths/register src/modules/reviews/eval/score.ts"
+    "eval:score": "ts-node -r tsconfig-paths/register src/modules/reviews/eval/score.ts",
+    "seed:dev": "ts-node -r tsconfig-paths/register src/modules/dashboard/scripts/seed-dev.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.99.0",
