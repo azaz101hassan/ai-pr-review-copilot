@@ -1,36 +1,65 @@
-export default function HomePage() {
+// Analytics page — Server Component skeleton.
+// The full implementation (live SSE tiles, filter bar, analytics data fetch)
+// lands in U8. This skeleton mounts successfully so `next build` passes and
+// the nav shell is visible end-to-end with the U6 foundation.
+import { Suspense } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/empty-state';
+
+export default function AnalyticsPage() {
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: '4rem 1.5rem',
-        textAlign: 'center',
-      }}
-    >
-      <h1 style={{ fontSize: '2.5rem', margin: 0, letterSpacing: '-0.02em' }}>
-        AI PR Review Copilot
-      </h1>
-      <p style={{ marginTop: '0.75rem', color: '#9aa4b2', maxWidth: '36rem' }}>
-        Dashboard coming soon. The API listens on{' '}
-        <code
-          style={{
-            background: '#1a1f26',
-            padding: '0.125rem 0.375rem',
-            borderRadius: '0.25rem',
-          }}
-        >
-          localhost:3001
-        </code>{' '}
-        and accepts GitHub PR webhooks today; the UI lands on Day 7 of the
-        baseline plan.
-      </p>
-      <p style={{ marginTop: '1.5rem', fontSize: '0.875rem', color: '#6b7785' }}>
-        See <code>docs/plans/01-baseline.md</code> for the 10-day plan.
-      </p>
-    </main>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Review activity overview
+        </p>
+      </div>
+
+      {/* Filter bar placeholder — wired in U8 */}
+      <Suspense fallback={<Skeleton className="h-8 w-64" />}>
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-8 w-36" />
+          <Skeleton className="h-8 w-32" />
+        </div>
+      </Suspense>
+
+      {/* Primary metric tiles */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard title="Total Reviews" value="—" />
+        <MetricCard title="Completed" value="—" />
+        <MetricCard title="Failed" value="—" />
+        <MetricCard title="In Progress" value="—" />
+      </div>
+
+      {/* Secondary metric tiles */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <MetricCard title="Latency p50" value="—" />
+        <MetricCard title="Latency p95" value="—" />
+        <MetricCard title="Total Tokens" value="—" />
+      </div>
+
+      {/* Empty state — shown until U8 wires real data */}
+      <EmptyState
+        title="Analytics loading in U8"
+        description="Run npm run seed:dev to populate the database with sample reviews."
+      />
+    </div>
+  );
+}
+
+function MetricCard({ title, value }: { title: string; value: string }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-2xl font-bold">{value}</p>
+      </CardContent>
+    </Card>
   );
 }
