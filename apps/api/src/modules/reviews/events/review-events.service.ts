@@ -1,5 +1,5 @@
 import { BeforeApplicationShutdown, Injectable, Logger } from '@nestjs/common';
-import { Observable, Subject } from 'rxjs';
+import { config as rxjsConfig, Observable, Subject } from 'rxjs';
 
 // Payload emitted at every terminal-state transition inside
 // ReviewsService.runDryRun. The SSE controller (DashboardEventsController)
@@ -53,13 +53,28 @@ export class ReviewEventsService implements BeforeApplicationShutdown {
   private readonly logger = new Logger(ReviewEventsService.name);
   private readonly subject = new Subject<TerminalReviewEvent>();
 
-  // Emit a terminal-state event to all current subscribers. Wrapped in
-  // try/catch so a subscriber throw does not propagate back through
-  // Subject.next() into the caller (ReviewsService.runDryRun). RxJS
-  // Subject.next() runs subscriber callbacks synchronously inline — if
-  // a subscriber's `next` handler throws, Subject.next() propagates that
-  // throw. The try/catch here absorbs it so the runDryRun caller is never
-  // affected by SSE subscriber failures.
+  constructor() {
+    // RxJS 7+ wraps every Subject.next() observer call in an errorContext
+    // that catches synchronous throws and routes them through the global
+    // config.onUnhandledError. The default handler re-throws asynchronously
+    // via setTimeout — which terminates the Node process. That means a
+    // single misbehaving SSE subscriber (e.g. a JSON.stringify failure on
+    // an exotic payload) would crash the API. Override the global handler
+    // to log+swallow instead. The override is a singleton mutation on the
+    // rxjs config object; in this app the only Subject we own is this one,
+    // so the effective scope is local.
+    rxjsConfig.onUnhandledError = (err) => {
+      this.logger.error(
+        'Unhandled RxJS subscriber error — suppressed to keep API alive',
+        err instanceof Error ? err.stack : String(err),
+      );
+    };
+  }
+
+  // Emit a terminal-state event to all current subscribers. Safe to call
+  // from runDryRun: Subject.next() never propagates a subscriber throw to
+  // the producer (see constructor for the why). After shutdown the Subject
+  // is closed and emits are silently dropped.
   emit(event: TerminalReviewEvent): void {
     if (this.subject.closed) {
       this.logger.debug(
@@ -67,14 +82,7 @@ export class ReviewEventsService implements BeforeApplicationShutdown {
       );
       return;
     }
-    try {
-      this.subject.next(event);
-    } catch (err) {
-      this.logger.error(
-        `ReviewEventsService: subscriber threw during emit for review_id=${event.review_id} — swallowed`,
-        err instanceof Error ? err.stack : String(err),
-      );
-    }
+    this.subject.next(event);
   }
 
   // Observable of terminal-state events. DashboardEventsController (U5)
