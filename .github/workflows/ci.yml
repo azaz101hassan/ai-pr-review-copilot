@@ -17,6 +17,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history. The eval staleness check (apps/api/src/modules/
+          # reviews/eval/staleness.ts) compares the recordings' captured
+          # gitSha against the latest commit touching tracked paths. With
+          # the default fetch-depth: 1, only the PR-merge commit is in the
+          # local repo, so `git log -1 -- <paths>` returns that merge
+          # commit instead of the real introducing commit on main, and
+          # the content-equality fallback's `git diff` can't reach the
+          # recording's SHA either. Full history makes both reachable.
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
