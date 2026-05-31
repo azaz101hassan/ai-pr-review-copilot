@@ -132,6 +132,15 @@ function ReviewRow({ review }: ReviewRowProps) {
             </>
           )}
           <RelativeTime value={review.created_at} />
+          {review.finding_count > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">
+                {review.finding_count} finding
+                {review.finding_count === 1 ? '' : 's'}
+              </span>
+            </>
+          )}
           {tokenTotal != null && (
             <>
               <span aria-hidden="true">·</span>

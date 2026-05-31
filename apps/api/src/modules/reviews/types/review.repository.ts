@@ -50,6 +50,9 @@ export interface ReviewListEntry {
   pr_number: number | null;
   pr_title: string | null;
   author_login: string | null;
+  // Correlated subquery — number of review_findings rows for this review.
+  // 0 for reviews that have no findings (clean or failed-before-findings).
+  finding_count: number;
 }
 
 // Severity breakdown: how many findings per severity level across matched reviews.

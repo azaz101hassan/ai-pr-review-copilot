@@ -4,10 +4,10 @@
 import { Suspense } from 'react';
 import { fetchDashboard, toURLSearchParams } from '@/lib/api';
 import { FilterBar } from '@/components/filter-bar';
+import { ActiveFilterChips } from '@/components/active-filter-chips';
 import { ReviewsList } from '@/components/reviews-list';
 import { PaginationControls } from '@/components/pagination-controls';
 import { EmptyState } from '@/components/empty-state';
-import { Skeleton } from '@/components/ui/skeleton';
 import type {
   ReviewListResponse,
   FilterOptionsResponse,
@@ -64,17 +64,22 @@ export default async function ReviewsPage({ searchParams }: ReviewsPageProps) {
     <div className="space-y-6">
       {/* Page heading */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-lg font-semibold text-foreground">Reviews</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          Reviews
+        </h1>
         {list.total > 0 && (
-          <p className="text-sm text-muted-foreground">
-            {list.total} total
+          <p className="font-mono text-sm tabular-nums text-muted-foreground">
+            {list.total.toLocaleString()} total
           </p>
         )}
       </div>
 
-      {/* Filter bar — Client Component; must be wrapped in Suspense */}
+      {/* Filter bar + active-filter chips — Client; need a Suspense wrapper */}
       <Suspense fallback={<div className="h-8" />}>
-        <FilterBar repos={repos} authors={authors} />
+        <div className="space-y-2">
+          <FilterBar repos={repos} authors={authors} />
+          <ActiveFilterChips />
+        </div>
       </Suspense>
 
       {/* Main content */}

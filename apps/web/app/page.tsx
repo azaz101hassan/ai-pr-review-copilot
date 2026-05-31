@@ -9,6 +9,7 @@
 import { Suspense } from 'react';
 import { fetchDashboard, toURLSearchParams } from '@/lib/api';
 import { FilterBar } from '@/components/filter-bar';
+import { ActiveFilterChips } from '@/components/active-filter-chips';
 import { AnalyticsTiles } from '@/components/analytics-tiles';
 import { AnalyticsLive } from '@/components/analytics-live';
 import { EmptyState } from '@/components/empty-state';
@@ -80,13 +81,10 @@ export default async function AnalyticsPage({
   return (
     <div className="space-y-8">
       {/* Page heading */}
-      <header className="space-y-1">
+      <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Analytics
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Review pipeline at a glance.
-        </p>
       </header>
 
       {showEmpty ? (
@@ -94,7 +92,10 @@ export default async function AnalyticsPage({
           {/* Filter bar still renders even in the empty state */}
           {!filtersFailed && (
             <Suspense fallback={<div className="h-8" />}>
-              <FilterBar repos={repos} authors={authors} />
+              <div className="space-y-2">
+                <FilterBar repos={repos} authors={authors} />
+                <ActiveFilterChips />
+              </div>
             </Suspense>
           )}
           {filtersFailed && (
@@ -139,7 +140,10 @@ export default async function AnalyticsPage({
                 </p>
               ) : (
                 <Suspense fallback={<div className="h-8" />}>
-                  <FilterBar repos={repos} authors={authors} />
+                  <div className="space-y-2">
+                    <FilterBar repos={repos} authors={authors} />
+                    <ActiveFilterChips />
+                  </div>
                 </Suspense>
               )
             }

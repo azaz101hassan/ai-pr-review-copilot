@@ -1,47 +1,42 @@
 // Streaming Suspense fallback for the reviews list page.
-// Matches the column shape of ReviewsTable so the layout does not shift.
+// Matches the two-line GitHub-issue row shape of ReviewsList so the
+// layout does not shift when the real data arrives.
 import { Skeleton } from '@/components/ui/skeleton';
+
+const ROW_COUNT = 8;
 
 export default function ReviewsLoading() {
   return (
     <div className="space-y-6">
-      {/* Heading skeleton */}
+      {/* Heading row */}
       <div className="flex items-center justify-between">
-        <Skeleton className="h-6 w-24" />
-        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-7 w-32" />
+        <Skeleton className="h-4 w-20" />
       </div>
 
-      {/* Filter bar skeleton */}
+      {/* Filter bar */}
       <div className="flex gap-2">
-        <Skeleton className="h-8 w-36" />
-        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-8 w-40" />
       </div>
 
-      {/* Table skeleton: header + 8 rows */}
-      <div className="space-y-1">
-        {/* Header row */}
-        <div className="flex gap-4 border-b border-border pb-2">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-4 w-10" />
-          <Skeleton className="h-4 flex-1" />
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-28" />
-        </div>
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
+      {/* List skeleton: status dot + two stacked text bars per row */}
+      <ul role="list" className="rounded-md border border-border">
+        {Array.from({ length: ROW_COUNT }).map((_, i) => (
+          <li
             key={i}
-            className="flex items-center gap-4 border-b border-border py-2.5"
+            className="border-b border-border px-4 py-3 last:border-b-0"
           >
-            <Skeleton className="h-5 w-20 rounded-md" />
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-4 w-10" />
-            <Skeleton className="h-4 flex-1" />
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-4 w-28" />
-          </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-2 w-2 rounded-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+            <div className="mt-2 pl-[calc(0.5rem+8px)]">
+              <Skeleton className="h-3 w-1/3" />
+            </div>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

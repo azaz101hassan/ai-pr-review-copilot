@@ -200,6 +200,12 @@ export class SqliteReviewsRepository implements IReviewRepository {
         pr_number: pullRequests.number,
         pr_title: pullRequests.title,
         author_login: pullRequests.author_login,
+        // Indexed lookup per row via idx_review_findings_review_id; cheap
+        // at the list page's 50-row ceiling.
+        finding_count: sql<number>`(
+          SELECT COUNT(*) FROM ${reviewFindings}
+          WHERE ${reviewFindings.review_id} = ${reviews.id}
+        )`.as('finding_count'),
       })
       .from(reviews)
       .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))

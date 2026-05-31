@@ -53,6 +53,8 @@ export interface ReviewListEntry {
   pr_number: number | null;
   pr_title: string | null;
   author_login: string | null;
+  // Correlated subquery on review_findings; 0 when the review produced none.
+  finding_count: number;
 }
 
 export interface ReviewFindingRecord {

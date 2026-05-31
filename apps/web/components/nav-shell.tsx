@@ -25,7 +25,7 @@ export function NavShell({ children }: NavShellProps) {
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-8 px-6">
           <a
             href="/"
-            className="font-mono text-[13px] font-medium tracking-tight text-foreground"
+            className="font-mono text-sm font-medium tracking-tight text-foreground"
             aria-label="PR Review Copilot home"
           >
             pr-review-copilot
