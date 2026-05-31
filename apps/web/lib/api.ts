@@ -1,6 +1,15 @@
-// Fetch helper for the /api/dashboard/* surface.
-// The /api/* prefix is proxied to the NestJS API on localhost:3001 via
-// next.config.js rewrites (local-dev CORS avoidance, see next.config.js).
+// Fetch helper for the dashboard API.
+//
+// Server-side (Server Components — current sole usage):
+//   Goes directly to API_INTERNAL_URL (default http://localhost:3001).
+//   Node's fetch requires an absolute URL, and the next.config.js rewrites
+//   proxy only exists at the browser layer — so SSR must talk to the API
+//   host directly.
+//
+// Browser-side (preserved for any future Client Component caller):
+//   Goes through the same-origin /api/dashboard prefix, which next.config.js
+//   rewrites to the API. Same-origin avoids CORS preflight regardless of
+//   how API_INTERNAL_URL is mapped.
 
 /** Thrown on any non-2xx response from the dashboard API. */
 export class FetchDashboardError extends Error {
@@ -29,8 +38,12 @@ export async function fetchDashboard<T>(
   params?: Record<string, string | string[] | undefined> | URLSearchParams,
   init?: RequestInit,
 ): Promise<T> {
-  const base = '/api/dashboard';
-  const url = new URL(`${base}${path}`, 'http://localhost');
+  const isServer = typeof window === 'undefined';
+  const url = isServer
+    ? new URL(
+        `${process.env.API_INTERNAL_URL ?? 'http://localhost:3001'}/dashboard${path}`,
+      )
+    : new URL(`/api/dashboard${path}`, 'http://localhost');
 
   // Serialize filter params into the query string.
   if (params) {
@@ -48,9 +61,10 @@ export async function fetchDashboard<T>(
     }
   }
 
-  // Use only the pathname + search so this works in both SSR (where there's no
-  // real host) and via the Next.js rewrites proxy.
-  const href = `${url.pathname}${url.search}`;
+  // Server: absolute URL is required by Node's fetch. Browser: same-origin
+  // path so the rewrites proxy handles it (the 'http://localhost' base above
+  // is only there to satisfy URL()'s parser; we drop it before fetch()).
+  const href = isServer ? url.toString() : `${url.pathname}${url.search}`;
 
   const response = await fetch(href, {
     cache: 'no-store',
