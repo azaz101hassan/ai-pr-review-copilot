@@ -77,6 +77,7 @@ describe('DashboardController', () => {
         review: { id: 'r1' } as never,
         findings: [],
         retrievedChunks: [],
+        pr: null,
       };
       mockService.getReviewDetail.mockReturnValue(expected);
 

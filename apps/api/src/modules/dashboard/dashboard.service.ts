@@ -8,6 +8,7 @@ import {
 import {
   IPullRequestRepository,
   PULL_REQUEST_REPOSITORY,
+  PullRequestSummary,
 } from '@/modules/webhooks/types/pull-request.repository';
 import {
   IKnowledgeChunkRepository,
@@ -84,7 +85,29 @@ export class DashboardService {
 
     const retrievedChunks = this.hydrateChunks(chunkIds);
 
-    return { review, findings, retrievedChunks };
+    // Resolve the PR anchor for the detail header. Standalone reviews have
+    // no pr_node_id; for those we ship pr: null so the header collapses
+    // gracefully. For PR-linked reviews where the row has been purged we
+    // also return null rather than erroring — the detail page can still
+    // render the review/findings/chunks even without PR identity.
+    const pr = review.pr_node_id
+      ? this.lookupPrSummary(review.pr_node_id)
+      : null;
+
+    return { review, findings, retrievedChunks, pr };
+  }
+
+  private lookupPrSummary(nodeId: string): PullRequestSummary | null {
+    const record = this.prRepo.findByNodeId(nodeId);
+    if (!record) return null;
+    return {
+      node_id: record.node_id,
+      repo_full_name: record.repo_full_name,
+      number: record.number,
+      title: record.title,
+      author_login: record.author_login,
+      created_at: record.created_at,
+    };
   }
 
   // ---------------------------------------------------------------------------

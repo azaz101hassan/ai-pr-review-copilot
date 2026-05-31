@@ -65,7 +65,7 @@ export default async function SettingsPage() {
                       {src.description}
                     </span>
                   ) : (
-                    <span className="font-sans text-xs text-muted-foreground/50">
+                    <span className="font-sans text-xs text-muted-foreground">
                       No description
                     </span>
                   )

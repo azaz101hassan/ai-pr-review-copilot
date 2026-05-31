@@ -3,10 +3,9 @@
 // findings (headline section) → retrieved chunks + token breakdown (supporting context).
 //
 // The API returns the detail as three siblings (review / findings /
-// retrievedChunks); this component takes them as separate props rather than
-// stitching them into one synthetic object. The review record itself has
-// no PR-join fields — those land in the list endpoint, not detail — so the
-// metadata strip stays minimal.
+// retrievedChunks / pr); this component takes them as separate props.
+// The `pr` sibling carries PR identity (repo, number, title, author); when
+// null the header collapses to standalone-review mode.
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -17,8 +16,10 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table';
+import { ReviewDetailHeader } from '@/components/review-detail-header';
 import type {
   ReviewDetailRecord,
+  ReviewDetailPrSummary,
   ReviewFindingRecord,
   HydratedChunk,
   SeverityLevel,
@@ -28,20 +29,22 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(input: string | number): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(input));
-}
-
 function formatMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+// Empty-cell placeholder. The em-dash is visual only; screen readers get
+// "No value" so a missing field is announced instead of silently skipped.
+function EmptyCell() {
+  return (
+    <>
+      <span className="text-muted-foreground" aria-hidden>
+        &mdash;
+      </span>
+      <span className="sr-only">No value</span>
+    </>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -69,42 +72,6 @@ function SeverityBadge({ level }: { level: SeverityLevel }) {
     >
       {level}
     </Badge>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Metadata strip (quiet — muted foreground, compact)
-// The detail endpoint doesn't return PR join fields, so we surface what we
-// have: review id, dry-run pill when there's no PR, timestamp, prompt version.
-// ---------------------------------------------------------------------------
-
-interface MetaStripProps {
-  review: ReviewDetailRecord;
-}
-
-function MetaStrip({ review }: MetaStripProps) {
-  const hasNoPr = review.pr_node_id == null;
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm text-muted-foreground">
-      <span>
-        Review{' '}
-        <span className="font-mono text-xs text-foreground">{review.id}</span>
-      </span>
-      {hasNoPr && (
-        <span className="inline-flex items-center rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-          dry-run
-        </span>
-      )}
-      <span>
-        <time dateTime={new Date(review.created_at).toISOString()}>
-          {formatDate(review.created_at)}
-        </time>
-      </span>
-      {review.prompt_version && (
-        <span className="font-mono text-xs">{review.prompt_version}</span>
-      )}
-      <span className="font-mono text-xs">{review.model}</span>
-    </div>
   );
 }
 
@@ -174,9 +141,7 @@ function FindingsTable({ findings }: FindingsTableProps) {
                   {f.file_path}
                 </span>
               ) : (
-                <span className="text-muted-foreground/40" aria-hidden>
-                  &mdash;
-                </span>
+                <EmptyCell />
               )}
             </TableCell>
             <TableCell>
@@ -188,9 +153,7 @@ function FindingsTable({ findings }: FindingsTableProps) {
                     : ''}
                 </span>
               ) : (
-                <span className="text-muted-foreground/40" aria-hidden>
-                  &mdash;
-                </span>
+                <EmptyCell />
               )}
             </TableCell>
           </TableRow>
@@ -217,7 +180,7 @@ function ChunkCard({ chunk }: ChunkCardProps) {
         <p className="text-xs font-medium text-muted-foreground">
           Knowledge source removed
         </p>
-        <p className="mt-0.5 font-mono text-xs text-muted-foreground/60">
+        <p className="mt-0.5 font-mono text-xs text-muted-foreground">
           {chunk.id}
         </p>
       </div>
@@ -231,7 +194,7 @@ function ChunkCard({ chunk }: ChunkCardProps) {
           {chunk.rule_id}
         </span>
         <span className="text-xs text-muted-foreground">{chunk.title}</span>
-        <span className="font-mono text-[11px] text-muted-foreground/70">
+        <span className="font-mono text-[11px] text-muted-foreground">
           {chunk.source_id}
         </span>
       </div>
@@ -266,7 +229,7 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
           {review.input_tokens != null ? (
             review.input_tokens.toLocaleString()
           ) : (
-            <span className="text-muted-foreground/40">&mdash;</span>
+            <EmptyCell />
           )}
         </dd>
       </div>
@@ -276,7 +239,7 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
           {review.output_tokens != null ? (
             review.output_tokens.toLocaleString()
           ) : (
-            <span className="text-muted-foreground/40">&mdash;</span>
+            <EmptyCell />
           )}
         </dd>
       </div>
@@ -286,7 +249,7 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
           {review.cache_creation_input_tokens != null ? (
             review.cache_creation_input_tokens.toLocaleString()
           ) : (
-            <span className="text-muted-foreground/40">&mdash;</span>
+            <EmptyCell />
           )}
         </dd>
       </div>
@@ -296,7 +259,7 @@ function TokenBreakdown({ review }: TokenBreakdownProps) {
           {review.cache_read_input_tokens != null ? (
             review.cache_read_input_tokens.toLocaleString()
           ) : (
-            <span className="text-muted-foreground/40">&mdash;</span>
+            <EmptyCell />
           )}
         </dd>
       </div>
@@ -324,24 +287,21 @@ interface ReviewDetailProps {
   review: ReviewDetailRecord;
   findings: ReviewFindingRecord[];
   retrievedChunks: HydratedChunk[];
+  pr: ReviewDetailPrSummary | null;
 }
 
 export function ReviewDetail({
   review,
   findings,
   retrievedChunks,
+  pr,
 }: ReviewDetailProps) {
   const hasChunks = retrievedChunks.length > 0;
 
   return (
     <article className="space-y-8">
-      {/* Metadata strip — quiet, contextual */}
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <StatusBadge status={review.status} />
-          <MetaStrip review={review} />
-        </div>
-      </header>
+      {/* PR identity header — anchors the page in GitHub context */}
+      <ReviewDetailHeader review={review} pr={pr} />
 
       <Separator />
 

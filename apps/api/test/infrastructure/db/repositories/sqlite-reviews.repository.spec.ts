@@ -562,6 +562,22 @@ describe('SqliteReviewsRepository', () => {
       // No overlap
       expect(page1.map((r) => r.id)).not.toEqual(expect.arrayContaining(page2.map((r) => r.id)));
     });
+
+    it('populates finding_count per row from review_findings', () => {
+      repo.insert(makeReview({ id: 'r-with-findings' }));
+      repo.insert(makeReview({ id: 'r-no-findings' }));
+      findings.insertMany([
+        makeFinding('r-with-findings', { id: 'f-a' }),
+        makeFinding('r-with-findings', { id: 'f-b' }),
+        makeFinding('r-with-findings', { id: 'f-c' }),
+      ]);
+
+      const rows = repo.findFiltered({}, { limit: 50 });
+      const withFindings = rows.find((r) => r.id === 'r-with-findings');
+      const noFindings = rows.find((r) => r.id === 'r-no-findings');
+      expect(withFindings?.finding_count).toBe(3);
+      expect(noFindings?.finding_count).toBe(0);
+    });
   });
 
   describe('countFiltered', () => {

@@ -53,6 +53,8 @@ export interface ReviewListEntry {
   pr_number: number | null;
   pr_title: string | null;
   author_login: string | null;
+  // Correlated subquery on review_findings; 0 when the review produced none.
+  finding_count: number;
 }
 
 export interface ReviewFindingRecord {
@@ -102,8 +104,8 @@ export interface ReviewListResponse {
 // ---------------------------------------------------------------------------
 
 // The single review row in a detail response carries the base reviews-table
-// columns; PR join fields are NOT present here (they're only on the list
-// endpoint). See review.repository.findByIdWithFindings.
+// columns; PR join fields ship as a separate `pr` sibling on the response
+// envelope (see ReviewDetailPrSummary below), not flattened onto the row.
 export interface ReviewDetailRecord {
   id: string;
   pr_node_id: string | null;
@@ -127,10 +129,26 @@ export interface ReviewDetailRecord {
   completed_at: string | null;
 }
 
+// PR-side metadata anchored to the detail view. Mirrors the backend's
+// PullRequestSummary; ships as a separate sibling on ReviewDetailResponse
+// rather than flattened onto the review row, so consumers can distinguish
+// "the review record" from "the PR it was run against." Null for
+// standalone reviews (no pr_node_id) or when the PR row has been purged.
+export interface ReviewDetailPrSummary {
+  node_id: string;
+  repo_full_name: string;
+  number: number;
+  title: string;
+  author_login: string;
+  /** ISO 8601 string (Drizzle Date → JSON.stringify) */
+  created_at: string;
+}
+
 export interface ReviewDetailResponse {
   review: ReviewDetailRecord;
   findings: ReviewFindingRecord[];
   retrievedChunks: HydratedChunk[];
+  pr: ReviewDetailPrSummary | null;
 }
 
 // ---------------------------------------------------------------------------

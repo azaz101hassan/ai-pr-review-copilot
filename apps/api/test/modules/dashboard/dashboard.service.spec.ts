@@ -261,13 +261,14 @@ describe('DashboardService.getReviewDetail', () => {
   let tmpDir: string;
   let service: DashboardService;
   let reviewRepo: SqliteReviewsRepository;
+  let prRepo: SqlitePullRequestsRepository;
   let chunkRepo: SqliteKnowledgeChunksRepository;
   let sourceRepo: SqliteKnowledgeSourcesRepository;
   let findingRepo: SqliteReviewFindingsRepository;
 
   beforeAll(() => {
     ({ db, tmpDir } = openFreshDb());
-    ({ service, reviewRepo, chunkRepo, sourceRepo, findingRepo } = makeDashboardService(db));
+    ({ service, reviewRepo, prRepo, chunkRepo, sourceRepo, findingRepo } = makeDashboardService(db));
 
     // Seed a knowledge source + chunk
     sourceRepo.upsert(makeSource({ id: 'detail-src' }));
@@ -324,7 +325,42 @@ describe('DashboardService.getReviewDetail', () => {
     const result = service.getReviewDetail('null-pr-detail');
     expect(result.review.pr_node_id).toBeNull();
     expect(result.findings).toHaveLength(0);
+    expect(result.pr).toBeNull();
   });
+
+  it('attaches a pr summary when the review references a known PR', () => {
+    const pr = makePr({
+      node_id: 'PR_attached',
+      repo_full_name: 'acme/widget-api',
+      number: 4271,
+      title: 'Tighten the rate-limit window',
+      author_login: 'alice',
+    });
+    prRepo.save(pr);
+
+    const review = makeReview({ id: 'pr-attached-detail', pr_node_id: 'PR_attached' });
+    reviewRepo.insert(review);
+
+    const result = service.getReviewDetail('pr-attached-detail');
+
+    expect(result.pr).not.toBeNull();
+    expect(result.pr).toEqual({
+      node_id: 'PR_attached',
+      repo_full_name: 'acme/widget-api',
+      number: 4271,
+      title: 'Tighten the rate-limit window',
+      author_login: 'alice',
+      created_at: pr.created_at,
+    });
+  });
+
+  // Note: a review with a non-null pr_node_id pointing at a missing PR
+  // row is not reachable in production. The schema declares
+  // `ON DELETE SET NULL` on reviews.pr_node_id, so deleting a PR row
+  // nulls the foreign-key column on its dependent reviews. The service
+  // code still guards `prRepo.findByNodeId` with a null fallback as
+  // defensive belt-and-braces for cache misses or schema drift, but
+  // there is no insertable state that exercises that branch.
 });
 
 // ---------------------------------------------------------------------------
