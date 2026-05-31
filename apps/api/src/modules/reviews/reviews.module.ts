@@ -12,6 +12,7 @@ import { EmbeddingsModule } from '@/modules/embeddings';
 import { ReviewsService } from './reviews.service';
 import { ReviewsController } from './reviews.controller';
 import { ReviewsProcessor } from './reviews.processor';
+import { ReviewEventsService } from './events/review-events.service';
 
 // ReviewsModule.forRoot() is a DynamicModule so it can branch on
 // ENABLE_DRY_RUN at module construction time:
@@ -82,9 +83,11 @@ export class ReviewsModule {
       ],
       controllers: enableDryRun ? [ReviewsController] : [],
       providers: skipRedis
-        ? [ReviewsService]
-        : [ReviewsService, ReviewsProcessor],
-      exports: [ReviewsService],
+        ? [ReviewsService, ReviewEventsService]
+        : [ReviewsService, ReviewEventsService, ReviewsProcessor],
+      // Export ReviewEventsService so DashboardModule (U5) can subscribe
+      // to the stream without re-providing the singleton.
+      exports: [ReviewsService, ReviewEventsService],
     };
   }
 }
