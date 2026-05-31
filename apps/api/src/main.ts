@@ -8,7 +8,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
-async function bootstrap() {
+export async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
   });
@@ -26,10 +26,15 @@ async function bootstrap() {
     }),
   );
 
-  const port = Number(process.env.PORT) || 3001;
-  await app.listen(port);
+  const port = Number(process.env.PORT) || 4001;
+  // R15 (Day-7 plan): bind to loopback so the API is not reachable from
+  // the LAN. ngrok http 4001 already targets 127.0.0.1 by default, so
+  // the Day-5 webhook smoke loop continues to work unchanged.
+  await app.listen(port, '127.0.0.1');
 
   console.log(`apps/api listening on http://localhost:${port}`);
 }
 
-bootstrap();
+if (require.main === module) {
+  bootstrap();
+}

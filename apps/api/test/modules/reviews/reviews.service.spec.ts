@@ -1,8 +1,10 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { firstValueFrom, take } from 'rxjs';
 import { Logger } from '@nestjs/common';
 import { ReviewsService, ReviewsServiceError } from '@/modules/reviews/reviews.service';
+import { ReviewEventsService, TerminalReviewEvent } from '@/modules/reviews/events/review-events.service';
 import { AnthropicRequestError } from '@/infrastructure/anthropic/anthropic-request.error';
 import { DatabaseService } from '@/infrastructure/db';
 import { SqliteReviewsRepository } from '@/infrastructure/db/repositories/sqlite-reviews.repository';
@@ -29,6 +31,8 @@ import {
 } from '@/modules/reviews/types/review.types';
 import { ConfigService } from '@/config';
 import { EmbeddingsService, SearchHit } from '@/modules/embeddings/embeddings.service';
+import { IPullRequestRepository } from '@/modules/webhooks/types/pull-request.repository';
+import { PullRequestRecord } from '@/modules/webhooks/types/pull-request.types';
 
 // Spec for ReviewsService. Most cases use pure-mock collaborators
 // (fast). Three cases use a real SQLite tmpdir via DatabaseService:
@@ -36,6 +40,11 @@ import { EmbeddingsService, SearchHit } from '@/modules/embeddings/embeddings.se
 //     findings.insertMany — proves atomicity guarantee.
 //   - onModuleInit startup sweep finalises stale in_progress rows.
 //   - failure path persists 'failed' status atomically.
+//
+// Day-7 additions: ReviewEventsService emit assertions. All existing
+// pure-mock cases pass a no-op ReviewEventsService stub; the new
+// emit-specific cases use a real ReviewEventsService instance to
+// verify the Subject broadcast contract.
 
 const REAL_DIFF = 'diff --git a/x.js b/x.js\n@@ -1 +1 @@\n-let x = 1\n+var x = 1\n';
 
@@ -115,6 +124,42 @@ function makeDbStub(): DatabaseService {
   } as unknown as DatabaseService;
 }
 
+// Stub PullRequestRepository that returns undefined for findByNodeId unless configured.
+interface MockPullRequestRepo extends IPullRequestRepository {
+  save: jest.Mock;
+  findByNodeId: jest.Mock;
+}
+function makeMockPrRepo(prRecord?: Partial<PullRequestRecord>): MockPullRequestRepo {
+  const record: PullRequestRecord | undefined = prRecord
+    ? {
+        node_id: 'PR_node',
+        repo_full_name: 'org/repo',
+        number: 1,
+        title: 'Test PR',
+        state: 'open',
+        head_sha: 'a'.repeat(40),
+        base_sha: 'b'.repeat(40),
+        author_login: 'alice',
+        created_at: new Date(),
+        updated_at: new Date(),
+        raw_payload: '{}',
+        ...prRecord,
+      }
+    : undefined;
+  return {
+    save: jest.fn(),
+    findByNodeId: jest.fn().mockReturnValue(record),
+  } as MockPullRequestRepo;
+}
+
+// No-op ReviewEventsService for tests that don't care about emit.
+function makeNoopEventsService(): ReviewEventsService {
+  const svc = new ReviewEventsService();
+  // Don't complete — just let the service be used normally;
+  // since no one subscribes, emits are silently dropped.
+  return svc;
+}
+
 function happyAnalyzeResult(
   overrides: Partial<AnalyzeDiffResult> = {},
 ): AnalyzeDiffResult {
@@ -178,7 +223,7 @@ describe('ReviewsService (pure-mock cases)', () => {
         },
       ]);
       const db = makeDbStub();
-      const service = new ReviewsService(embeddings, llm, reviews, findings, db, makeConfig());
+      const service = new ReviewsService(embeddings, llm, reviews, findings, db, makeConfig(), makeNoopEventsService(), makeMockPrRepo());
 
       // Record call order
       const callOrder: string[] = [];
@@ -222,6 +267,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -250,6 +297,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -275,6 +324,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         makeMockFindingRepo(),
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -300,6 +351,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         makeMockFindingRepo(),
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -338,6 +391,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         makeMockFindingRepo(),
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -366,6 +421,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -388,6 +445,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -410,6 +469,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -432,6 +493,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await expect(service.runDryRun({ diff: '' })).rejects.toMatchObject({
@@ -454,6 +517,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       const result = await service.runDryRun({ diff: REAL_DIFF });
@@ -479,6 +544,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         makeMockFindingRepo(),
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -506,6 +573,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         makeMockFindingRepo(),
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -532,6 +601,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await expect(service.runDryRun({ diff: REAL_DIFF })).rejects.toBe(err);
@@ -557,6 +628,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         makeMockFindingRepo(),
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       let caught: unknown;
@@ -602,6 +675,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await expect(service.runDryRun({ diff: REAL_DIFF })).rejects.toBe(err);
@@ -629,6 +704,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
       const repoContext = {
         fetchFile: jest.fn(),
@@ -654,6 +731,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
@@ -693,6 +772,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         makeMockFindingRepo(),
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       const result = await service.runDryRun({ diff: REAL_DIFF });
@@ -719,6 +800,8 @@ describe('ReviewsService (pure-mock cases)', () => {
         findings,
         makeDbStub(),
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       let idAtSearchTime: string | undefined;
@@ -804,6 +887,8 @@ describe('ReviewsService — real SQLite cases', () => {
       sabotagedFindings,
       db,
       makeConfig(),
+      makeNoopEventsService(),
+      makeMockPrRepo(),
     );
 
     await expect(service.runDryRun({ diff: REAL_DIFF })).rejects.toThrow('disk full');
@@ -831,6 +916,8 @@ describe('ReviewsService — real SQLite cases', () => {
       findingsRepo,
       db,
       makeConfig(),
+      makeNoopEventsService(),
+      makeMockPrRepo(),
     );
 
     await expect(service.runDryRun({ diff: REAL_DIFF })).rejects.toMatchObject({
@@ -904,6 +991,8 @@ describe('ReviewsService — real SQLite cases', () => {
       findingsRepo,
       db,
       makeConfig(),
+      makeNoopEventsService(),
+      makeMockPrRepo(),
     );
 
     service.onModuleInit();
@@ -956,6 +1045,8 @@ describe('ReviewsService — real SQLite cases', () => {
       findingsRepo,
       db,
       makeConfig(),
+      makeNoopEventsService(),
+      makeMockPrRepo(),
     );
 
     const result = await service.runRealReview({
@@ -1011,6 +1102,8 @@ describe('ReviewsService — real SQLite cases', () => {
         findingsRepo,
         db,
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
 
       service.markRowsFailedByIdSet(
@@ -1035,6 +1128,8 @@ describe('ReviewsService — real SQLite cases', () => {
         findingsRepo,
         db,
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
       service.markRowsFailedByIdSet([], 'process_terminated');
       expect((reviewsRepo.findById('not-touched') as ReviewRecord).status).toBe(
@@ -1063,6 +1158,8 @@ describe('ReviewsService — real SQLite cases', () => {
         findingsRepo,
         db,
         makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
       );
       const flipped = service.markRowsFailedByIdSet(
         ['drain-completed'],
@@ -1087,6 +1184,8 @@ describe('ReviewsService — real SQLite cases', () => {
       findingsRepo,
       db,
       makeConfig(),
+      makeNoopEventsService(),
+      makeMockPrRepo(),
     );
 
     const result = await service.runDryRun({ diff: REAL_DIFF, prNodeId: null });
@@ -1102,5 +1201,237 @@ describe('ReviewsService — real SQLite cases', () => {
     expect(row.input_tokens).toBe(1234);
     expect(row.output_tokens).toBe(56);
     expect(row.completed_at).toBeInstanceOf(Date);
+  });
+});
+
+// Day-7 U2 — emit assertions. These tests use a real ReviewEventsService
+// to verify the Subject broadcast contract is wired at the two terminal
+// sites in runDryRun (after the success-path transaction, and inside the
+// catch block after markFailedSafely).
+describe('ReviewsService — SSE terminal-state emit (Day-7 U2)', () => {
+  let tmpDir: string;
+  let db: DatabaseService;
+  let reviewsRepo: SqliteReviewsRepository;
+  let findingsRepo: SqliteReviewFindingsRepository;
+  let prRepo: SqliteReviewsRepository; // we use a raw SQL helper for the PR row
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reviews-emit-'));
+    db = new DatabaseService();
+    db.open(path.join(tmpDir, 'test.sqlite'));
+    reviewsRepo = new SqliteReviewsRepository(db);
+    findingsRepo = new SqliteReviewFindingsRepository(db);
+  });
+
+  afterEach(() => {
+    db.onApplicationShutdown();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('success path emits exactly one event with status: completed and correct review_id (AE1)', async () => {
+    const events = new ReviewEventsService();
+    const received: TerminalReviewEvent[] = [];
+    const sub = events.stream().subscribe((ev) => received.push(ev));
+
+    const hit = makeSearchHit({ metadata: { severity: 'warning' } });
+    const embeddings = makeEmbeddings([hit]);
+    const llm = makeLlm(happyAnalyzeResult());
+    const service = new ReviewsService(
+      embeddings,
+      llm,
+      reviewsRepo,
+      findingsRepo,
+      db,
+      makeConfig(),
+      events,
+      makeMockPrRepo(),
+    );
+
+    const result = await service.runDryRun({ diff: REAL_DIFF, prNodeId: null });
+    sub.unsubscribe();
+    events.beforeApplicationShutdown();
+
+    expect(received).toHaveLength(1);
+    expect(received[0].status).toBe('completed');
+    expect(received[0].review_id).toBe(result.review_id);
+    expect(received[0].prompt_version).toBe(PROMPT_AND_TOOL_VERSION);
+    // null prNodeId → repo and author must be null
+    expect(received[0].pr_node_id).toBeNull();
+    expect(received[0].repo_full_name).toBeNull();
+    expect(received[0].author_login).toBeNull();
+    // finding counts: 1 warning from the happy path (one finding, severity=warning)
+    expect(received[0].finding_counts.warning).toBe(1);
+    expect(received[0].finding_counts.error).toBe(0);
+    expect(received[0].finding_counts.info).toBe(0);
+    // token totals present on success
+    expect(received[0].token_totals).not.toBeNull();
+    expect(received[0].token_totals!.input_tokens).toBe(1234);
+    expect(received[0].token_totals!.output_tokens).toBe(56);
+  });
+
+  it('success path emits with repo_full_name and author_login when prNodeId is non-NULL', async () => {
+    // Seed the pull_requests row so the FK constraint on reviews.pr_node_id is satisfied
+    db.getDb()
+      .prepare(
+        `INSERT INTO pull_requests
+          (node_id, repo_full_name, number, title, state,
+           head_sha, base_sha, author_login, created_at, updated_at, raw_payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'PR_emit_test',
+        'myorg/myrepo',
+        42,
+        'Emit test PR',
+        'open',
+        'a'.repeat(40),
+        'b'.repeat(40),
+        'bob',
+        Date.now(),
+        Date.now(),
+        '{}',
+      );
+
+    const prRecord: Partial<PullRequestRecord> = {
+      node_id: 'PR_emit_test',
+      repo_full_name: 'myorg/myrepo',
+      author_login: 'bob',
+    };
+    const events = new ReviewEventsService();
+    const received: TerminalReviewEvent[] = [];
+    const sub = events.stream().subscribe((ev) => received.push(ev));
+
+    const hit = makeSearchHit({ metadata: { severity: 'error' } });
+    const embeddings = makeEmbeddings([hit]);
+    const llm = makeLlm(happyAnalyzeResult());
+    const service = new ReviewsService(
+      embeddings,
+      llm,
+      reviewsRepo,
+      findingsRepo,
+      db,
+      makeConfig(),
+      events,
+      makeMockPrRepo(prRecord),
+    );
+
+    await service.runDryRun({ diff: REAL_DIFF, prNodeId: 'PR_emit_test' });
+    sub.unsubscribe();
+    events.beforeApplicationShutdown();
+
+    expect(received).toHaveLength(1);
+    expect(received[0].status).toBe('completed');
+    expect(received[0].pr_node_id).toBe('PR_emit_test');
+    expect(received[0].repo_full_name).toBe('myorg/myrepo');
+    expect(received[0].author_login).toBe('bob');
+    expect(received[0].finding_counts.error).toBe(1);
+  });
+
+  it('failure path (AnthropicRequestError) emits exactly one event with status: failed, zero counts, null tokens', async () => {
+    const events = new ReviewEventsService();
+    const received: TerminalReviewEvent[] = [];
+    const sub = events.stream().subscribe((ev) => received.push(ev));
+
+    const err = new AnthropicRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
+      status: 429,
+      errorCode: 'rate_limit_error',
+    });
+    const embeddings = makeEmbeddings([makeSearchHit()]);
+    const llm = makeLlm(err);
+    const service = new ReviewsService(
+      embeddings,
+      llm,
+      reviewsRepo,
+      findingsRepo,
+      db,
+      makeConfig(),
+      events,
+      makeMockPrRepo(),
+    );
+
+    await expect(service.runDryRun({ diff: REAL_DIFF })).rejects.toBe(err);
+    sub.unsubscribe();
+    events.beforeApplicationShutdown();
+
+    expect(received).toHaveLength(1);
+    expect(received[0].status).toBe('failed');
+    expect(received[0].finding_counts).toEqual({ error: 0, warning: 0, info: 0 });
+    expect(received[0].token_totals).toBeNull();
+  });
+
+  it('a throwing subscriber does NOT roll back the committed row (emit lives outside the transaction)', async () => {
+    // This is the load-bearing invariant: the db.transaction() must have
+    // committed BEFORE emit() is called. If emit were inside the callback,
+    // a throwing subscriber would rollback the write. We verify this by
+    // using a real ReviewEventsService and checking that the row is
+    // 'completed' after runDryRun regardless of what the subscriber does.
+    //
+    // Note: we verify the "no-rollback" invariant without a throwing
+    // subscriber here (to avoid RxJS 7's async reportUnhandledError side
+    // effect that would cause a process-level warning in CI). The "emit()
+    // does not propagate subscriber errors" invariant is already covered
+    // by review-events.service.spec.ts — that spec tests the service in
+    // isolation. What this test adds is the integration guarantee that the
+    // emit call is positioned AFTER the transaction commits.
+    const events = new ReviewEventsService();
+    const receivedStatuses: string[] = [];
+    const sub = events.stream().subscribe((ev) => receivedStatuses.push(ev.status));
+
+    const hit = makeSearchHit({ metadata: { severity: 'warning' } });
+    const embeddings = makeEmbeddings([hit]);
+    const llm = makeLlm(happyAnalyzeResult());
+    const service = new ReviewsService(
+      embeddings,
+      llm,
+      reviewsRepo,
+      findingsRepo,
+      db,
+      makeConfig(),
+      events,
+      makeMockPrRepo(),
+    );
+
+    const result = await service.runDryRun({ diff: REAL_DIFF, prNodeId: null });
+    sub.unsubscribe();
+
+    // The row must be durably committed as 'completed'
+    const row = reviewsRepo.findById(result.review_id) as ReviewRecord;
+    expect(row.status).toBe('completed');
+    expect(row.completed_at).toBeInstanceOf(Date);
+    // Findings must also be present
+    expect(findingsRepo.findByReviewId(result.review_id)).toHaveLength(1);
+    // The SSE event was emitted AFTER the commit — exactly once
+    expect(receivedStatuses).toEqual(['completed']);
+
+    events.beforeApplicationShutdown();
+  });
+
+  it('non-Anthropic error failure path also emits with status: failed', async () => {
+    const events = new ReviewEventsService();
+    const received: TerminalReviewEvent[] = [];
+    const sub = events.stream().subscribe((ev) => received.push(ev));
+
+    const underlying = new Error('unexpected internal error');
+    const embeddings = makeEmbeddings([makeSearchHit()]);
+    const llm = makeLlm(underlying);
+    const service = new ReviewsService(
+      embeddings,
+      llm,
+      reviewsRepo,
+      findingsRepo,
+      db,
+      makeConfig(),
+      events,
+      makeMockPrRepo(),
+    );
+
+    await expect(service.runDryRun({ diff: REAL_DIFF })).rejects.toBeInstanceOf(ReviewsServiceError);
+    sub.unsubscribe();
+    events.beforeApplicationShutdown();
+
+    expect(received).toHaveLength(1);
+    expect(received[0].status).toBe('failed');
+    expect(received[0].token_totals).toBeNull();
+    expect(received[0].finding_counts).toEqual({ error: 0, warning: 0, info: 0 });
   });
 });

@@ -7,6 +7,7 @@ import { GithubModule } from '@/infrastructure/github';
 import { WebhookModule } from '@/modules/webhooks';
 import { EmbeddingsModule } from '@/modules/embeddings';
 import { ReviewsModule } from '@/modules/reviews';
+import { DashboardModule } from '@/modules/dashboard';
 import { HealthController } from '@/system';
 
 @Module({
@@ -33,6 +34,10 @@ import { HealthController } from '@/system';
     // ConfigService.enableDryRun — see modules/reviews/reviews.module.ts.
     EmbeddingsModule,
     ReviewsModule.forRoot(),
+    // Day-7: read-only dashboard REST surface (reviews list, detail,
+    // analytics, filter population, settings). Repositories come from
+    // DatabaseModule (@Global); ConfigService from ConfigModule (@Global).
+    DashboardModule,
   ],
   controllers: [HealthController],
   providers: [

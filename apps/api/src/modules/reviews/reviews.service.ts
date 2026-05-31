@@ -24,6 +24,11 @@ import {
   ReviewFindingRecord,
 } from './types/review-finding.types';
 import { ToolCallRecord } from './types/review.types';
+import {
+  IPullRequestRepository,
+  PULL_REQUEST_REPOSITORY,
+} from '@/modules/webhooks/types/pull-request.repository';
+import { ReviewEventsService, TerminalReviewEvent } from './events/review-events.service';
 
 // ReviewsService orchestrates the Day-3 pipeline:
 //   embeddings.search() → llm.analyzeDiff() → persist (3-step lifecycle)
@@ -106,9 +111,15 @@ const DEFAULT_K = 10;
 const STALE_IN_PROGRESS_CUTOFF_MS = 10 * 60_000;
 // Severity values that match the rule corpus's metadata.severity field.
 // Sourced from rule metadata at persistence; the adapter never emits
-// severity (see D1 in the plan).
-const ALLOWED_SEVERITIES = new Set(['error', 'warning', 'info']);
-const DEFAULT_SEVERITY: 'error' | 'warning' | 'info' = 'warning';
+// severity (see D1 in the plan). Exported so SettingsResponseDto can
+// reference them without instantiating the service.
+export type SeverityLevel = 'error' | 'warning' | 'info';
+export const ALLOWED_SEVERITIES: ReadonlySet<SeverityLevel> = new Set<SeverityLevel>([
+  'error',
+  'warning',
+  'info',
+]);
+export const DEFAULT_SEVERITY: SeverityLevel = 'warning';
 
 @Injectable()
 export class ReviewsService implements OnModuleInit {
@@ -122,6 +133,14 @@ export class ReviewsService implements OnModuleInit {
     private readonly findings: IReviewFindingRepository,
     private readonly db: DatabaseService,
     private readonly config: ConfigService,
+    // Day-7: in-process event bus for terminal-state SSE events. Injected
+    // by class (no token) — ReviewsModule provides and exports it.
+    private readonly events: ReviewEventsService,
+    // Day-7: needed to resolve repo_full_name + author_login for the SSE
+    // event payload when pr_node_id is non-NULL. DatabaseModule is @Global()
+    // so the token is available without re-importing the database module.
+    @Inject(PULL_REQUEST_REPOSITORY)
+    private readonly pullRequests: IPullRequestRepository,
   ) {}
 
   // Sweep stale `in_progress` rows once at boot. A row stuck in
@@ -238,9 +257,36 @@ export class ReviewsService implements OnModuleInit {
         }
       };
 
+      // Day-7 U2: helper to emit the failure SSE event AFTER the
+      // markFailedSafely write has landed. Wrapping in try/catch so a
+      // subscriber throw does not propagate back to the catch block —
+      // the original error is still what the caller receives via throw.
+      const emitFailedSafely = (failedAt: Date): void => {
+        try {
+          const failEvent: TerminalReviewEvent = {
+            review_id: reviewId,
+            pr_node_id: prNodeId,
+            repo_full_name: null, // no PR join on failure path (simplicity over precision)
+            author_login: null,
+            status: 'failed',
+            prompt_version: PROMPT_AND_TOOL_VERSION,
+            finding_counts: { error: 0, warning: 0, info: 0 },
+            token_totals: null,
+            completed_at: failedAt.getTime(),
+          };
+          this.events.emit(failEvent);
+        } catch (emitErr) {
+          this.logger.error(
+            `SSE emit failed for failed review ${reviewId} — original error preserved`,
+            emitErr instanceof Error ? emitErr.stack : String(emitErr),
+          );
+        }
+      };
+
       if (err instanceof AnthropicRequestError) {
+        const failedAt = new Date();
         markFailedSafely({
-          completed_at: new Date(),
+          completed_at: failedAt,
           error_status: err.status,
           error_code: err.errorCode ?? 'anthropic_error',
           // Day-4: turn_cap_exceeded and malformed_emit_finding
@@ -251,13 +297,21 @@ export class ReviewsService implements OnModuleInit {
           turn_count: err.turnCount,
           tool_calls: err.toolCalls ?? null,
         });
+        // Day-7 U2 emit — failure site (AnthropicRequestError branch).
+        // Outside any transaction — the markFailed write above has already
+        // committed. Emit here so the SSE stream reflects the failure before
+        // the error propagates to the caller.
+        emitFailedSafely(failedAt);
         throw err;
       }
+      const failedAt = new Date();
       markFailedSafely({
-        completed_at: new Date(),
+        completed_at: failedAt,
         error_status: null,
         error_code: 'internal_error',
       });
+      // Day-7 U2 emit — failure site (non-Anthropic error branch).
+      emitFailedSafely(failedAt);
       throw new ReviewsServiceError(
         'ReviewsService.runDryRun failed before transaction commit',
         err,
@@ -311,6 +365,37 @@ export class ReviewsService implements OnModuleInit {
     });
 
     const persistedFindings = this.findings.findByReviewId(reviewId);
+
+    // Day-7 U2 emit — success site. Must be OUTSIDE the db.transaction()
+    // callback above: better-sqlite3 runs callbacks synchronously inside
+    // BEGIN…COMMIT with no post-commit hook. Emitting inside the callback
+    // would rollback the transaction if a subscriber threw. Placing it here
+    // guarantees "emit only after the row is durably committed" (R8, R11).
+    try {
+      const prRow = prNodeId ? this.pullRequests.findByNodeId(prNodeId) : undefined;
+      const successEvent: TerminalReviewEvent = {
+        review_id: reviewId,
+        pr_node_id: prNodeId,
+        repo_full_name: prRow?.repo_full_name ?? null,
+        author_login: prRow?.author_login ?? null,
+        status: 'completed',
+        prompt_version: PROMPT_AND_TOOL_VERSION,
+        finding_counts: countBySeverity(findingInserts),
+        token_totals: {
+          input_tokens: result.usage.input_tokens,
+          output_tokens: result.usage.output_tokens,
+          cache_creation_input_tokens: result.usage.cache_creation_input_tokens ?? null,
+          cache_read_input_tokens: result.usage.cache_read_input_tokens ?? null,
+        },
+        completed_at: completedAt.getTime(),
+      };
+      this.events.emit(successEvent);
+    } catch (emitErr) {
+      this.logger.error(
+        `SSE emit failed for completed review ${reviewId} — review row is committed and unaffected`,
+        emitErr instanceof Error ? emitErr.stack : String(emitErr),
+      );
+    }
 
     return {
       review_id: reviewId,
@@ -393,10 +478,10 @@ function hashSortedComposites(composites: string[]): string {
 function resolveSeverity(
   hit: SearchHit,
   logger: Logger,
-): 'error' | 'warning' | 'info' {
+): SeverityLevel {
   const candidate = hit.metadata?.severity;
-  if (typeof candidate === 'string' && ALLOWED_SEVERITIES.has(candidate)) {
-    return candidate as 'error' | 'warning' | 'info';
+  if (typeof candidate === 'string' && ALLOWED_SEVERITIES.has(candidate as SeverityLevel)) {
+    return candidate as SeverityLevel;
   }
   logger.warn(
     `Severity missing or unrecognised for rule_id="${sanitizeSlug(hit.rule_id)}" — defaulting to "${DEFAULT_SEVERITY}"`,
@@ -407,4 +492,18 @@ function resolveSeverity(
 function sanitizeSlug(value: unknown): string {
   if (typeof value !== 'string') return '<non-string>';
   return value.replace(/[\r\n]+/g, ' ').slice(0, 80);
+}
+
+// Count finding inserts by severity for the SSE terminal event payload.
+// Called on the success path only; the failure path always emits zeros.
+function countBySeverity(
+  inserts: ReviewFindingInsert[],
+): TerminalReviewEvent['finding_counts'] {
+  const counts = { error: 0, warning: 0, info: 0 };
+  for (const insert of inserts) {
+    if (insert.severity in counts) {
+      counts[insert.severity as keyof typeof counts]++;
+    }
+  }
+  return counts;
 }

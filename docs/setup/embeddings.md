@@ -120,7 +120,7 @@ git diff main..HEAD | npm run query:rules --workspace apps/api --
 Boot the API (`npm run dev:api`) and POST to `/embeddings/search`:
 
 ```bash
-curl -s http://localhost:3001/embeddings/search \
+curl -s http://localhost:4001/embeddings/search \
   -H 'Content-Type: application/json' \
   -d '{"diff":"if (count == 0) { return; }","k":5}' | jq
 ```

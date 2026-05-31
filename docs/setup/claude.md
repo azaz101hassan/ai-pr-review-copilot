@@ -139,7 +139,7 @@ npm run dev:api
 POST to `/reviews/dry-run`:
 
 ```bash
-curl -sS http://localhost:3001/reviews/dry-run \
+curl -sS http://localhost:4001/reviews/dry-run \
   -H 'Content-Type: application/json' \
   -d '{ "diff": "diff --git a/x.js b/x.js\n@@ -1 +1 @@\n-let x = 1\n+var x = 1\n", "k": 5 }' | jq
 ```

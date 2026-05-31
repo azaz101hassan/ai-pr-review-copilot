@@ -70,10 +70,16 @@ describe('checkStaleness', () => {
   });
 
   it('tracked-path change after recording capture => stale', () => {
-    const commits = execSync('git log --oneline -3 --format=%H', {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-    }).trim().split('\n');
+    // Use two consecutive commits that both touched apps/api/src/ so the
+    // content-equality fallback in checkStaleness sees a real diff. Without
+    // this scoping, recent doc-only or web-only commits would produce an
+    // empty diff against the default STALENESS_TRACKED_PATHS and the
+    // recording would (correctly, per the new semantic) be flagged fresh.
+    const probePath = 'apps/api/src/';
+    const commits = execSync(
+      `git log -2 --format=%H -- ${probePath}`,
+      { cwd: repoRoot, encoding: 'utf-8' },
+    ).trim().split('\n');
 
     if (commits.length < 2) return;
 
@@ -81,9 +87,33 @@ describe('checkStaleness', () => {
     const newerCommit = commits[0];
     const recording = makeRecording(olderCommit);
 
-    const result = checkStaleness(recording, newerCommit, repoRoot);
+    const result = checkStaleness(recording, newerCommit, repoRoot, [probePath]);
 
     expect(result.stale).toBe(true);
+  });
+
+  it('content-equal across squash-merge or merge commit => not stale', () => {
+    // Regression: when the recording was captured on a side-branch that
+    // got squash-merged, the recording's gitSha is NOT an ancestor of the
+    // post-merge latest-tracked SHA, but the tracked-path tree content is
+    // identical. The content-equality fallback must rescue this case.
+    //
+    // Pick a tracked path that has had NO commits between two real,
+    // reachable SHAs. The simplest construction: probe with a path that
+    // doesn't exist in the repo, so the diff is trivially empty.
+    const commits = execSync('git log --oneline -2 --format=%H', {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+    }).trim().split('\n');
+
+    if (commits.length < 2) return;
+
+    const recording = makeRecording(commits[1]);
+    const result = checkStaleness(recording, commits[0], repoRoot, [
+      'definitely/does/not/exist/anywhere/',
+    ]);
+
+    expect(result.stale).toBe(false);
   });
 
   it('empty latestTrackedSha (no git or no commits on tracked paths) => not stale', () => {

@@ -28,7 +28,7 @@ Copy the output. You'll paste it into two places: the GitHub App's settings (ste
 ## 2. Start ngrok pointed at apps/api
 
 ```bash
-ngrok http 3001
+ngrok http 4001
 ```
 
 Leave it running. You'll see a forwarding URL like `https://ab12-203-0-113-4.ngrok-free.app` — copy the HTTPS one. The webhook endpoint you'll configure in step 4 is **that URL + `/webhooks/github`**.
@@ -120,7 +120,7 @@ npm run dev:api
 You should see:
 
 ```
-apps/api listening on http://localhost:3001
+apps/api listening on http://localhost:4001
 [Nest] DatabaseService SQLite ready at /…/data/app.sqlite
 ```
 

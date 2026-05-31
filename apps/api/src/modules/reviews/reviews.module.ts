@@ -12,6 +12,7 @@ import { EmbeddingsModule } from '@/modules/embeddings';
 import { ReviewsService } from './reviews.service';
 import { ReviewsController } from './reviews.controller';
 import { ReviewsProcessor } from './reviews.processor';
+import { ReviewEventsModule } from './events/review-events.module';
 
 // ReviewsModule.forRoot() is a DynamicModule so it can branch on
 // ENABLE_DRY_RUN at module construction time:
@@ -79,12 +80,20 @@ export class ReviewsModule {
         // load real BullMQ or the no-op fallback.
         GithubModule,
         QueueModule.forRoot(),
+        // ReviewEventsModule is @Global() and provides the singleton
+        // ReviewEventsService. Imported here so ReviewsService can
+        // inject it; DashboardModule imports it too without triggering
+        // the double-instantiation that would occur if it imported the
+        // heavyweight ReviewsModule.forRoot() directly.
+        ReviewEventsModule,
       ],
       controllers: enableDryRun ? [ReviewsController] : [],
       providers: skipRedis
         ? [ReviewsService]
         : [ReviewsService, ReviewsProcessor],
-      exports: [ReviewsService],
+      // Export ReviewEventsService (via ReviewEventsModule's global scope)
+      // so callers that import ReviewsModule.forRoot() can also inject it.
+      exports: [ReviewsService, ReviewEventsModule],
     };
   }
 }

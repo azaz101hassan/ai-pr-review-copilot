@@ -1,36 +1,151 @@
-export default function HomePage() {
+// Analytics page — Server Component.
+// Fetches /analytics and /filters in parallel, renders the tile hierarchy
+// plus the client-side SSE subscriber (<AnalyticsLive>).
+//
+// Tile hierarchy (deliberate, per design principle 4):
+//   Primary row  — Volume + Severity rollup (headline, readable at a glance)
+//   Secondary row — Latency p50/p95 + Token cost (calmer, smaller, below)
+//   Supporting list — Top-N rules table (context, full-width)
+import { Suspense } from 'react';
+import { fetchDashboard, toURLSearchParams } from '@/lib/api';
+import { FilterBar } from '@/components/filter-bar';
+import { AnalyticsTiles } from '@/components/analytics-tiles';
+import { AnalyticsLive } from '@/components/analytics-live';
+import { EmptyState } from '@/components/empty-state';
+import {
+  analyticsVolume,
+  type AnalyticsResponse,
+  type FilterOptionsResponse,
+} from '@/lib/api-types';
+
+interface AnalyticsPageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+function scalar(v: string | string[] | undefined): string | undefined {
+  if (!v) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
+
+// Zero-valued aggregate for total-failure fallback rendering.
+const ZERO_AGGREGATE: AnalyticsResponse = {
+  statusBreakdown: { completed: 0, failed: 0, in_progress: 0 },
+  severityRollup: { error: 0, warning: 0, info: 0 },
+  topRules: [],
+  latency: { p50: null, p95: null },
+  tokenTotals: {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  },
+};
+
+export default async function AnalyticsPage({
+  searchParams,
+}: AnalyticsPageProps) {
+  const params = await searchParams;
+
+  const repo = scalar(params.repo);
+  const author = scalar(params.author);
+
+  const hasActiveFilter = Boolean(repo || author);
+
+  const queryParams = toURLSearchParams({
+    ...(repo ? { repo } : {}),
+    ...(author ? { author } : {}),
+  });
+
+  // Fetch analytics + filter options in parallel; filters are best-effort.
+  const [analyticsResult, filterResult] = await Promise.allSettled([
+    fetchDashboard<AnalyticsResponse>('/analytics', queryParams),
+    fetchDashboard<FilterOptionsResponse>('/filters'),
+  ]);
+
+  const aggregate: AnalyticsResponse =
+    analyticsResult.status === 'fulfilled'
+      ? analyticsResult.value
+      : ZERO_AGGREGATE;
+
+  const filtersFailed = filterResult.status === 'rejected';
+  const repos = filterResult.status === 'fulfilled' ? filterResult.value.repos : [];
+  const authors =
+    filterResult.status === 'fulfilled' ? filterResult.value.authors : [];
+
+  // Build the filter query string (without leading '?') for the SSE client.
+  const filterQuery = queryParams.toString();
+
+  const showEmpty = analyticsVolume(aggregate) === 0;
+
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: '4rem 1.5rem',
-        textAlign: 'center',
-      }}
-    >
-      <h1 style={{ fontSize: '2.5rem', margin: 0, letterSpacing: '-0.02em' }}>
-        AI PR Review Copilot
-      </h1>
-      <p style={{ marginTop: '0.75rem', color: '#9aa4b2', maxWidth: '36rem' }}>
-        Dashboard coming soon. The API listens on{' '}
-        <code
-          style={{
-            background: '#1a1f26',
-            padding: '0.125rem 0.375rem',
-            borderRadius: '0.25rem',
-          }}
-        >
-          localhost:3001
-        </code>{' '}
-        and accepts GitHub PR webhooks today; the UI lands on Day 7 of the
-        baseline plan.
-      </p>
-      <p style={{ marginTop: '1.5rem', fontSize: '0.875rem', color: '#6b7785' }}>
-        See <code>docs/plans/01-baseline.md</code> for the 10-day plan.
-      </p>
-    </main>
+    <div className="space-y-8">
+      {/* Page heading */}
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          Analytics
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Review pipeline at a glance.
+        </p>
+      </header>
+
+      {showEmpty ? (
+        <>
+          {/* Filter bar still renders even in the empty state */}
+          {!filtersFailed && (
+            <Suspense fallback={<div className="h-8" />}>
+              <FilterBar repos={repos} authors={authors} />
+            </Suspense>
+          )}
+          {filtersFailed && (
+            <p className="text-sm text-muted-foreground">
+              Filter options unavailable. Refresh to retry.
+            </p>
+          )}
+
+          {hasActiveFilter ? (
+            <EmptyState
+              title="No reviews match these filters."
+              description="Try clearing the filters or selecting a different repository or author."
+            />
+          ) : (
+            <EmptyState
+              title="No reviews yet."
+              description={
+                <>
+                  Run{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-xs">
+                    npm run seed:dev
+                  </code>{' '}
+                  from{' '}
+                  <code className="rounded bg-muted px-1 font-mono text-xs">
+                    apps/api
+                  </code>{' '}
+                  to populate the database with sample data.
+                </>
+              }
+            />
+          )}
+        </>
+      ) : (
+        <Suspense fallback={<AnalyticsTiles data={aggregate} />}>
+          <AnalyticsLive
+            initialAggregate={aggregate}
+            filterQuery={filterQuery}
+            filterBarSlot={
+              filtersFailed ? (
+                <p className="text-sm text-muted-foreground">
+                  Filter options unavailable. Refresh to retry.
+                </p>
+              ) : (
+                <Suspense fallback={<div className="h-8" />}>
+                  <FilterBar repos={repos} authors={authors} />
+                </Suspense>
+              )
+            }
+          />
+        </Suspense>
+      )}
+    </div>
   );
 }

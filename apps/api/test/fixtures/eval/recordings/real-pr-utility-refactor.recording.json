@@ -136,6 +136,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "088f935780616abd96aa6c1e0b52d3a404f72c64fd2461eb3a6e89248a39b67d",
-    "gitSha": "34352635db7cbadf04fa223cc9febd6257ba890c"
+    "gitSha": "fa0f047378d321d6a24a835e020f47cb187acb9a"
   }
 }

@@ -3,8 +3,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { DatabaseService } from '@/infrastructure/db';
 import { SqlitePullRequestsRepository } from '../../../../src/infrastructure/db/repositories/sqlite-pull-requests.repository';
+import { SqliteReviewFindingsRepository } from '../../../../src/infrastructure/db/repositories/sqlite-review-findings.repository';
 import { SqliteReviewsRepository } from '../../../../src/infrastructure/db/repositories/sqlite-reviews.repository';
 import { ReviewInsert } from '@/modules/reviews/types/review.types';
+import { ReviewFindingInsert } from '@/modules/reviews/types/review-finding.types';
+import { ReviewFilterSpec } from '@/modules/reviews/types/review.repository';
 
 const PR_NODE_ID = 'PR_kwDOEND2END';
 const NOW = new Date('2026-05-27T10:00:00Z');
@@ -38,6 +41,7 @@ describe('SqliteReviewsRepository', () => {
   let tmpDir: string;
   let db: DatabaseService;
   let prs: SqlitePullRequestsRepository;
+  let findings: SqliteReviewFindingsRepository;
   let repo: SqliteReviewsRepository;
 
   beforeEach(() => {
@@ -45,6 +49,7 @@ describe('SqliteReviewsRepository', () => {
     db = new DatabaseService();
     db.open(path.join(tmpDir, 'test.sqlite'));
     prs = new SqlitePullRequestsRepository(db);
+    findings = new SqliteReviewFindingsRepository(db);
     repo = new SqliteReviewsRepository(db);
 
     // FK parent row for the pr_node_id reference (set-null on delete).
@@ -459,6 +464,357 @@ describe('SqliteReviewsRepository', () => {
       expect(repo.findRecentInProgressForPr(otherPr, 5 * 60_000)?.id).toBe(
         'other-pr-row',
       );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Dashboard read-side methods (Day 7, R3, R4, R6, R7, R10)
+  // ---------------------------------------------------------------------------
+
+  function makeFinding(reviewId: string, overrides: Partial<ReviewFindingInsert> = {}): ReviewFindingInsert {
+    return {
+      id: 'finding-' + Math.random().toString(36).slice(2, 10),
+      review_id: reviewId,
+      rule_id: 'no-var',
+      severity: 'warning',
+      title: 'Replace var',
+      message: 'Use let or const.',
+      location_hint: null,
+      citation: null,
+      created_at: NOW,
+      ...overrides,
+    };
+  }
+
+  describe('findFiltered', () => {
+    it('returns all reviews newest-first when no filter is active', () => {
+      repo.insert(makeReview({ id: 'r-old', created_at: new Date(NOW.getTime() - 10_000) }));
+      repo.insert(makeReview({ id: 'r-new', created_at: new Date(NOW.getTime()) }));
+
+      const rows = repo.findFiltered({}, { limit: 50 });
+      expect(rows).toHaveLength(2);
+      expect(rows[0].id).toBe('r-new');
+      expect(rows[1].id).toBe('r-old');
+    });
+
+    it('filters by repo via LEFT JOIN pull_requests — AE2', () => {
+      // Seed a second PR in a different repo
+      prs.save({
+        node_id: 'PR_other_repo',
+        repo_full_name: 'org/other-repo',
+        number: 2,
+        title: 'Other repo PR',
+        state: 'open',
+        head_sha: 'e'.repeat(40),
+        base_sha: 'f'.repeat(40),
+        author_login: 'dev2',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+      });
+      repo.insert(makeReview({ id: 'r-main', pr_node_id: PR_NODE_ID }));
+      repo.insert(makeReview({ id: 'r-other', pr_node_id: 'PR_other_repo' }));
+
+      const rows = repo.findFiltered({ repo: 'owner/repo' }, { limit: 50 });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe('r-main');
+      expect(rows[0].repo_full_name).toBe('owner/repo');
+    });
+
+    it('returns reviews with null pr_node_id with null PR metadata — AE3', () => {
+      repo.insert(makeReview({ id: 'r-null-pr', pr_node_id: null }));
+
+      const rows = repo.findFiltered({}, { limit: 50 });
+      const nullPrRow = rows.find((r) => r.id === 'r-null-pr');
+      expect(nullPrRow).toBeDefined();
+      expect(nullPrRow?.pr_node_id).toBeNull();
+      expect(nullPrRow?.repo_full_name).toBeNull();
+      expect(nullPrRow?.pr_number).toBeNull();
+      expect(nullPrRow?.pr_title).toBeNull();
+      expect(nullPrRow?.author_login).toBeNull();
+    });
+
+    it('returns empty array when filter matches no rows', () => {
+      repo.insert(makeReview({ id: 'r1' }));
+      const rows = repo.findFiltered({ author: 'nonexistent' }, { limit: 50 });
+      expect(rows).toEqual([]);
+    });
+
+    it('filters by sinceMs / untilMs inclusive time bounds', () => {
+      const t0 = NOW.getTime();
+      repo.insert(makeReview({ id: 'r-before', created_at: new Date(t0 - 5_000) }));
+      repo.insert(makeReview({ id: 'r-at-since', created_at: new Date(t0) }));
+      repo.insert(makeReview({ id: 'r-after', created_at: new Date(t0 + 5_000) }));
+
+      const rows = repo.findFiltered({ sinceMs: t0, untilMs: t0 }, { limit: 50 });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe('r-at-since');
+    });
+
+    it('respects limit and offset for pagination', () => {
+      for (let i = 0; i < 5; i++) {
+        repo.insert(makeReview({ id: `r-pg-${i}`, created_at: new Date(NOW.getTime() + i * 1000) }));
+      }
+      const page1 = repo.findFiltered({}, { limit: 2 });
+      expect(page1).toHaveLength(2);
+      const page2 = repo.findFiltered({}, { limit: 2, offset: 2 });
+      expect(page2).toHaveLength(2);
+      // No overlap
+      expect(page1.map((r) => r.id)).not.toEqual(expect.arrayContaining(page2.map((r) => r.id)));
+    });
+  });
+
+  describe('countFiltered', () => {
+    it('returns total count with no filter', () => {
+      repo.insert(makeReview({ id: 'c1' }));
+      repo.insert(makeReview({ id: 'c2' }));
+      expect(repo.countFiltered({})).toBe(2);
+    });
+
+    it('scopes count by filter', () => {
+      repo.insert(makeReview({ id: 'c-main', pr_node_id: PR_NODE_ID }));
+      repo.insert(makeReview({ id: 'c-null', pr_node_id: null }));
+      // Rows with null pr_node_id don't match a repo filter since there's no JOIN value
+      expect(repo.countFiltered({ repo: 'owner/repo' })).toBe(1);
+    });
+
+    it('includes standalone rows (list page shows them)', () => {
+      repo.insert(makeReview({ id: 'c-standalone', prompt_version: 'standalone-failure', pr_node_id: null }));
+      repo.insert(makeReview({ id: 'c-normal' }));
+      expect(repo.countFiltered({})).toBe(2);
+    });
+  });
+
+  describe('findByIdWithFindings', () => {
+    it('returns review and findings ordered by created_at ASC', () => {
+      repo.insert(makeReview({ id: 'rfwf-1', status: 'completed' }));
+      findings.insertMany([
+        makeFinding('rfwf-1', { id: 'f2', created_at: new Date(NOW.getTime() + 2_000) }),
+        makeFinding('rfwf-1', { id: 'f1', created_at: new Date(NOW.getTime() + 1_000) }),
+      ]);
+
+      const result = repo.findByIdWithFindings('rfwf-1');
+      expect(result).not.toBeNull();
+      expect(result?.review.id).toBe('rfwf-1');
+      expect(result?.findings).toHaveLength(2);
+      expect(result?.findings[0].id).toBe('f1');
+      expect(result?.findings[1].id).toBe('f2');
+    });
+
+    it('returns null for an unknown id', () => {
+      expect(repo.findByIdWithFindings('does-not-exist')).toBeNull();
+    });
+
+    it('returns review with empty findings array when review has no findings', () => {
+      repo.insert(makeReview({ id: 'rfwf-empty', status: 'failed' }));
+      const result = repo.findByIdWithFindings('rfwf-empty');
+      expect(result).not.toBeNull();
+      expect(result?.findings).toEqual([]);
+    });
+  });
+
+  describe('aggregateByFilter', () => {
+    it('returns all-zero/null aggregate over an empty filter set', () => {
+      const agg = repo.aggregateByFilter({});
+      expect(agg.statusBreakdown).toEqual({ completed: 0, failed: 0, in_progress: 0 });
+      expect(agg.severityRollup).toEqual({ error: 0, warning: 0, info: 0 });
+      expect(agg.topRules).toEqual([]);
+      expect(agg.tokenTotals).toEqual({
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      });
+      expect(agg.latency).toEqual({ p50: null, p95: null });
+    });
+
+    it('excludes standalone rows from every aggregate', () => {
+      // Standalone row — must be excluded from aggregates
+      repo.insert(makeReview({
+        id: 'standalone',
+        prompt_version: 'standalone-empty-diff',
+        status: 'completed',
+        pr_node_id: null,
+        input_tokens: 999,
+        output_tokens: 999,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        created_at: new Date(NOW.getTime() - 5_000),
+        completed_at: new Date(NOW.getTime()),
+      }));
+
+      const agg = repo.aggregateByFilter({});
+      expect(agg.statusBreakdown.completed).toBe(0);
+      expect(agg.tokenTotals.input_tokens).toBe(0);
+      expect(agg.latency).toEqual({ p50: null, p95: null });
+    });
+
+    it('mixed rows: 3 completed, 1 failed, 1 standalone — volume=4, severity from 3 completed', () => {
+      const t0 = NOW.getTime();
+
+      // 3 completed reviews with findings
+      for (let i = 0; i < 3; i++) {
+        const completedAt = new Date(t0 + (i + 1) * 1_000);
+        repo.insert(makeReview({
+          id: `agg-c${i}`,
+          status: 'completed',
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          created_at: new Date(t0 + i * 100),
+          completed_at: completedAt,
+        }));
+        findings.insertMany([
+          makeFinding(`agg-c${i}`, { id: `f-err-${i}`, severity: 'error' }),
+          makeFinding(`agg-c${i}`, { id: `f-warn-${i}`, severity: 'warning' }),
+        ]);
+      }
+
+      // 1 failed review (no findings)
+      repo.insert(makeReview({
+        id: 'agg-f0',
+        status: 'failed',
+        created_at: new Date(t0 + 500),
+        completed_at: new Date(t0 + 1_500),
+      }));
+
+      // 1 standalone row — must be excluded
+      repo.insert(makeReview({
+        id: 'agg-standalone',
+        prompt_version: 'standalone-failure',
+        status: 'completed',
+        pr_node_id: null,
+        created_at: new Date(t0 + 600),
+        completed_at: new Date(t0 + 2_000),
+      }));
+
+      const agg = repo.aggregateByFilter({});
+
+      // 3 completed + 1 failed = 4 total (standalone excluded)
+      expect(agg.statusBreakdown.completed).toBe(3);
+      expect(agg.statusBreakdown.failed).toBe(1);
+      expect(agg.statusBreakdown.in_progress).toBe(0);
+
+      // Severity from the 3 completed reviews: 3 errors + 3 warnings
+      expect(agg.severityRollup.error).toBe(3);
+      expect(agg.severityRollup.warning).toBe(3);
+      expect(agg.severityRollup.info).toBe(0);
+
+      // Token totals from 3 completed (standalone excluded, failed has nulls → 0)
+      expect(agg.tokenTotals.input_tokens).toBe(300);
+      expect(agg.tokenTotals.output_tokens).toBe(150);
+
+      // Latency for 3 completed rows (each ~1000ms, ~200ms, ~300ms differences)
+      expect(agg.latency.p50).not.toBeNull();
+      expect(agg.latency.p95).not.toBeNull();
+    });
+
+    it('returns top-10 rules sorted by count desc', () => {
+      repo.insert(makeReview({ id: 'r-rules', status: 'completed' }));
+      // 3 findings for rule-a, 2 for rule-b, 1 for rule-c
+      findings.insertMany([
+        makeFinding('r-rules', { id: 'f-a1', rule_id: 'rule-a' }),
+        makeFinding('r-rules', { id: 'f-a2', rule_id: 'rule-a' }),
+        makeFinding('r-rules', { id: 'f-a3', rule_id: 'rule-a' }),
+        makeFinding('r-rules', { id: 'f-b1', rule_id: 'rule-b' }),
+        makeFinding('r-rules', { id: 'f-b2', rule_id: 'rule-b' }),
+        makeFinding('r-rules', { id: 'f-c1', rule_id: 'rule-c' }),
+      ]);
+
+      const agg = repo.aggregateByFilter({});
+      expect(agg.topRules[0]).toEqual({ rule_id: 'rule-a', count: 3 });
+      expect(agg.topRules[1]).toEqual({ rule_id: 'rule-b', count: 2 });
+      expect(agg.topRules[2]).toEqual({ rule_id: 'rule-c', count: 1 });
+    });
+
+    it('filters by repo when spec.repo is set', () => {
+      prs.save({
+        node_id: 'PR_other2',
+        repo_full_name: 'org/other2',
+        number: 2,
+        title: 'PR2',
+        state: 'open',
+        head_sha: 'g'.repeat(40),
+        base_sha: 'h'.repeat(40),
+        author_login: 'alice',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+      });
+      repo.insert(makeReview({ id: 'r-main2', pr_node_id: PR_NODE_ID, status: 'completed', input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }));
+      repo.insert(makeReview({ id: 'r-other2', pr_node_id: 'PR_other2', status: 'completed', input_tokens: 999, output_tokens: 999, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }));
+
+      const agg = repo.aggregateByFilter({ repo: 'owner/repo' });
+      expect(agg.statusBreakdown.completed).toBe(1);
+      expect(agg.tokenTotals.input_tokens).toBe(10);
+    });
+  });
+
+  describe('distinctRepos', () => {
+    it('returns sorted distinct repo_full_name values', () => {
+      prs.save({
+        node_id: 'PR_beta',
+        repo_full_name: 'org/beta',
+        number: 2,
+        title: 'PR',
+        state: 'open',
+        head_sha: 'i'.repeat(40),
+        base_sha: 'j'.repeat(40),
+        author_login: 'user1',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+      });
+      repo.insert(makeReview({ id: 'dr-1', pr_node_id: PR_NODE_ID }));
+      repo.insert(makeReview({ id: 'dr-2', pr_node_id: 'PR_beta' }));
+      // Duplicate — same repo
+      repo.insert(makeReview({ id: 'dr-3', pr_node_id: PR_NODE_ID }));
+
+      const repos = repo.distinctRepos({}, 100);
+      expect(repos).toEqual(['org/beta', 'owner/repo']);
+    });
+
+    it('reviews with null pr_node_id do not surface a null entry', () => {
+      repo.insert(makeReview({ id: 'dr-null', pr_node_id: null }));
+      const repos = repo.distinctRepos({}, 100);
+      expect(repos).not.toContain(null);
+    });
+  });
+
+  describe('distinctAuthors', () => {
+    it('returns sorted distinct author_login values', () => {
+      prs.save({
+        node_id: 'PR_alice',
+        repo_full_name: 'owner/repo',
+        number: 3,
+        title: 'PR',
+        state: 'open',
+        head_sha: 'k'.repeat(40),
+        base_sha: 'l'.repeat(40),
+        author_login: 'alice',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+      });
+      repo.insert(makeReview({ id: 'da-1', pr_node_id: PR_NODE_ID })); // octocat
+      repo.insert(makeReview({ id: 'da-2', pr_node_id: 'PR_alice' })); // alice
+      repo.insert(makeReview({ id: 'da-3', pr_node_id: PR_NODE_ID })); // octocat again
+
+      const authors = repo.distinctAuthors({}, 100);
+      expect(authors).toEqual(['alice', 'octocat']);
+    });
+
+    it('reviews with null pr_node_id do not surface a null entry', () => {
+      repo.insert(makeReview({ id: 'da-null', pr_node_id: null }));
+      const authors = repo.distinctAuthors({}, 100);
+      expect(authors).not.toContain(null);
+    });
+
+    it('returns empty array when no PRs exist', () => {
+      repo.insert(makeReview({ id: 'da-only-null', pr_node_id: null }));
+      const authors = repo.distinctAuthors({}, 100);
+      expect(authors).toEqual([]);
     });
   });
 });
