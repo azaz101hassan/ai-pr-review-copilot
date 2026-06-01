@@ -34,13 +34,14 @@ function formatMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-// Empty-cell placeholder. The em-dash is visual only; screen readers get
-// "No value" so a missing field is announced instead of silently skipped.
+// Empty-cell placeholder. En-dash is the visual marker (not em-dash — em
+// dashes in UI copy are a documented slop tell, see DESIGN.md). Screen
+// readers get "No value" so a missing field is announced explicitly.
 function EmptyCell() {
   return (
     <>
       <span className="text-muted-foreground" aria-hidden>
-        &mdash;
+        &ndash;
       </span>
       <span className="sr-only">No value</span>
     </>
@@ -356,7 +357,7 @@ export function ReviewDetail({
       <section aria-labelledby="tokens-heading">
         <h2
           id="tokens-heading"
-          className="mb-4 text-sm font-medium text-muted-foreground"
+          className="mb-4 text-base font-semibold text-foreground"
         >
           Token usage
         </h2>

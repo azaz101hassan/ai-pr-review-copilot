@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev -p 4000",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "check:copy": "node scripts/check-copy.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",

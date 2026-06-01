@@ -64,7 +64,7 @@ export default async function ReviewsPage({ searchParams }: ReviewsPageProps) {
     <div className="space-y-6">
       {/* Page heading */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
           Reviews
         </h1>
         {list.total > 0 && (

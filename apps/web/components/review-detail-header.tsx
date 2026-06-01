@@ -108,10 +108,7 @@ function PrHeader({ review, pr }: { review: ReviewDetailRecord; pr: ReviewDetail
 
       {/* H1 row: PR number + title on the left, copyable UUID on the right */}
       <div className="flex items-start justify-between gap-4">
-        <h1
-          className="text-2xl font-semibold tracking-tight"
-          style={{ textWrap: 'balance' } as React.CSSProperties}
-        >
+        <h1 className="text-3xl font-semibold tracking-tight text-balance">
           <span className="font-mono">#{pr.number}</span>
           {' '}
           <span>{pr.title}</span>
@@ -160,7 +157,7 @@ function StandaloneHeader({ review }: { review: ReviewDetailRecord }) {
     <header className="space-y-2 pb-1 border-b border-border">
       {/* H1 row: title on the left, copyable UUID on the right */}
       <div className="flex items-start justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-3xl font-semibold tracking-tight">
           Standalone review
         </h1>
         <CopyUuid id={review.id} />

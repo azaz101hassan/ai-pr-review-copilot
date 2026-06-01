@@ -8,10 +8,17 @@ import type { ReviewListEntry, ReviewStatus } from '@/lib/api-types';
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Status maps to the workflow axis, not the severity axis. Completed is
+// "ok, done" (filled foreground dot, the GitHub-style "succeeded"
+// affordance), not "muted severity." Failed and in-progress overlap
+// visually with severity-error / severity-warning because the colors
+// the operator would pick for those workflow states happen to be the
+// same hues — that overlap is intentional, the semantic distinction is
+// the dimension being encoded.
 function statusDotClass(status: ReviewStatus): string {
   switch (status) {
     case 'completed':
-      return 'bg-severity-muted';
+      return 'bg-foreground';
     case 'failed':
       return 'bg-severity-error';
     case 'in_progress':
@@ -75,15 +82,16 @@ function ReviewRow({ review }: ReviewRowProps) {
   const hasLinkedPr = review.pr_node_id != null && review.repo_full_name != null;
 
   return (
-    <li className="group border-b border-border px-4 py-3 hover:bg-accent/30 transition-colors duration-100">
+    <li className="group border-b border-border px-4 py-3 transition-colors duration-100 hover:bg-muted">
       <Link
         href={href}
         className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background rounded-sm"
-        aria-label={
-          hasLinkedPr
-            ? `Review of ${review.repo_full_name} #${review.pr_number}${review.pr_title ? ': ' + review.pr_title : ''}`
-            : 'Standalone review'
-        }
+        // aria-label only on standalone rows (where the visible headline
+        // is "Standalone review" but does not name the row uniquely).
+        // PR-linked rows let the visible text — repo, PR number, title —
+        // be read by screen readers natively; an aria-label here would
+        // re-stringify the same content into one long announcement.
+        aria-label={hasLinkedPr ? undefined : `Standalone review ${review.id}`}
       >
         {/* Line 1: status dot + identity + dry-run pill */}
         <div className="flex items-center gap-2 min-w-0">
