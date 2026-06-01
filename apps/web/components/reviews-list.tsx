@@ -79,11 +79,12 @@ function ReviewRow({ review }: ReviewRowProps) {
       <Link
         href={href}
         className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background rounded-sm"
-        aria-label={
-          hasLinkedPr
-            ? `Review of ${review.repo_full_name} #${review.pr_number}${review.pr_title ? ': ' + review.pr_title : ''}`
-            : 'Standalone review'
-        }
+        // aria-label only on standalone rows (where the visible headline
+        // is "Standalone review" but does not name the row uniquely).
+        // PR-linked rows let the visible text — repo, PR number, title —
+        // be read by screen readers natively; an aria-label here would
+        // re-stringify the same content into one long announcement.
+        aria-label={hasLinkedPr ? undefined : `Standalone review ${review.id}`}
       >
         {/* Line 1: status dot + identity + dry-run pill */}
         <div className="flex items-center gap-2 min-w-0">

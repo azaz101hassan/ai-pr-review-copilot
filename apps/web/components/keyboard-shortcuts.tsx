@@ -115,7 +115,9 @@ function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
           <Kbd>g r</Kbd>
           <dd className="text-muted-foreground">Go to reviews</dd>
           <Kbd>Esc</Kbd>
-          <dd className="text-muted-foreground">Close this dialog or unfocus</dd>
+          <dd className="text-muted-foreground">
+            Close this dialog; on a review, back to the list; otherwise unfocus
+          </dd>
           <Kbd>?</Kbd>
           <dd className="text-muted-foreground">Show this dialog</dd>
         </dl>
@@ -124,6 +126,21 @@ function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
           <span className="font-mono">g r</span>) must be pressed within one
           second.
         </p>
+        {/* Explicit close button gives the dialog a stable initial focus
+          * target. Without a focusable child, <dialog>.showModal() lands
+          * focus on the dialog itself with no visible affordance — clicking
+          * away or pressing Esc still works, but the layer feels less
+          * intentional. */}
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            autoFocus
+            onClick={onClose}
+            className="rounded-md border border-border bg-muted px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </dialog>
   );
@@ -189,9 +206,21 @@ export function KeyboardShortcuts() {
         return;
       }
 
-      // '/' focuses the first filter control.
+      // '/' focuses the first filter control. preventDefault unconditionally
+      // so the browser's native quickfind never fires on pages without a
+      // filter bar — the dashboard owns the `/` key globally.
       if (e.key === '/') {
-        if (focusFirstFilter()) e.preventDefault();
+        e.preventDefault();
+        focusFirstFilter();
+        return;
+      }
+
+      // Esc on the review detail page navigates back to the list, mirroring
+      // the GitHub PR-detail "back to PRs" muscle memory. Other pages let
+      // Esc through to the browser default.
+      if (e.key === 'Escape' && pathname.startsWith('/reviews/')) {
+        e.preventDefault();
+        router.push('/reviews');
         return;
       }
 
@@ -231,7 +260,7 @@ export function KeyboardShortcuts() {
 
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [router]);
+  }, [router, pathname]);
 
   return (
     <ShortcutsOverlay open={overlayOpen} onClose={() => setOverlayOpen(false)} />
