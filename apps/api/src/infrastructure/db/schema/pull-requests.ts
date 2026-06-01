@@ -32,6 +32,7 @@ export const pullRequests = sqliteTable(
     created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
     updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
     raw_payload: text('raw_payload').notNull(),
+    walkthrough_comment_id: integer('walkthrough_comment_id'),
   },
   (table) => ({
     repoNumberIdx: index('idx_pull_requests_repo_number').on(

@@ -143,6 +143,7 @@ function makeMockPrRepo(prRecord?: Partial<PullRequestRecord>): MockPullRequestR
         created_at: new Date(),
         updated_at: new Date(),
         raw_payload: '{}',
+        walkthrough_comment_id: null,
         ...prRecord,
       }
     : undefined;

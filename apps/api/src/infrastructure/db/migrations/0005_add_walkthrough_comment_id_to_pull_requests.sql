@@ -1,0 +1,1 @@
+ALTER TABLE `pull_requests` ADD `walkthrough_comment_id` integer;

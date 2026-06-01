@@ -20,6 +20,7 @@ function makePr(overrides: Partial<PullRequestRecord> = {}): PullRequestRecord {
     created_at: new Date('2026-05-25T10:00:00Z'),
     updated_at: new Date('2026-05-25T10:00:00Z'),
     raw_payload: JSON.stringify({ pull_request: { number: 42 } }),
+    walkthrough_comment_id: null,
     ...overrides,
   };
 }
