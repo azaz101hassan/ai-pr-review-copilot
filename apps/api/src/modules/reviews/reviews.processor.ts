@@ -16,10 +16,19 @@ import { AnthropicRequestError } from '@/infrastructure/anthropic';
 import { GitHubRepoContextProvider } from '@/infrastructure/github/github-repo-context.provider';
 import { formatBriefError, readStatus } from '@/types';
 import {
+  anchorFindingsToDiff,
+  findWalkthroughCommentId,
+  formatInlineCommentBody,
   formatReviewBody,
+  formatWalkthroughBody,
+  parseDiffHunks,
   FindingWithSeverity,
-  sanitizeFindingMarkdown,
 } from './helpers';
+import {
+  IPullRequestRepository,
+  PULL_REQUEST_REPOSITORY,
+} from '@/modules/webhooks/types/pull-request.repository';
+import type { Octokit } from 'octokit';
 import { RunDryRunResult, ReviewsService } from './reviews.service';
 import {
   GITHUB_AUTH_PROVIDER,
@@ -112,6 +121,8 @@ export class ReviewsProcessor
     private readonly reviewsRepo: IReviewRepository,
     @Inject(REVIEW_FINDING_REPOSITORY)
     private readonly findingsRepo: IReviewFindingRepository,
+    @Inject(PULL_REQUEST_REPOSITORY)
+    private readonly pullRequestsRepo: IPullRequestRepository,
     private readonly config: ConfigService,
   ) {
     super();
@@ -289,135 +300,165 @@ export class ReviewsProcessor
         `${jobLogPrefix} worker.review.findings_emitted count=${result.findings.length} review_id=${reviewId}`,
       );
 
-    // Step 9 — sanitize and format the Review body.
-    const sanitizedFindings: FindingWithSeverity[] = result.findings.map(
-      (f) => ({
-        rule_id: f.rule_id,
-        title: f.title,
-        message: f.message,
-        location_hint: f.location_hint,
-        citation: f.citation,
-        severity: f.severity,
-      }),
-    );
-
-    // Defense-in-depth UUID check. The worker pre-allocates a
-    // canonical UUID and the service validates it, so reaching here
-    // with `result.review_id !== reviewId` should be impossible.
-    // The check stays so a programming-bug-induced drift surfaces
-    // as a typed failure instead of a body-format spoof. Fires
-    // markFailed (terminal — analysis completed, but our internal
-    // state is inconsistent).
-    if (result.review_id !== reviewId || !UUID_RE.test(reviewId)) {
-      this.logger.error(
-        `${jobLogPrefix} worker.review.bad_uuid expected=${reviewId} got=${result.review_id}`,
-      );
-      this.reviewsRepo.markFailed(reviewId, {
-        completed_at: new Date(),
-        error_status: null,
-        error_code: 'internal_error',
-      });
-      throw new UnrecoverableError(
-        'runRealReview review_id did not match worker-allocated id',
-      );
-    }
-
-    const body = formatReviewBody({
-      findings: sanitizedFindings,
-      reviewId,
-      sanitize: sanitizeFindingMarkdown,
-    });
-
-    // Step 10 — POST createReview. event=COMMENT, body-only Day-5
-    // format. commit_id intentionally omitted — GitHub defaults to
-    // the PR's current branch tip, eliminating the stale-head-SHA
-    // window where a synchronize mid-job pins the Review to an old
-    // commit ("Outdated" badge in the PR UI). retries: 0 disables
-    // @octokit/plugin-retry for this single call — fail-fast over
-    // duplicate-Review-on-retry.
-    try {
-      // F20 closure: intersection type for the plugin-retry option
-      // instead of `as Parameters<...>`. The per-method param type
-      // doesn't include the plugin's `request` field, but the
-      // declared intersection is precise enough that the rest of
-      // the call site stays statically checked.
-      type CreateReviewParams = Parameters<
-        typeof octokit.rest.pulls.createReview
-      >[0];
-      const createReviewArgs: CreateReviewParams & {
-        request?: { retries?: number };
-      } = {
-        owner: data.owner,
-        repo: data.repo,
-        pull_number: data.pr_number,
-        event: 'COMMENT',
-        body,
-        // Per-request retry override. @octokit/plugin-retry consults
-        // the `request.retries` field on the request options; 0
-        // disables retries for this POST.
-        request: { retries: 0 },
-      };
-      const posted = await octokit.rest.pulls.createReview(createReviewArgs);
-      const url =
-        (posted.data as { html_url?: string } | undefined)?.html_url ??
-        '(no URL)';
-      this.logger.log(
-        `${jobLogPrefix} worker.review.posted url=${url} review_id=${reviewId}`,
-      );
-    } catch (err) {
-      // Findings are durable in the DB; the operator can re-trigger
-      // with a synchronize after diagnosing the upstream issue.
-      const status = readStatus(err);
-      this.logger.warn(
-        `${jobLogPrefix} worker.review.post_failed status=${status} ${formatBriefError(err)}`,
-      );
-
-      // F5 closure: on 422, the most common root cause is "PR was
-      // closed during the agent loop" (GitHub rejects a Review on a
-      // closed PR with 422). Re-fetch PR state once to disambiguate:
-      // closed → mark pr_closed_during_review (terminal); still open
-      // → keep comment_post_failed (terminal too, see F3 below).
-      let errorCode = 'comment_post_failed';
-      if (status === 422) {
-        try {
-          const recheck = await octokit.rest.pulls.get({
-            owner: data.owner,
-            repo: data.repo,
-            pull_number: data.pr_number,
-          });
-          const currentState = (recheck.data as { state?: string }).state;
-          if (currentState !== 'open') {
-            errorCode = 'pr_closed_during_review';
-            this.logger.warn(
-              `${jobLogPrefix} worker.review.post_failed pr_state=${currentState} — reclassified as pr_closed_during_review`,
-            );
-          }
-        } catch (recheckErr) {
-          // Re-check itself failed; keep comment_post_failed. We
-          // don't want to mask the original failure with a confusing
-          // secondary one. The original 422 is the operator signal.
-          this.logger.warn(
-            `${jobLogPrefix} worker.review.post_recheck_failed ${formatBriefError(recheckErr)}`,
-          );
-        }
+      // UUID defense (unchanged).
+      if (result.review_id !== reviewId || !UUID_RE.test(reviewId)) {
+        this.logger.error(
+          `${jobLogPrefix} worker.review.bad_uuid expected=${reviewId} got=${result.review_id}`,
+        );
+        this.reviewsRepo.markFailed(reviewId, {
+          completed_at: new Date(),
+          error_status: null,
+          error_code: 'internal_error',
+        });
+        throw new UnrecoverableError(
+          'runRealReview review_id did not match worker-allocated id',
+        );
       }
 
-      this.reviewsRepo.markFailed(reviewId, {
-        completed_at: new Date(),
-        error_status: status,
-        error_code: errorCode,
+      // Step 9 — parse and partition (pure, deterministic, no I/O).
+      const sanitizedFindings: FindingWithSeverity[] = result.findings.map(
+        (f) => ({
+          rule_id: f.rule_id,
+          title: f.title,
+          message: f.message,
+          location_hint: f.location_hint,
+          citation: f.citation,
+          severity: f.severity,
+        }),
+      );
+
+      const diffHunks = parseDiffHunks(diff);
+      const partition = anchorFindingsToDiff({
+        findings: sanitizedFindings,
+        diffHunks,
+      });
+      const counts = countBySeverity(sanitizedFindings);
+      const hasOutsideDiff = partition.outsideDiff.length > 0;
+
+      // Step 10a — upsert the Walkthrough.
+      const walkthroughBody = formatWalkthroughBody({
+        prNodeId: data.pr_node_id,
+        reviewId,
+        counts,
+        outsideDiff: partition.outsideDiff,
       });
 
-      // F3 closure: the POST is non-retryable. A retry reruns the
-      // agent loop AND posts again → up to 3 duplicate Reviews +
-      // 3× Anthropic spend on a single flaky 5xx. The findings are
-      // durable; the operator can re-trigger via synchronize after
-      // diagnosing the upstream issue.
-      throw new UnrecoverableError(formatBriefError(err));
-    }
+      const walkthroughPosted = await this.upsertWalkthrough({
+        octokit,
+        owner: data.owner,
+        repo: data.repo,
+        pr_number: data.pr_number,
+        pr_node_id: data.pr_node_id,
+        body: walkthroughBody,
+      });
+
+      // Step 10b — POST the inlined Review (skip on zero findings).
+      let inlinePosted = false;
+      if (sanitizedFindings.length > 0) {
+        const reviewBody = formatReviewBody({
+          reviewId,
+          counts,
+          hasOutsideDiff,
+        });
+
+        const inlineComments = partition.anchorable.map((a) => ({
+          path: a.path,
+          line: a.line,
+          side: 'RIGHT' as const,
+          ...(a.startLine !== null && a.startLine !== a.line
+            ? { start_line: a.startLine, start_side: 'RIGHT' as const }
+            : {}),
+          body: formatInlineCommentBody({ finding: a.finding }),
+        }));
+
+        type CreateReviewParams = Parameters<
+          typeof octokit.rest.pulls.createReview
+        >[0];
+        const createReviewArgs: CreateReviewParams & {
+          request?: { retries?: number };
+        } = {
+          owner: data.owner,
+          repo: data.repo,
+          pull_number: data.pr_number,
+          event: 'COMMENT',
+          body: reviewBody,
+          comments: inlineComments,
+          request: { retries: 0 },
+        };
+
+        const posted = await octokit.rest.pulls.createReview(createReviewArgs);
+        const url =
+          (posted.data as { html_url?: string } | undefined)?.html_url ??
+          '(no URL)';
+        this.logger.log(
+          `${jobLogPrefix} worker.review.posted url=${url} review_id=${reviewId}`,
+        );
+        inlinePosted = true;
+      }
+
+      this.logger.log(
+        `${jobLogPrefix} worker.review.post_summary ` +
+          `walkthrough.posted=${walkthroughPosted} ` +
+          `inline_review.posted=${inlinePosted} ` +
+          `anchorable_count=${partition.anchorable.length} ` +
+          `outside_diff_count=${partition.outsideDiff.length}`,
+      );
     } finally {
       this.activeReviewIds.delete(reviewId);
     }
+  }
+
+  // Upsert the Walkthrough issue comment for this PR. On the first
+  // run (no cached id and no existing marker in the thread), creates
+  // a new comment and caches the id. On subsequent runs, PATCHes the
+  // existing comment in-place so the PR thread isn't flooded.
+  private async upsertWalkthrough(args: {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    pr_number: number;
+    pr_node_id: string;
+    body: string;
+  }): Promise<'created' | 'patched'> {
+    const { octokit, owner, repo, pr_number, pr_node_id, body } = args;
+
+    const cachedId = this.pullRequestsRepo.getWalkthroughCommentId(pr_node_id);
+    if (cachedId !== null) {
+      await octokit.rest.issues.updateComment({
+        owner,
+        repo,
+        comment_id: cachedId,
+        body,
+      });
+      return 'patched';
+    }
+
+    const scanned = await findWalkthroughCommentId(octokit, {
+      owner,
+      repo,
+      pr_number,
+      pr_node_id,
+    });
+    if (scanned !== null) {
+      await octokit.rest.issues.updateComment({
+        owner,
+        repo,
+        comment_id: scanned,
+        body,
+      });
+      this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, scanned);
+      return 'patched';
+    }
+
+    const created = await octokit.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: pr_number,
+      body,
+    });
+    const newId = (created.data as { id: number }).id;
+    this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, newId);
+    return 'created';
   }
 
   // Day-5 bounded shutdown drain (U8). On SIGTERM Nest fires
@@ -575,6 +616,18 @@ export class ReviewsProcessor
 function classifyToRequestError(err: unknown): Error {
   if (err instanceof Error) return err;
   return new Error(String(err));
+}
+
+function countBySeverity(findings: { severity: 'error' | 'warning' | 'info' }[]) {
+  let error = 0;
+  let warning = 0;
+  let info = 0;
+  for (const f of findings) {
+    if (f.severity === 'error') error += 1;
+    else if (f.severity === 'warning') warning += 1;
+    else info += 1;
+  }
+  return { error, warning, info, total: error + warning + info };
 }
 
 // F4 closure. Terminal Anthropic error codes — codes for which a
