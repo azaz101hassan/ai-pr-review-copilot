@@ -21,10 +21,16 @@ export function parseDiffHunks(diff: string): Map<string, HunkRange[]> {
   const result = new Map<string, HunkRange[]>();
   if (diff.length === 0) return result;
 
-  const lines = diff.split('\n');
+  const lines = diff.split(/\r?\n/);
   let currentFile: string | null = null;
 
   for (const line of lines) {
+    // A new file boundary — reset until we see its `+++` header.
+    if (line.startsWith('diff --git ')) {
+      currentFile = null;
+      continue;
+    }
+
     const plusMatch = line.match(PLUS_HEADER_RE);
     if (plusMatch) {
       // capture group 1 is the path (undefined when /dev/null matched).

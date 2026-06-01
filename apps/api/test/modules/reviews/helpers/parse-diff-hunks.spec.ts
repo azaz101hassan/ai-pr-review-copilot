@@ -131,4 +131,50 @@ describe('parseDiffHunks', () => {
       { startLine: 5, endLine: 5 },
     ]);
   });
+
+  it('handles CRLF line endings', () => {
+    const diff = [
+      'diff --git a/src/foo.ts b/src/foo.ts',
+      '--- a/src/foo.ts',
+      '+++ b/src/foo.ts',
+      '@@ -1,2 +1,3 @@',
+      ' line1',
+      '+added',
+      ' line2',
+    ].join('\r\n');
+    expect(parseDiffHunks(diff).get('src/foo.ts')).toEqual([
+      { startLine: 1, endLine: 3 },
+    ]);
+  });
+
+  it('resets currentFile on diff --git boundary (mode-only change followed by real diff)', () => {
+    // The mode-only diff has no +++ line. Without a reset, a stray
+    // hunk-shaped string in its body would be attributed to the
+    // previous file. The reset makes the parser ignore anything
+    // between the new `diff --git` and the next `+++` header.
+    const diff = [
+      'diff --git a/first.ts b/first.ts',
+      '--- a/first.ts',
+      '+++ b/first.ts',
+      '@@ -1,1 +1,2 @@',
+      ' x',
+      '+y',
+      'diff --git a/mode-only.sh b/mode-only.sh',
+      'old mode 100644',
+      'new mode 100755',
+      // The next line LOOKS like a hunk header but is not preceded by
+      // a +++ — it should be ignored, not attributed to first.ts.
+      '@@ -99,99 +99,99 @@ stray context',
+      'diff --git a/second.ts b/second.ts',
+      '--- a/second.ts',
+      '+++ b/second.ts',
+      '@@ -5,1 +5,2 @@',
+      ' a',
+      '+b',
+    ].join('\n');
+    const result = parseDiffHunks(diff);
+    expect(result.get('first.ts')).toEqual([{ startLine: 1, endLine: 2 }]);
+    expect(result.get('second.ts')).toEqual([{ startLine: 5, endLine: 6 }]);
+    // No stray hunk attributed to first.ts.
+  });
 });
