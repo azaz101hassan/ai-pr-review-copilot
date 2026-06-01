@@ -5,3 +5,4 @@ export {
   FormatReviewBodyInput,
   FindingWithSeverity,
 } from './format-review-body';
+export { parseLocationHint, ParsedAnchor } from './parse-location-hint';
