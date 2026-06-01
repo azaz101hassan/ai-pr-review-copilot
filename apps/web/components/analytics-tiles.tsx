@@ -306,11 +306,11 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
   const { statusBreakdown, severityRollup, latency, tokenTotals, topRules } =
     data;
   const volume = analyticsVolume(data);
-  const tokenTotal =
-    tokenTotals.input_tokens +
-    tokenTotals.output_tokens +
-    tokenTotals.cache_creation_input_tokens +
-    tokenTotals.cache_read_input_tokens;
+  // Sum only the tokens billed at full rate. Anthropic prices cache-read
+  // at ~10% of input and cache-write at ~1.25x; folding them into a flat
+  // sum inflates the headline number against the operator's real spend.
+  // Per-review TokenBreakdown still surfaces the cache splits in context.
+  const tokenTotal = tokenTotals.input_tokens + tokenTotals.output_tokens;
 
   return (
     <div className="space-y-5">

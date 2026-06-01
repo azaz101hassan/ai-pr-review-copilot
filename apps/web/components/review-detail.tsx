@@ -357,7 +357,7 @@ export function ReviewDetail({
       <section aria-labelledby="tokens-heading">
         <h2
           id="tokens-heading"
-          className="mb-4 text-sm font-medium text-muted-foreground"
+          className="mb-4 text-base font-semibold text-foreground"
         >
           Token usage
         </h2>

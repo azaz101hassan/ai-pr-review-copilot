@@ -21,6 +21,11 @@ const FILTER_SELECTOR =
   '[aria-label="Filter controls"] :is(select, input):not([type="hidden"])';
 const ROW_SELECTOR = '[data-keynav-list] a[href]';
 const G_SEQUENCE_MS = 1000;
+// Public custom-event name used by the in-nav discoverability button to
+// open the overlay without re-implementing the keyboard handler. Kept
+// on `window` so a Server-rendered button can fire it without sharing
+// component state.
+export const SHORTCUTS_OPEN_EVENT = 'pr-copilot:open-shortcuts';
 
 function isTypingTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
@@ -114,6 +119,11 @@ function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
           <Kbd>?</Kbd>
           <dd className="text-muted-foreground">Show this dialog</dd>
         </dl>
+        <p className="mt-4 text-xs text-muted-foreground">
+          Two-key sequences (<span className="font-mono">g a</span>,{' '}
+          <span className="font-mono">g r</span>) must be pressed within one
+          second.
+        </p>
       </div>
     </dialog>
   );
@@ -142,6 +152,18 @@ export function KeyboardShortcuts() {
   useEffect(() => {
     setOverlayOpen(false);
   }, [pathname]);
+
+  // Listen for a programmatic open request from the nav button. This is a
+  // window event rather than a context provider because the trigger and
+  // the dialog don't share an ancestor in a way that survives the Server
+  // Component boundary.
+  useEffect(() => {
+    function onOpen() {
+      setOverlayOpen(true);
+    }
+    window.addEventListener(SHORTCUTS_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(SHORTCUTS_OPEN_EVENT, onOpen);
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

@@ -4,6 +4,7 @@
 import type { ReactNode } from 'react';
 import { NavLinks } from './nav-links';
 import { KeyboardShortcuts } from './keyboard-shortcuts';
+import { ShortcutsHint } from './shortcuts-hint';
 
 interface NavShellProps {
   children: ReactNode;
@@ -31,6 +32,9 @@ export function NavShell({ children }: NavShellProps) {
             pr-review-copilot
           </a>
           <NavLinks />
+          <div className="ml-auto">
+            <ShortcutsHint />
+          </div>
         </div>
       </header>
       <main id="main-content" className="mx-auto max-w-6xl px-6 py-10">
