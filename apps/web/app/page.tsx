@@ -13,6 +13,7 @@ import { ActiveFilterChips } from '@/components/active-filter-chips';
 import { AnalyticsTiles } from '@/components/analytics-tiles';
 import { AnalyticsLive } from '@/components/analytics-live';
 import { EmptyState } from '@/components/empty-state';
+import { ApiFailureAlert } from '@/components/api-failure-alert';
 import {
   analyticsVolume,
   type AnalyticsResponse,
@@ -63,6 +64,7 @@ export default async function AnalyticsPage({
     fetchDashboard<FilterOptionsResponse>('/filters'),
   ]);
 
+  const analyticsFailed = analyticsResult.status === 'rejected';
   const aggregate: AnalyticsResponse =
     analyticsResult.status === 'fulfilled'
       ? analyticsResult.value
@@ -76,7 +78,11 @@ export default async function AnalyticsPage({
   // Build the filter query string (without leading '?') for the SSE client.
   const filterQuery = queryParams.toString();
 
-  const showEmpty = analyticsVolume(aggregate) === 0;
+  // Only show the empty state when the data fetch succeeded and the
+  // result is genuinely zero. A failed fetch gets the failure alert,
+  // not the seed-the-DB empty state — they mean different things to
+  // the operator.
+  const showEmpty = !analyticsFailed && analyticsVolume(aggregate) === 0;
 
   return (
     <div className="space-y-8">
@@ -86,6 +92,13 @@ export default async function AnalyticsPage({
           Analytics
         </h1>
       </header>
+
+      {analyticsFailed && (
+        <ApiFailureAlert
+          endpoint="/dashboard/analytics"
+          description="couldn't load aggregate metrics"
+        />
+      )}
 
       {showEmpty ? (
         <>

@@ -4,10 +4,19 @@
 import { fetchDashboard } from '@/lib/api';
 import { SettingsCard, SettingsRow } from '@/components/settings-card';
 import { EmptyState } from '@/components/empty-state';
+import { ApiFailureAlert } from '@/components/api-failure-alert';
 import type { SettingsResponseDto } from '@/lib/api-types';
 
 export default async function SettingsPage() {
-  const settings = await fetchDashboard<SettingsResponseDto>('/settings');
+  // Fetch defensively: the rest of the dashboard renders despite a settings
+  // outage, so this page should degrade to a failure alert + header rather
+  // than hitting the global error boundary.
+  let settings: SettingsResponseDto | null = null;
+  try {
+    settings = await fetchDashboard<SettingsResponseDto>('/settings');
+  } catch {
+    settings = null;
+  }
 
   return (
     <div className="space-y-8">
@@ -21,6 +30,15 @@ export default async function SettingsPage() {
         </p>
       </header>
 
+      {settings === null && (
+        <ApiFailureAlert
+          endpoint="/dashboard/settings"
+          description="couldn't load bot configuration"
+        />
+      )}
+
+      {settings && (
+        <>
       {/* Model */}
       <SettingsCard title="Model">
         <dl>
@@ -91,6 +109,8 @@ export default async function SettingsPage() {
           />
         </dl>
       </SettingsCard>
+        </>
+      )}
     </div>
   );
 }

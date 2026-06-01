@@ -75,7 +75,7 @@ function ReviewRow({ review }: ReviewRowProps) {
   const hasLinkedPr = review.pr_node_id != null && review.repo_full_name != null;
 
   return (
-    <li className="group border-b border-border px-4 py-3 hover:bg-accent/30 transition-colors duration-100">
+    <li className="group border-b border-border px-4 py-3 transition-colors duration-100 hover:bg-muted">
       <Link
         href={href}
         className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background rounded-sm"
