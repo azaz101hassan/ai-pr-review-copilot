@@ -175,5 +175,24 @@ describe('SqlitePullRequestsRepository', () => {
     it('returns null for getWalkthroughCommentId on a non-existent PR', () => {
       expect(repo.getWalkthroughCommentId('PR_doesnotexist')).toBeNull();
     });
+
+    it('save() upsert preserves a cached walkthrough_comment_id on re-ingestion', () => {
+      // Webhooks fire on every push, calling save() with the same
+      // node_id. The repository's onConflictDoUpdate.set block lists
+      // the columns to overwrite on conflict — walkthrough_comment_id
+      // is intentionally absent so the cached id survives across
+      // re-ingestion on each webhook push. A future "tidy-up" of the
+      // set block via spread would silently wipe the cache; this test
+      // pins that contract.
+      const pr = makePr({ title: 'Original title' });
+      repo.save(pr);
+      repo.setWalkthroughCommentId(pr.node_id, 12345);
+
+      // Same node_id, different title (simulates a PR edit on push).
+      repo.save({ ...pr, title: 'Edited title' });
+
+      expect(repo.getWalkthroughCommentId(pr.node_id)).toBe(12345);
+      expect(repo.findByNodeId(pr.node_id)?.title).toBe('Edited title');
+    });
   });
 });
