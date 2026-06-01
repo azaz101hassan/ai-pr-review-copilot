@@ -21,5 +21,5 @@ export {
 export {
   formatWalkthroughBody,
   FormatWalkthroughBodyInput,
-  FindingCounts,
 } from './format-walkthrough-body';
+export { FindingCounts } from './finding-counts.types';

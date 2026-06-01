@@ -1,17 +1,11 @@
 import type { OutsideDiffFinding } from './anchor-findings-to-diff';
 import type { FindingWithSeverity } from './format-review-body';
 import { sanitizeFindingMarkdown } from './sanitize-finding-markdown';
+import type { FindingCounts } from './finding-counts.types';
 
 type SanitizeFn = (input: string) => string;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export interface FindingCounts {
-  error: number;
-  warning: number;
-  info: number;
-  total: number;
-}
 
 export interface FormatWalkthroughBodyInput {
   prNodeId: string;
