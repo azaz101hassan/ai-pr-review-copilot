@@ -5,10 +5,12 @@ import type { FindingWithSeverity } from './format-review-body';
 // Partitions findings into:
 //   anchorable    — has a parseable path:line(:end), file is in the
 //                   diff, AND the line range intersects at least one
-//                   RIGHT-side hunk on that file. `line` is clamped to the
-//                   in-hunk maximum when a range overlaps the end of
-//                   a hunk; `startLine` keeps the original start
-//                   when it differs from `line`.
+//                   RIGHT-side hunk on that file. Both endpoints are clamped
+//                   into the hunk: `line` capped at hunk.endLine,
+//                   `startLine` floored at hunk.startLine. If the
+//                   clamp collapses the range to a single line,
+//                   `startLine` is null and a single-line comment
+//                   is emitted instead of a malformed multi-line.
 //   outsideDiff   — everything else: null hint, unparseable hint,
 //                   path-only hint (no line), file not in diff, or
 //                   line range fully outside every hunk on that file.
@@ -78,12 +80,20 @@ export function anchorFindingsToDiff(
       const endInHunk = parsed.endLine >= hunk.startLine;
       if (!startInHunk || !endInHunk) continue;
 
+      // Symmetric clamping: pull startLine up to the hunk's start
+      // and pull line down to the hunk's end. GitHub's review API
+      // requires both endpoints of a multi-line inline comment to
+      // sit inside the diff hunk; an out-of-hunk start_line yields
+      // a 422. When the clamp collapses the range to a single line
+      // (effectiveStart === clampedLine), emit a single-line
+      // comment instead of a malformed multi-line one.
+      const effectiveStart = Math.max(parsed.startLine, hunk.startLine);
       const clampedLine = Math.min(parsed.endLine, hunk.endLine);
-      const isMultiLine = parsed.startLine < clampedLine;
+      const isMultiLine = effectiveStart < clampedLine;
       anchorable.push({
         finding,
         path: parsed.path,
-        startLine: isMultiLine ? parsed.startLine : null,
+        startLine: isMultiLine ? effectiveStart : null,
         line: clampedLine,
       });
       anchored = true;

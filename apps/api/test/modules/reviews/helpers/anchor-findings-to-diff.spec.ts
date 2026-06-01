@@ -135,4 +135,34 @@ describe('anchorFindingsToDiff', () => {
     expect(result.anchorable).toHaveLength(0);
     expect(result.outsideDiff).toHaveLength(1);
   });
+
+  it('clamps the startLine of a range finding that partially overlaps the start of a hunk', () => {
+    // hunk covers 3-10; finding is 1-5. Clamp startLine up to 3
+    // (the hunk's start) so the inline comment is valid for
+    // GitHub's API.
+    const result = anchorFindingsToDiff({
+      findings: [f({ location_hint: 'src/foo.ts:1-5' })],
+      diffHunks: hunks({ 'src/foo.ts': [{ startLine: 3, endLine: 10 }] }),
+    });
+    expect(result.anchorable).toHaveLength(1);
+    const a = result.anchorable[0] as AnchorableFinding;
+    expect(a.startLine).toBe(3);
+    expect(a.line).toBe(5);
+  });
+
+  it('collapses to a single-line comment when the clamped range is one line', () => {
+    // hunk covers 1-10; finding is 10-15 (starts at the last hunk
+    // line and extends past it). Clamped line = 10, effective
+    // start = max(10, 1) = 10. Since they are equal, emit a
+    // single-line comment (startLine: null), not a malformed
+    // multi-line one.
+    const result = anchorFindingsToDiff({
+      findings: [f({ location_hint: 'src/foo.ts:10-15' })],
+      diffHunks: hunks({ 'src/foo.ts': [{ startLine: 1, endLine: 10 }] }),
+    });
+    expect(result.anchorable).toHaveLength(1);
+    const a = result.anchorable[0] as AnchorableFinding;
+    expect(a.startLine).toBeNull();
+    expect(a.line).toBe(10);
+  });
 });
