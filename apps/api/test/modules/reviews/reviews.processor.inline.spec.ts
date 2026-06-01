@@ -359,6 +359,30 @@ describe('ReviewsProcessor inline-comment flow', () => {
       expect(s.parts.createReview).toHaveBeenCalledTimes(1);
     });
 
+    it('scan 502 → retried once, then succeeds', async () => {
+      // After cache miss, the marker scan can transiently 502. The
+      // worker retries the scan once before falling through to POST,
+      // so a flaky list-comments call doesn't sink the upsert.
+      const listComments = jest
+        .fn()
+        .mockRejectedValueOnce({ status: 502, message: 'Bad Gateway' })
+        .mockResolvedValueOnce({ data: [] });
+      const created = jest.fn().mockResolvedValue({ data: { id: 444 } });
+
+      const s = setup({
+        walkthroughCachedId: null,
+        octokitParts: { listComments, createComment: created },
+      });
+      await s.processor.process(makeJob());
+
+      expect(listComments).toHaveBeenCalledTimes(2);
+      expect(created).toHaveBeenCalledTimes(1);
+      expect(s.setWalkthroughCommentId).toHaveBeenCalledWith(
+        'PR_node_test',
+        444,
+      );
+    });
+
     it('walkthrough POST fails twice → review row marked comment_post_failed', async () => {
       const create502 = jest
         .fn()

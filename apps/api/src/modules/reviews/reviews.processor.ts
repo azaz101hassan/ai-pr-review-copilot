@@ -497,12 +497,18 @@ export class ReviewsProcessor
       }
     }
 
-    const scanned = await findWalkthroughCommentId(octokit, {
-      owner,
-      repo,
-      pr_number,
-      pr_node_id,
-    });
+    // Wrap the scan in the same one-retry policy as the POST/PATCH
+    // calls — the scan is the recovery middle step after a PATCH 404
+    // (or a cold cache), so a transient 502 here should not sink the
+    // whole upsert.
+    const scanned = await this.callWithOneRetry(() =>
+      findWalkthroughCommentId(octokit, {
+        owner,
+        repo,
+        pr_number,
+        pr_node_id,
+      }),
+    );
     if (scanned !== null) {
       await this.callWithOneRetry(() =>
         octokit.rest.issues.updateComment({
