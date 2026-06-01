@@ -18,3 +18,8 @@ export {
   formatInlineCommentBody,
   FormatInlineCommentBodyInput,
 } from './format-inline-comment';
+export {
+  formatWalkthroughBody,
+  FormatWalkthroughBodyInput,
+  FindingCounts,
+} from './format-walkthrough-body';
