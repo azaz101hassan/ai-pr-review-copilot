@@ -522,15 +522,15 @@ export class ReviewsProcessor
       return 'patched';
     }
 
-    const created = await this.callWithOneRetry(() =>
-      octokit.rest.issues.createComment({
+    const newId = await this.callWithOneRetry(async () => {
+      const res = await octokit.rest.issues.createComment({
         owner,
         repo,
         issue_number: pr_number,
         body,
-      }),
-    );
-    const newId = (created.data as { id: number }).id;
+      });
+      return (res.data as { id: number }).id;
+    });
     this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, newId);
     return 'created';
   }
