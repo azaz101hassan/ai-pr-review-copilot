@@ -273,4 +273,173 @@ describe('ReviewsProcessor inline-comment flow', () => {
       expect(s.parts.createReview).not.toHaveBeenCalled();
     });
   });
+
+  describe('walkthrough POST/PATCH failure paths', () => {
+    it('PATCH 404 → clears cache and falls through to scan/POST', async () => {
+      const update404 = jest
+        .fn()
+        .mockRejectedValueOnce({ status: 404, message: 'Not Found' });
+      const scanned = jest.fn().mockResolvedValue({ data: [] }); // empty scan
+      const created = jest.fn().mockResolvedValue({ data: { id: 777 } });
+
+      const s = setup({
+        walkthroughCachedId: 999,
+        octokitParts: {
+          updateComment: update404,
+          listComments: scanned,
+          createComment: created,
+        },
+      });
+      await s.processor.process(makeJob());
+
+      expect(update404).toHaveBeenCalledTimes(1);
+      expect(scanned).toHaveBeenCalledTimes(1);
+      expect(created).toHaveBeenCalledTimes(1);
+      // Cache cleared then set to the new id.
+      expect(s.setWalkthroughCommentId).toHaveBeenCalledWith(
+        'PR_node_test',
+        null,
+      );
+      expect(s.setWalkthroughCommentId).toHaveBeenCalledWith(
+        'PR_node_test',
+        777,
+      );
+    });
+
+    it('empty cache + scan finds existing comment → PATCH (adopt) instead of POST', async () => {
+      const scanned = jest.fn().mockResolvedValue({
+        data: [
+          {
+            id: 333,
+            body:
+              '<!-- ai-pr-review-copilot:walkthrough:v1:pr=PR_node_test -->\n...',
+          },
+        ],
+      });
+      const update = jest.fn().mockResolvedValue({ data: {} });
+      const created = jest.fn();
+
+      const s = setup({
+        walkthroughCachedId: null,
+        octokitParts: {
+          listComments: scanned,
+          updateComment: update,
+          createComment: created,
+        },
+      });
+      await s.processor.process(makeJob());
+
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({ comment_id: 333 }),
+      );
+      expect(created).not.toHaveBeenCalled();
+      expect(s.setWalkthroughCommentId).toHaveBeenCalledWith(
+        'PR_node_test',
+        333,
+      );
+    });
+
+    it('walkthrough POST 502 → retried once, then succeeds', async () => {
+      const create502 = jest
+        .fn()
+        .mockRejectedValueOnce({ status: 502, message: 'Bad Gateway' })
+        .mockResolvedValueOnce({ data: { id: 888 } });
+
+      const s = setup({
+        walkthroughCachedId: null,
+        octokitParts: { createComment: create502 },
+      });
+      await s.processor.process(makeJob());
+
+      expect(create502).toHaveBeenCalledTimes(2);
+      expect(s.setWalkthroughCommentId).toHaveBeenCalledWith(
+        'PR_node_test',
+        888,
+      );
+      expect(s.parts.createReview).toHaveBeenCalledTimes(1);
+    });
+
+    it('walkthrough POST fails twice → review row marked comment_post_failed', async () => {
+      const create502 = jest
+        .fn()
+        .mockRejectedValue({ status: 502, message: 'Bad Gateway' });
+
+      const s = setup({
+        walkthroughCachedId: null,
+        octokitParts: { createComment: create502 },
+      });
+
+      await expect(s.processor.process(makeJob())).rejects.toBeDefined();
+
+      expect(create502).toHaveBeenCalledTimes(2);
+      // Inlined Review POST is NOT attempted when the Walkthrough
+      // ultimately fails.
+      expect(s.parts.createReview).not.toHaveBeenCalled();
+      expect(s.reviewsRepo.markFailed).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          error_code: 'comment_post_failed',
+          error_status: 502,
+        }),
+      );
+    });
+  });
+
+  describe('inlined Review POST failure paths', () => {
+    it('createReview 422 → review row marked inline_post_failed, walkthrough already up', async () => {
+      const create422 = jest
+        .fn()
+        .mockRejectedValue({ status: 422, message: 'Unprocessable' });
+
+      // Make the PR-state recheck return 'open' so the 422 is NOT
+      // reclassified as pr_closed_during_review.
+      const prsGet = jest
+        .fn()
+        .mockResolvedValueOnce({ data: { state: 'open' } }) // step 4
+        .mockResolvedValueOnce({ data: { state: 'open' } }); // F5 recheck
+
+      const s = setup({
+        walkthroughCachedId: 999,
+        octokitParts: { createReview: create422, prsGet },
+      });
+
+      await expect(s.processor.process(makeJob())).rejects.toBeDefined();
+
+      // Walkthrough patched first.
+      expect(s.parts.updateComment).toHaveBeenCalledTimes(1);
+      // Inline POST attempted exactly once (retries: 0).
+      expect(create422).toHaveBeenCalledTimes(1);
+      // Row marked with the new error_code.
+      expect(s.reviewsRepo.markFailed).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          error_code: 'inline_post_failed',
+          error_status: 422,
+        }),
+      );
+    });
+
+    it('createReview 422 → PR closed mid-flight reclassifies as pr_closed_during_review', async () => {
+      const create422 = jest
+        .fn()
+        .mockRejectedValue({ status: 422, message: 'Unprocessable' });
+      const prsGet = jest
+        .fn()
+        .mockResolvedValueOnce({ data: { state: 'open' } })
+        .mockResolvedValueOnce({ data: { state: 'closed' } });
+
+      const s = setup({
+        walkthroughCachedId: 999,
+        octokitParts: { createReview: create422, prsGet },
+      });
+
+      await expect(s.processor.process(makeJob())).rejects.toBeDefined();
+      expect(s.reviewsRepo.markFailed).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          error_code: 'pr_closed_during_review',
+        }),
+      );
+    });
+  });
 });

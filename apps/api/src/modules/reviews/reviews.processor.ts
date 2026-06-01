@@ -300,7 +300,6 @@ export class ReviewsProcessor
         `${jobLogPrefix} worker.review.findings_emitted count=${result.findings.length} review_id=${reviewId}`,
       );
 
-      // UUID defense (unchanged).
       if (result.review_id !== reviewId || !UUID_RE.test(reviewId)) {
         this.logger.error(
           `${jobLogPrefix} worker.review.bad_uuid expected=${reviewId} got=${result.review_id}`,
@@ -315,7 +314,6 @@ export class ReviewsProcessor
         );
       }
 
-      // Step 9 — parse and partition (pure, deterministic, no I/O).
       const sanitizedFindings: FindingWithSeverity[] = result.findings.map(
         (f) => ({
           rule_id: f.rule_id,
@@ -335,7 +333,6 @@ export class ReviewsProcessor
       const counts = countBySeverity(sanitizedFindings);
       const hasOutsideDiff = partition.outsideDiff.length > 0;
 
-      // Step 10a — upsert the Walkthrough.
       const walkthroughBody = formatWalkthroughBody({
         prNodeId: data.pr_node_id,
         reviewId,
@@ -343,16 +340,31 @@ export class ReviewsProcessor
         outsideDiff: partition.outsideDiff,
       });
 
-      const walkthroughPosted = await this.upsertWalkthrough({
-        octokit,
-        owner: data.owner,
-        repo: data.repo,
-        pr_number: data.pr_number,
-        pr_node_id: data.pr_node_id,
-        body: walkthroughBody,
-      });
+      // Step 10a — Walkthrough upsert. Failure here is terminal.
+      let walkthroughPosted: 'created' | 'patched';
+      try {
+        walkthroughPosted = await this.upsertWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          body: walkthroughBody,
+        });
+      } catch (err) {
+        const status = readStatus(err);
+        this.logger.warn(
+          `${jobLogPrefix} worker.walkthrough.post_failed status=${status} ${formatBriefError(err)}`,
+        );
+        this.reviewsRepo.markFailed(reviewId, {
+          completed_at: new Date(),
+          error_status: status,
+          error_code: 'comment_post_failed',
+        });
+        throw new UnrecoverableError(formatBriefError(err));
+      }
 
-      // Step 10b — POST the inlined Review (skip on zero findings).
+      // Step 10b — inlined Review (skip on zero findings).
       let inlinePosted = false;
       if (sanitizedFindings.length > 0) {
         const reviewBody = formatReviewBody({
@@ -386,14 +398,52 @@ export class ReviewsProcessor
           request: { retries: 0 },
         };
 
-        const posted = await octokit.rest.pulls.createReview(createReviewArgs);
-        const url =
-          (posted.data as { html_url?: string } | undefined)?.html_url ??
-          '(no URL)';
-        this.logger.log(
-          `${jobLogPrefix} worker.review.posted url=${url} review_id=${reviewId}`,
-        );
-        inlinePosted = true;
+        try {
+          const posted =
+            await octokit.rest.pulls.createReview(createReviewArgs);
+          const url =
+            (posted.data as { html_url?: string } | undefined)?.html_url ??
+            '(no URL)';
+          this.logger.log(
+            `${jobLogPrefix} worker.review.posted url=${url} review_id=${reviewId}`,
+          );
+          inlinePosted = true;
+        } catch (err) {
+          const status = readStatus(err);
+          this.logger.warn(
+            `${jobLogPrefix} worker.review.post_failed status=${status} ${formatBriefError(err)}`,
+          );
+
+          // F5 closure preserved: on 422, recheck PR state.
+          let errorCode = 'inline_post_failed';
+          if (status === 422) {
+            try {
+              const recheck = await octokit.rest.pulls.get({
+                owner: data.owner,
+                repo: data.repo,
+                pull_number: data.pr_number,
+              });
+              const currentState = (recheck.data as { state?: string }).state;
+              if (currentState !== 'open') {
+                errorCode = 'pr_closed_during_review';
+                this.logger.warn(
+                  `${jobLogPrefix} worker.review.post_failed pr_state=${currentState} — reclassified as pr_closed_during_review`,
+                );
+              }
+            } catch (recheckErr) {
+              this.logger.warn(
+                `${jobLogPrefix} worker.review.post_recheck_failed ${formatBriefError(recheckErr)}`,
+              );
+            }
+          }
+
+          this.reviewsRepo.markFailed(reviewId, {
+            completed_at: new Date(),
+            error_status: status,
+            error_code: errorCode,
+          });
+          throw new UnrecoverableError(formatBriefError(err));
+        }
       }
 
       this.logger.log(
@@ -412,6 +462,8 @@ export class ReviewsProcessor
   // run (no cached id and no existing marker in the thread), creates
   // a new comment and caches the id. On subsequent runs, PATCHes the
   // existing comment in-place so the PR thread isn't flooded.
+  // PATCH 404 (comment manually deleted) clears the cache and falls
+  // through to the scan/POST path below.
   private async upsertWalkthrough(args: {
     octokit: Octokit;
     owner: string;
@@ -424,13 +476,25 @@ export class ReviewsProcessor
 
     const cachedId = this.pullRequestsRepo.getWalkthroughCommentId(pr_node_id);
     if (cachedId !== null) {
-      await octokit.rest.issues.updateComment({
-        owner,
-        repo,
-        comment_id: cachedId,
-        body,
-      });
-      return 'patched';
+      try {
+        await this.callWithOneRetry(() =>
+          octokit.rest.issues.updateComment({
+            owner,
+            repo,
+            comment_id: cachedId,
+            body,
+          }),
+        );
+        return 'patched';
+      } catch (err) {
+        if (readStatus(err) === 404) {
+          // Comment manually deleted — clear cache and fall through
+          // to scan/POST below.
+          this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, null);
+        } else {
+          throw err;
+        }
+      }
     }
 
     const scanned = await findWalkthroughCommentId(octokit, {
@@ -440,25 +504,48 @@ export class ReviewsProcessor
       pr_node_id,
     });
     if (scanned !== null) {
-      await octokit.rest.issues.updateComment({
-        owner,
-        repo,
-        comment_id: scanned,
-        body,
-      });
+      await this.callWithOneRetry(() =>
+        octokit.rest.issues.updateComment({
+          owner,
+          repo,
+          comment_id: scanned,
+          body,
+        }),
+      );
       this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, scanned);
       return 'patched';
     }
 
-    const created = await octokit.rest.issues.createComment({
-      owner,
-      repo,
-      issue_number: pr_number,
-      body,
-    });
+    const created = await this.callWithOneRetry(() =>
+      octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: pr_number,
+        body,
+      }),
+    );
     const newId = (created.data as { id: number }).id;
     this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, newId);
     return 'created';
+  }
+
+  // One-retry wrapper for the walkthrough POST/PATCH calls. The
+  // request itself goes through @octokit/plugin-retry, but we keep
+  // retries: 0 there and do the single application-level retry here
+  // so the behavior is explicit and testable.
+  private async callWithOneRetry<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = readStatus(err);
+      if (status === 404) {
+        // 404 is signalled to the caller (cache-clear recovery).
+        throw err;
+      }
+      // One-second backoff between attempts.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return await fn();
+    }
   }
 
   // Day-5 bounded shutdown drain (U8). On SIGTERM Nest fires

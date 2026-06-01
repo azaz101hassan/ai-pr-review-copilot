@@ -365,8 +365,7 @@ describe('ReviewsProcessor.process — guards', () => {
 });
 
 describe('ReviewsProcessor.process — Review POST failure', () => {
-  // TODO Task 10: re-enable when failure paths land
-  it.skip('marks failed/comment_post_failed and throws UnrecoverableError when createReview throws (F3)', async () => {
+  it('marks failed/inline_post_failed and throws UnrecoverableError when createReview throws (F3)', async () => {
     const err: Error & { status?: number } = new Error('Bad Gateway');
     err.status = 502;
     const parts = makeProcessor({
@@ -386,12 +385,11 @@ describe('ReviewsProcessor.process — Review POST failure', () => {
     expect(parts.markFailed).toHaveBeenCalledTimes(1);
     const [reviewId, patch] = parts.markFailed.mock.calls[0];
     expect(typeof reviewId).toBe('string');
-    expect(patch.error_code).toBe('comment_post_failed');
+    expect(patch.error_code).toBe('inline_post_failed');
     expect(patch.error_status).toBe(502);
   });
 
-  // TODO Task 10: re-enable when failure paths land
-  it.skip('reclassifies a 422 createReview as pr_closed_during_review when the PR closed mid-run (F5)', async () => {
+  it('reclassifies a 422 createReview as pr_closed_during_review when the PR closed mid-run (F5)', async () => {
     const err: Error & { status?: number } = new Error('Unprocessable Entity');
     err.status = 422;
     // pulls.get is called TWICE: once at step 4 (state='open') and
@@ -420,8 +418,7 @@ describe('ReviewsProcessor.process — Review POST failure', () => {
     expect(parts.markFailed.mock.calls[0][1].error_status).toBe(422);
   });
 
-  // TODO Task 10: re-enable when failure paths land
-  it.skip('keeps comment_post_failed on a 422 when the recheck still shows the PR open (F5 fallback)', async () => {
+  it('keeps inline_post_failed on a 422 when the recheck still shows the PR open (F5 fallback)', async () => {
     const err: Error & { status?: number } = new Error('Unprocessable Entity');
     err.status = 422;
     const prsGet = jest
@@ -440,7 +437,7 @@ describe('ReviewsProcessor.process — Review POST failure', () => {
       UnrecoverableError,
     );
     expect(parts.markFailed.mock.calls[0][1].error_code).toBe(
-      'comment_post_failed',
+      'inline_post_failed',
     );
   });
 });
