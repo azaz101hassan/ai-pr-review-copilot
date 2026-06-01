@@ -97,6 +97,9 @@ describe('parseLocationHint', () => {
     it('returns null for line 0 "src/foo.ts:0"', () => {
       expect(parseLocationHint('src/foo.ts:0')).toBeNull();
     });
+    it('returns null for trailing colon "src/foo.ts:"', () => {
+      expect(parseLocationHint('src/foo.ts:')).toBeNull();
+    });
   });
 
   describe('windows-style paths', () => {

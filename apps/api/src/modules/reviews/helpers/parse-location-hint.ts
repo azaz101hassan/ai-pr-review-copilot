@@ -36,6 +36,8 @@ export function parseLocationHint(hint: string | null): ParsedAnchor | null {
     if (trimmed.includes(':') && trimmed.replace(/[:\s]/g, '').length === 0) {
       return null;
     }
+    // Reject trailing colon — "path:" looks like a half-written line reference.
+    if (trimmed.endsWith(':')) return null;
     // Reject "path:non-digit-suffix" — looks like a broken line reference.
     // A trailing colon followed by anything non-digit (letters, minus sign,
     // etc.) signals the caller tried to specify a line but got it wrong.
