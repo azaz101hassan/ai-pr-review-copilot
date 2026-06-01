@@ -1,12 +1,13 @@
-// Server-presentational component: renders analytics metrics as a dense
-// one-line strip in the GitHub Insights style. No client hooks; call site
-// owns Suspense.
+// Server-presentational component: renders analytics in three altitudes.
+// No client hooks; call site owns Suspense.
 //
-// Strip hierarchy (three rows, flat against the page surface):
-//   Row 1 — Volume + status breakdown (is anything flowing?)
-//   Row 2 — Severity rollup + proportional bar (is the bot finding things?)
-//   Row 3 — Latency + token cost (how expensive and fast?)
+// Altitude hierarchy (read top-to-bottom at decreasing scale):
+//   Row 1 — Volume + status breakdown (primary: 4xl mono headline, glance-readable)
+//   Row 2 — Severity rollup + proportional bar (secondary: 2xl headline)
+//   Row 3 — Latency + token cost (tertiary: single muted line)
 //   Below  — Top-N rules table (supporting detail, preserved as-is)
+//
+// The scale step (4xl → 2xl → sm) does the hierarchy work, not card chrome.
 import {
   Table,
   TableHeader,
@@ -46,37 +47,41 @@ interface VolumeRowProps {
 
 function VolumeRow({ volume, completed, failed, in_progress }: VolumeRowProps) {
   return (
-    <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-muted-foreground">
-      <span className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+    <div>
+      {/* Primary headline: glance-readable volume count, mono 4xl */}
+      <div className="font-mono text-4xl font-semibold leading-none tabular-nums text-foreground">
         {volume}
-      </span>
-      <span>reviews</span>
-      <span aria-hidden="true">·</span>
-      <span>
-        <span className="font-mono tabular-nums text-foreground">
-          {completed}
-        </span>{' '}
-        completed
-      </span>
-      <span aria-hidden="true">·</span>
-      <span>
-        <span
-          className={`font-mono tabular-nums ${failed > 0 ? 'text-[var(--severity-error)]' : 'text-muted-foreground'}`}
-        >
-          {failed}
-        </span>{' '}
-        failed
-      </span>
-      <span aria-hidden="true">·</span>
-      <span>
-        <span
-          className={`font-mono tabular-nums ${in_progress > 0 ? 'text-[var(--severity-warning)]' : 'text-muted-foreground'}`}
-        >
-          {in_progress}
-        </span>{' '}
-        in progress
-      </span>
-    </p>
+      </div>
+      {/* Breakdown sits below as a muted ledger, label-led to keep semantics clear */}
+      <p className="mt-2 flex flex-wrap items-baseline gap-x-1 text-sm text-muted-foreground">
+        <span>reviews</span>
+        <span aria-hidden="true">·</span>
+        <span>
+          <span className="font-mono tabular-nums text-foreground">
+            {completed}
+          </span>{' '}
+          completed
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>
+          <span
+            className={`font-mono tabular-nums ${failed > 0 ? 'text-[var(--severity-error)]' : 'text-muted-foreground'}`}
+          >
+            {failed}
+          </span>{' '}
+          failed
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>
+          <span
+            className={`font-mono tabular-nums ${in_progress > 0 ? 'text-[var(--severity-warning)]' : 'text-muted-foreground'}`}
+          >
+            {in_progress}
+          </span>{' '}
+          in progress
+        </span>
+      </p>
+    </div>
   );
 }
 
@@ -95,11 +100,12 @@ function SeverityRow({ error, warning, info }: SeverityRowProps) {
 
   return (
     <div className="space-y-2">
-      {/* Inline summary line */}
+      {/* Secondary headline: total findings, mono 2xl */}
+      <div className="font-mono text-2xl font-medium leading-none tabular-nums text-foreground">
+        {total}
+      </div>
+      {/* Breakdown line below the headline */}
       <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-muted-foreground">
-        <span className="font-mono text-2xl font-semibold tabular-nums text-foreground">
-          {total}
-        </span>
         <span>findings</span>
         <span aria-hidden="true">·</span>
         <span>
