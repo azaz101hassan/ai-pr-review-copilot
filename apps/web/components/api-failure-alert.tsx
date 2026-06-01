@@ -21,7 +21,7 @@ export function ApiFailureAlert({ endpoint, description }: ApiFailureAlertProps)
       <AlertTitle>Endpoint unreachable</AlertTitle>
       <AlertDescription className="mt-1 text-muted-foreground">
         <span className="font-mono text-xs text-foreground">{endpoint}</span>
-        {description ? ` — ${description}` : null}
+        {description ? ` · ${description}` : null}
         {' · '}
         <a
           href="?retry"

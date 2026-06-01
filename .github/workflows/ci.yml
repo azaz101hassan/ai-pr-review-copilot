@@ -55,6 +55,14 @@ jobs:
         # While thresholds.json is empty this is report-only (exit 0).
         run: npm run eval:score --workspace apps/api
 
+      - name: Reject em-dashes in apps/web UI source
+        # Greps every committed .ts(x) under apps/web for U+2014 outside
+        # comments. The character is banned in UI copy by the design
+        # spec (it reads as AI-generated to the bar this dashboard
+        # targets), and the deterministic detector can't catch it when
+        # it sits inside JS template literals rather than JSX text.
+        run: npm run check:copy --workspace apps/web
+
       - name: Build apps/web (smoke-test Next.js scaffold)
         run: npm run build --workspace apps/web
 

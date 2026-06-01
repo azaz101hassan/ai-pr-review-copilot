@@ -8,10 +8,17 @@ import type { ReviewListEntry, ReviewStatus } from '@/lib/api-types';
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Status maps to the workflow axis, not the severity axis. Completed is
+// "ok, done" (filled foreground dot, the GitHub-style "succeeded"
+// affordance), not "muted severity." Failed and in-progress overlap
+// visually with severity-error / severity-warning because the colors
+// the operator would pick for those workflow states happen to be the
+// same hues — that overlap is intentional, the semantic distinction is
+// the dimension being encoded.
 function statusDotClass(status: ReviewStatus): string {
   switch (status) {
     case 'completed':
-      return 'bg-severity-muted';
+      return 'bg-foreground';
     case 'failed':
       return 'bg-severity-error';
     case 'in_progress':
