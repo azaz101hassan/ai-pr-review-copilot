@@ -14,3 +14,7 @@ export {
   AnchorPartition,
   AnchorFindingsToDiffInput,
 } from './anchor-findings-to-diff';
+export {
+  formatInlineCommentBody,
+  FormatInlineCommentBodyInput,
+} from './format-inline-comment';
