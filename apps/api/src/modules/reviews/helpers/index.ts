@@ -6,3 +6,4 @@ export {
   FindingWithSeverity,
 } from './format-review-body';
 export { parseLocationHint, ParsedAnchor } from './parse-location-hint';
+export { parseDiffHunks, HunkRange } from './parse-diff-hunks';
