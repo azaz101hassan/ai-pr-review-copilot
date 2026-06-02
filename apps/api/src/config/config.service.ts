@@ -127,7 +127,7 @@ export class ConfigService {
       process.env.ANTHROPIC_AGENT_TURN_CAP,
       6,
       1,
-      20,
+      70,
     );
     this.workerConcurrency = this.requirePositiveInteger(
       'WORKER_CONCURRENCY',

@@ -113,6 +113,15 @@ export type ToolCallRecord = {
   latency_ms: number;
   stop_reason: string;
   is_error?: boolean;
+  /**
+   * True when this call returned a cached result from a prior turn
+   * within the same review. The model invoked the same (tool, input)
+   * pair again, the agent loop short-circuited the provider call, and
+   * the response carried a steering hint encouraging the model to emit
+   * findings instead of re-fetching. Useful for quantifying how often
+   * the dedup cache saves a turn.
+   */
+  cache_hit?: boolean;
 };
 
 // Patch shape passed to IReviewRepository.markCompleted — the columns

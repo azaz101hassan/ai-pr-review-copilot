@@ -440,9 +440,9 @@ describe('ConfigService', () => {
       expect(new ConfigService().anthropicAgentTurnCap).toBe(15);
     });
 
-    it('accepts the upper bound of 20', () => {
-      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '20' });
-      expect(new ConfigService().anthropicAgentTurnCap).toBe(20);
+    it('accepts the upper bound of 70', () => {
+      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '70' });
+      expect(new ConfigService().anthropicAgentTurnCap).toBe(70);
     });
 
     it('throws when the value is zero', () => {
@@ -451,7 +451,7 @@ describe('ConfigService', () => {
     });
 
     it('throws when the value exceeds the upper bound', () => {
-      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '21' });
+      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '71' });
       expect(() => new ConfigService()).toThrow(/ANTHROPIC_AGENT_TURN_CAP/);
     });
 

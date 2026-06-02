@@ -326,6 +326,22 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
     let lastModel = model;
     let emittedFindings: Finding[] | null = null;
 
+    // Per-review dedup cache for non-terminal tool calls. The model
+    // sometimes asks for the same (tool, input) pair across turns —
+    // observed empirically: a 15-turn PR-#17 run re-fetched the same
+    // file twice. Each redundant call burns one turn against the cap
+    // without adding context. The cache returns the prior content with
+    // a steering note instructing the model to emit instead of fetch.
+    // Successful results only — error results stay uncached so the
+    // model can legitimately retry a transient failure.
+    const toolResultCache = new Map<
+      string,
+      {
+        turn: number;
+        content: Array<{ type: 'text'; text: string }>;
+      }
+    >();
+
     for (let turn = 1; turn <= turnCap; turn++) {
       const turnStartedAt = Date.now();
       let response: Awaited<
@@ -451,7 +467,22 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
 
       const toolResultBlocks: unknown[] = [];
       for (const block of nonTerminalCalls) {
-        const result = await this.runToolCall(block, input.repoContext);
+        const blockInputHash = hashToolInput(block.input);
+        const cacheKey = `${block.name}:${blockInputHash}`;
+        const cached = toolResultCache.get(cacheKey);
+
+        let result: { content: Array<{ type: 'text'; text: string }>; is_error?: boolean };
+        let isCacheHit = false;
+        if (cached) {
+          result = { content: replayWithDedupHint(cached.content, cached.turn) };
+          isCacheHit = true;
+        } else {
+          result = await this.runToolCall(block, input.repoContext);
+          if (result.is_error !== true) {
+            toolResultCache.set(cacheKey, { turn, content: result.content });
+          }
+        }
+
         const resultExcerpt = excerpt(result.content);
         const isError = result.is_error === true;
         toolResultBlocks.push({
@@ -463,11 +494,12 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
         toolCalls.push({
           turn_idx: turn,
           tool_name: block.name,
-          input_hash: hashToolInput(block.input),
+          input_hash: blockInputHash,
           result_bytes: approximateBytes(result.content),
           latency_ms: Date.now() - turnStartedAt,
           stop_reason: response.stop_reason ?? 'unknown',
           ...(isError ? { is_error: true } : {}),
+          ...(isCacheHit ? { cache_hit: true } : {}),
         });
         this.logTurn({
           turn,
@@ -835,6 +867,28 @@ function hashToolInput(input: unknown): string {
     .update(JSON.stringify(input ?? {}))
     .digest('hex')
     .slice(0, 16);
+}
+
+/**
+ * Wrap a cached tool result with a steering hint prepended to the
+ * existing content. The hint tells the model this request is a repeat
+ * of an earlier turn so it can stop re-fetching the same artifact and
+ * move toward `emit_finding`. The original content is preserved
+ * verbatim — the model still has all the data it asked for.
+ */
+function replayWithDedupHint(
+  cached: Array<{ type: 'text'; text: string }>,
+  cachedAtTurn: number,
+): Array<{ type: 'text'; text: string }> {
+  const hint =
+    `[Note: an identical request was already served on turn ${cachedAtTurn}; ` +
+    `cached content follows. If you have enough context, call \`emit_finding\` ` +
+    `(or finish the review) instead of fetching the same artifact again.]\n\n`;
+  if (cached.length === 0) {
+    return [{ type: 'text', text: hint.trimEnd() }];
+  }
+  const [head, ...rest] = cached;
+  return [{ type: 'text', text: hint + head.text }, ...rest];
 }
 
 function approximateBytes(payload: unknown): number {
