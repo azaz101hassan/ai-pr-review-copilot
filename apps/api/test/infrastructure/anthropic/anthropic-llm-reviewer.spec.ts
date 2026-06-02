@@ -53,6 +53,7 @@ function makeConfig(overrides: Partial<ConfigService> = {}): ConfigService {
   return {
     anthropicApiKey: 'sk-ant-test-key-0123456789abcdef',
     anthropicModel: 'claude-haiku-4-5-20251001',
+    anthropicAgentTurnCap: 6,
     ...overrides,
   } as ConfigService;
 }

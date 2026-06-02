@@ -35,6 +35,7 @@ function makeConfig(): ConfigService {
   return {
     anthropicApiKey: apiKey,
     anthropicModel: process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001',
+    anthropicAgentTurnCap: 6,
   } as ConfigService;
 }
 
