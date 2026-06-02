@@ -196,7 +196,7 @@ export function formatMarkdownSummary(result: ScoreResult): string {
     lines.push('');
     for (const s of result.stalenessResults.filter((s) => s.stale)) {
       lines.push(
-        `- **${s.fixtureId}**: recording sha \`${s.recordingGitSha.slice(0, 8)}\` vs latest \`${s.latestTrackedSha.slice(0, 8)}\``,
+        `- **${s.fixtureId}**: recording sha \`${s.recordingGitSha.slice(0, 8)}\` vs latest \`${s.latestTrackedSha.slice(0, 8)}\` (reason: ${s.reason})`,
       );
     }
     lines.push('');
