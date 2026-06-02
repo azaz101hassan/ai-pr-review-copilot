@@ -5,64 +5,64 @@
     {
       "rule_id": "prefer-const",
       "title": "Use const for variables that are never reassigned",
-      "message": "All variables in this function (MAX_DISCOUNT, TAX_RATE, subtotal, discount, taxedSubtotal, discountedTotal, expressFee) are assigned exactly once and never reassigned. Change them from `let` to `const` to signal intent and prevent accidental reassignment.",
-      "location_hint": "src/checkout/calculate-total.js:1-17",
-      "citation": "let MAX_DISCOUNT = 0.5;\nlet TAX_RATE = 0.08;\nlet subtotal = order.items.reduce((sum, item) => sum + item.price, 0);\nlet discount = Math.min(order.couponPercent ?? 0, MAX_DISCOUNT * 100) / 100;\nlet taxedSubtotal = subtotal * (1 + TAX_RATE);\nlet discountedTotal = taxedSubtotal * (1 - discount);\nlet expressFee = 12.5;",
+      "message": "All variables in this function (MAX_DISCOUNT, TAX_RATE, subtotal, discount, taxedSubtotal, discountedTotal, expressFee) are assigned exactly once and never reassigned. Declare them with const instead of let to signal intent and prevent accidental reassignment.",
+      "location_hint": "src/checkout/calculate-total.js:1-18",
+      "citation": "let MAX_DISCOUNT = 0.5;\nlet TAX_RATE = 0.08;\nlet subtotal = order.items.reduce(...);\nlet discount = Math.min(...);\nlet taxedSubtotal = subtotal * (1 + TAX_RATE);\nlet discountedTotal = taxedSubtotal * (1 - discount);\nlet expressFee = 12.5;",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
             "claim": "MAX_DISCOUNT is assigned exactly once and never reassigned.",
             "kind": "",
-            "reason": "The diff shows MAX_DISCOUNT is declared with `let MAX_DISCOUNT = 0.5;` and there are no subsequent reassignments to MAX_DISCOUNT in the function. The citation and diff both confirm this variable is only assigned once.",
+            "reason": "The diff shows MAX_DISCOUNT is declared with let and assigned the value 0.5 on line 2, with no subsequent reassignments visible in the function. The rule document and diff both support that variables assigned once should use const.",
             "verdict": "supported"
           },
           {
             "claim": "TAX_RATE is assigned exactly once and never reassigned.",
             "kind": "",
-            "reason": "The diff shows TAX_RATE is declared with `let TAX_RATE = 0.08;` and there are no subsequent reassignments to TAX_RATE in the function. The citation and diff both confirm this variable is only assigned once.",
+            "reason": "The diff shows TAX_RATE is declared with let and assigned the value 0.08 on line 3, with no subsequent reassignments visible in the function.",
             "verdict": "supported"
           },
           {
             "claim": "subtotal is assigned exactly once and never reassigned.",
             "kind": "",
-            "reason": "The diff shows subtotal is declared with `let subtotal = order.items.reduce((sum, item) => sum + item.price, 0);` and there are no subsequent reassignments to subtotal in the function. The citation and diff both confirm this variable is only assigned once.",
+            "reason": "The diff shows subtotal is declared with let and assigned the result of order.items.reduce(...) on line 5, with no subsequent reassignments visible in the function.",
             "verdict": "supported"
           },
           {
             "claim": "discount is assigned exactly once and never reassigned.",
             "kind": "",
-            "reason": "The diff shows discount is declared with `let discount = Math.min(order.couponPercent ?? 0, MAX_DISCOUNT * 100) / 100;` and there are no subsequent reassignments to discount in the function. The citation and diff both confirm this variable is only assigned once.",
+            "reason": "The diff shows discount is declared with let and assigned the result of Math.min(...) / 100 on line 6, with no subsequent reassignments visible in the function.",
             "verdict": "supported"
           },
           {
             "claim": "taxedSubtotal is assigned exactly once and never reassigned.",
             "kind": "",
-            "reason": "The diff shows taxedSubtotal is declared with `let taxedSubtotal = subtotal * (1 + TAX_RATE);` and there are no subsequent reassignments to taxedSubtotal in the function. The citation and diff both confirm this variable is only assigned once.",
+            "reason": "The diff shows taxedSubtotal is declared with let and assigned the result of subtotal * (1 + TAX_RATE) on line 7, with no subsequent reassignments visible in the function.",
             "verdict": "supported"
           },
           {
             "claim": "discountedTotal is assigned exactly once and never reassigned.",
             "kind": "",
-            "reason": "The diff shows discountedTotal is declared with `let discountedTotal = taxedSubtotal * (1 - discount);` and there are no subsequent reassignments to discountedTotal in the function. The citation and diff both confirm this variable is only assigned once.",
+            "reason": "The diff shows discountedTotal is declared with let and assigned the result of taxedSubtotal * (1 - discount) on line 9, with no subsequent reassignments visible in the function.",
             "verdict": "supported"
           },
           {
             "claim": "expressFee is assigned exactly once and never reassigned.",
             "kind": "",
-            "reason": "The diff shows expressFee is declared with `let expressFee = 12.5;` within the if block and there are no subsequent reassignments to expressFee in the function. The citation and diff both confirm this variable is only assigned once.",
+            "reason": "The diff shows expressFee is declared with let and assigned the value 12.5 on line 11, with no subsequent reassignments visible in the function.",
             "verdict": "supported"
           },
           {
-            "claim": "Variables that are assigned exactly once and never reassigned should be declared with `const` instead of `let`.",
+            "claim": "Variables that are assigned exactly once and never reassigned should be declared with const instead of let.",
             "kind": "",
-            "reason": "The rule document explicitly states: 'If a binding is never reassigned, declare it const. const signals intent and prevents accidental reassignment that breaks the reader's mental model.' This is the core principle of the rule.",
+            "reason": "The rule document explicitly states: 'If a binding is never reassigned, declare it const. const signals intent and prevents accidental reassignment that breaks the reader's mental model.' This is the core principle being applied.",
             "verdict": "supported"
           },
           {
-            "claim": "Using `const` for variables that are never reassigned signals intent and prevents accidental reassignment.",
+            "claim": "Using const for variables that are never reassigned signals intent and prevents accidental reassignment.",
             "kind": "",
-            "reason": "The rule document directly states this: 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.' This is the stated rationale for the rule.",
+            "reason": "The rule document directly states this rationale: 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.'",
             "verdict": "supported"
           }
         ]
@@ -88,6 +88,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "8b23736974a133716f445ef67189c24dd50dab1bd7d74e75970afa51f788f06f",
-    "gitSha": "fa0f047378d321d6a24a835e020f47cb187acb9a"
+    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
   }
 }

@@ -5,64 +5,118 @@
     {
       "rule_id": "prefer-const",
       "title": "Use const for variables that are never reassigned",
-      "message": "Replace `let` with `const` for variables that are never reassigned. In `formatCurrency`, `formatter` and `result` are assigned once and never reassigned. In `formatDate`, `defaultOptions`, `mergedOptions`, and `formatted` are assigned once. In `formatPhoneNumber`, `digits` is assigned once. In `truncateText`, `truncated` is assigned once before being reassigned (so leave this one as `let`), but `lastSpace` is assigned once and never reassigned.",
-      "location_hint": "src/utils/formatters.js:1-45",
-      "citation": "let formatter = new Intl.NumberFormat(locale, { ... }); let result = formatter.format(amount); ... let defaultOptions = { ... }; let mergedOptions = { ... defaultOptions, ...options }; let formatted = new Intl.DateTimeFormat(...)",
+      "message": "Replace `let` with `const` for variables that are never reassigned. In formatCurrency(), the variables `formatter` and `result` are never reassigned after initialization. Using `const` signals intent and prevents accidental reassignment.",
+      "location_hint": "src/utils/formatters.js:3-9",
+      "citation": "let formatter = new Intl.NumberFormat(locale, {...}); let result = formatter.format(amount);",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "In the formatCurrency function, the variable `formatter` is assigned once and never reassigned.",
+            "claim": "In the formatCurrency() function, the variable `formatter` is never reassigned after initialization.",
             "kind": "",
-            "reason": "The diff shows that `formatter` is declared with `let` and assigned the result of `new Intl.NumberFormat(locale, {...})` on line 6. There is no subsequent reassignment of `formatter` in the function body before the return statement.",
+            "reason": "The diff shows that `formatter` is declared with `let` on line 5 and assigned `new Intl.NumberFormat(locale, {...})`. Examining the function body, `formatter` is only used once on line 9 with `formatter.format(amount)` and is never reassigned. The code comment in the diff also explicitly states 'The `let` declarations below are never reassigned after init'.",
             "verdict": "supported"
           },
           {
-            "claim": "In the formatCurrency function, the variable `result` is assigned once and never reassigned.",
+            "claim": "In the formatCurrency() function, the variable `result` is never reassigned after initialization.",
             "kind": "",
-            "reason": "The diff shows that `result` is declared with `let` and assigned the result of `formatter.format(amount)` on line 10. There is no subsequent reassignment of `result` before the return statement.",
+            "reason": "The diff shows that `result` is declared with `let` on line 9 and assigned `formatter.format(amount)`. The variable is then returned on line 10 and is never reassigned elsewhere in the function. The code comment in the diff also explicitly states 'The `let` declarations below are never reassigned after init'.",
             "verdict": "supported"
           },
           {
-            "claim": "In the formatDate function, the variable `defaultOptions` is assigned once and never reassigned.",
+            "claim": "Using `const` instead of `let` for variables that are never reassigned signals intent and prevents accidental reassignment.",
             "kind": "",
-            "reason": "The diff shows that `defaultOptions` is declared with `let` and assigned an object literal on lines 14-18. There is no subsequent reassignment of `defaultOptions` in the function body.",
+            "reason": "This claim is directly supported by the rule document, which states: 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.' This is the core principle of the rule being applied.",
             "verdict": "supported"
           },
           {
-            "claim": "In the formatDate function, the variable `mergedOptions` is assigned once and never reassigned.",
+            "claim": "The variables `formatter` and `result` in formatCurrency() should be replaced with `const`.",
             "kind": "",
-            "reason": "The diff shows that `mergedOptions` is declared with `let` and assigned the result of `{ ...defaultOptions, ...options }` on line 19. There is no subsequent reassignment of `mergedOptions` in the function body.",
+            "reason": "The rule document establishes that bindings never reassigned should be declared as `const`. The diff demonstrates that both `formatter` and `result` are never reassigned after initialization. Therefore, according to the rule, they should use `const` instead of `let`. However, the diff shows the code still uses `let` for these variables, meaning the finding identifies a violation that has not yet been fixed in the code.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "prefer-const",
+      "title": "Use const for variables that are never reassigned",
+      "message": "Replace `let` with `const` for variables that are never reassigned. In formatDate(), the variables `defaultOptions`, `mergedOptions`, and `formatted` are never reassigned after initialization. Using `const` signals intent and prevents accidental reassignment.",
+      "location_hint": "src/utils/formatters.js:12-23",
+      "citation": "let defaultOptions = {...}; let mergedOptions = {...}; let formatted = new Intl.DateTimeFormat(...).format(new Date(date));",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "In the formatDate() function, the variable defaultOptions is never reassigned after initialization.",
+            "kind": "",
+            "reason": "The diff shows the formatDate() function at lines 12-23. The variable defaultOptions is declared with let and initialized to an object literal with year, month, and day properties. Examining the code, defaultOptions is never reassigned after this initialization—it is only read when used in the mergedOptions assignment. This matches the rule's requirement that const should be used for bindings never reassigned.",
             "verdict": "supported"
           },
           {
-            "claim": "In the formatDate function, the variable `formatted` is assigned once and never reassigned.",
+            "claim": "In the formatDate() function, the variable mergedOptions is never reassigned after initialization.",
             "kind": "",
-            "reason": "The diff shows that `formatted` is declared with `let` and assigned the result of `new Intl.DateTimeFormat('en-US', mergedOptions).format(new Date(date))` on lines 20-22. There is no subsequent reassignment of `formatted` before the return statement.",
+            "reason": "The diff shows mergedOptions is declared with let and initialized to a merged object combining defaultOptions and the options parameter. Examining the code, mergedOptions is never reassigned after initialization—it is only read when passed to the Intl.DateTimeFormat constructor. This matches the rule's requirement.",
             "verdict": "supported"
           },
           {
-            "claim": "In the formatPhoneNumber function, the variable `digits` is assigned once and never reassigned.",
+            "claim": "In the formatDate() function, the variable formatted is never reassigned after initialization.",
             "kind": "",
-            "reason": "The diff shows that `digits` is declared with `let` and assigned the result of `phone.replace(/\\D/g, '')` on line 27. There is no subsequent reassignment of `digits` in the function body.",
+            "reason": "The diff shows formatted is declared with let and initialized to the result of calling .format() on a DateTimeFormat instance. Examining the code, formatted is never reassigned after initialization—it is only read in the return statement. This matches the rule's requirement.",
             "verdict": "supported"
           },
           {
-            "claim": "In the truncateText function, the variable `truncated` is assigned once and then reassigned.",
+            "claim": "Using const for variables that are never reassigned signals intent and prevents accidental reassignment.",
             "kind": "",
-            "reason": "The diff shows that `truncated` is declared with `let` and assigned `text.slice(0, maxLength)` on line 41. Then on line 44, `truncated` is reassigned to `truncated.slice(0, lastSpace)`. Therefore, `truncated` should remain as `let`.",
+            "reason": "This claim is directly stated in the rule document: 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.' The finding's message repeats this rationale verbatim from the rule.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "prefer-const",
+      "title": "Use const for variables that are never reassigned",
+      "message": "Replace `let` with `const` for variables that are never reassigned. In formatPhoneNumber(), the variables `digits`, `area`, `prefix`, and `line` are never reassigned after initialization. Using `const` signals intent and prevents accidental reassignment.",
+      "location_hint": "src/utils/formatters.js:26-35",
+      "citation": "let digits = phone.replace(/\\D/g, ''); let area = digits.slice(0, 3); let prefix = digits.slice(3, 6); let line = digits.slice(6);",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "In the formatPhoneNumber() function, the variable `digits` is never reassigned after initialization.",
+            "kind": "",
+            "reason": "The diff shows the formatPhoneNumber() function at lines 26-35. The variable `digits` is declared with `let digits = phone.replace(/\\D/g, '');` and is only read thereafter (used in `digits.length == 10` and `digits.slice()` calls), never reassigned.",
             "verdict": "supported"
           },
           {
-            "claim": "In the truncateText function, the variable `lastSpace` is assigned once and never reassigned.",
+            "claim": "In the formatPhoneNumber() function, the variable `area` is never reassigned after initialization.",
             "kind": "",
-            "reason": "The diff shows that `lastSpace` is declared with `let` and assigned the result of `truncated.lastIndexOf(' ')` on line 43. There is no subsequent reassignment of `lastSpace` in the function body.",
+            "reason": "The diff shows `area` is declared with `let area = digits.slice(0, 3);` and is only used in the return statement `(${area})`, never reassigned.",
             "verdict": "supported"
           },
           {
-            "claim": "Variables that are never reassigned should use `const` instead of `let` to signal intent and prevent accidental reassignment.",
+            "claim": "In the formatPhoneNumber() function, the variable `prefix` is never reassigned after initialization.",
             "kind": "",
-            "reason": "This claim restates the rule document verbatim: 'If a binding is never reassigned, declare it const. const signals intent and prevents accidental reassignment that breaks the reader's mental model.'",
+            "reason": "The diff shows `prefix` is declared with `let prefix = digits.slice(3, 6);` and is only used in the return statement `${prefix}-`, never reassigned.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "In the formatPhoneNumber() function, the variable `line` is never reassigned after initialization.",
+            "kind": "",
+            "reason": "The diff shows `line` is declared with `let line = digits.slice(6);` and is only used in the return statement `${line}`, never reassigned.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Using `const` for variables that are never reassigned signals intent and prevents accidental reassignment.",
+            "kind": "",
+            "reason": "This claim is directly stated in the rule document: 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.' The rule document provides this rationale as the basis for the recommendation.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The variables `digits`, `area`, `prefix`, and `line` in formatPhoneNumber() should be replaced with `const` instead of `let`.",
+            "kind": "",
+            "reason": "The rule document states 'If a binding is never reassigned, declare it const.' Since all four variables are never reassigned (as verified in the diff), the rule directly supports replacing `let` with `const` for these variables.",
             "verdict": "supported"
           }
         ]
@@ -71,49 +125,95 @@
     {
       "rule_id": "no-magic-numbers",
       "title": "Name your magic numbers",
-      "message": "Extract magic numbers into named constants. The code contains several magic numbers: 10 (phone digit count), 0 (slice indices), 3 and 6 (phone parsing indices), 100 (default max length), and 0 (space index check). Define these as named constants at the top of the file to clarify their intent.",
-      "location_hint": "src/utils/formatters.js:25-48",
-      "citation": "if (digits.length == 10) { ... digits.slice(0, 3); digits.slice(3, 6); ... } ... export function truncateText(text, maxLength = 100) { ... let lastSpace = truncated.lastIndexOf(' '); if (lastSpace > 0)",
+      "message": "Extract the magic number `10` into a named constant. The value represents the expected length of a US phone number (excluding formatting), and naming it makes the intent clear.",
+      "location_hint": "src/utils/formatters.js:30",
+      "citation": "if (digits.length == 10)",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The code contains a magic number 10 representing phone digit count.",
+            "claim": "The value 10 in the code represents the expected length of a US phone number excluding formatting.",
             "kind": "",
-            "reason": "The diff shows `if (digits.length == 10)` in the formatPhoneNumber function at line 28. This is a literal number used in business logic without a named constant, matching the rule's definition of a magic number.",
+            "reason": "The rule document does not specify what the magic number 10 represents. However, the finding's message explicitly states this interpretation. The diff shows the code `if (digits.length == 10)` in the `formatPhoneNumber` function where `digits` is the result of stripping non-digits from a phone number. The context of a phone number formatting function and the specific value of 10 aligns with the stated interpretation of US phone number length (10 digits), making this claim consistent with the code context.",
             "verdict": "supported"
           },
           {
-            "claim": "The code contains magic numbers 0 and 3 used as slice indices for phone parsing.",
+            "claim": "The magic number 10 should be extracted into a named constant.",
             "kind": "",
-            "reason": "The diff shows `digits.slice(0, 3)` at line 29, where 0 and 3 are literal indices used to extract the area code portion of a phone number. These are magic numbers in business logic without named constants.",
+            "reason": "The rule document explicitly states that literal numbers should be 'Pull[ed] them into named constants at the top of the file (or a shared constants module) so the reader sees the intent, not the value.' The finding cites the rule 'Name your magic numbers' and applies this principle to the specific case of the number 10 in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The code contains magic numbers 3 and 6 used as slice indices for phone parsing.",
+            "claim": "Naming the constant makes the intent clear.",
             "kind": "",
-            "reason": "The diff shows `digits.slice(3, 6)` at line 30, where 3 and 6 are literal indices used to extract the prefix portion of a phone number. These are magic numbers in business logic without named constants.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The code contains a magic number 100 representing default max length.",
-            "kind": "",
-            "reason": "The diff shows `export function truncateText(text, maxLength = 100)` at line 37, where 100 is a literal number used as a default parameter value without a named constant.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The code contains a magic number 0 used in a space index check.",
-            "kind": "",
-            "reason": "The diff shows `if (lastSpace > 0)` at line 43, where 0 is a literal number used to check whether a space was found. This is a magic number in business logic without a named constant.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Magic numbers should be extracted into named constants at the top of the file to clarify their intent.",
-            "kind": "",
-            "reason": "The rule document explicitly states: 'Pull them into named constants at the top of the file (or a shared constants module) so the reader sees the intent, not the value.' This is a direct restatement of the rule's guidance.",
+            "reason": "The rule document states that pulling magic numbers into named constants allows 'the reader sees the intent, not the value.' The finding's message directly echoes this principle, stating that naming the constant 'makes the intent clear.' This is a direct restatement of the rule's rationale.",
             "verdict": "supported"
           }
         ]
+      }
+    },
+    {
+      "rule_id": "no-magic-numbers",
+      "title": "Name your magic numbers",
+      "message": "Extract the magic numbers `0`, `3`, and `6` into named constants. These are slice indices for formatting a US phone number and should be named to clarify their purpose.",
+      "location_hint": "src/utils/formatters.js:31-33",
+      "citation": "let area = digits.slice(0, 3); let prefix = digits.slice(3, 6); let line = digits.slice(6);",
+      "faithfulness": {
+        "score": 0.8,
+        "claims": [
+          {
+            "claim": "The numbers 0, 3, and 6 appear in the code at lines 31-33 of src/utils/formatters.js as slice indices.",
+            "kind": "",
+            "reason": "The diff shows the formatPhoneNumber function at lines 31-33 contains exactly these three magic numbers: `digits.slice(0, 3)`, `digits.slice(3, 6)`, and `digits.slice(6)`. These are slice indices used to extract parts of a phone number string.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The magic numbers 0, 3, and 6 are used for formatting a US phone number.",
+            "kind": "",
+            "reason": "The diff shows these numbers are used in the formatPhoneNumber function to slice a 10-digit phone number into area code (0-3), prefix (3-6), and line number (6-10) components, which is the standard US phone number format (XXX) XXX-XXXX.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The magic numbers 0, 3, and 6 should be extracted into named constants.",
+            "kind": "",
+            "reason": "The rule document states that literal numbers scattered through business logic should be pulled into named constants at the top of the file so the reader sees the intent, not the value. The finding cites this rule and applies it to these specific magic numbers.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The named constants should clarify the purpose of the slice indices.",
+            "kind": "",
+            "reason": "The rule document emphasizes that named constants should make the reader see the intent, not just the value. The finding explicitly states the constants 'should be named to clarify their purpose.' This aligns with the rule's guidance.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The magic numbers 0, 3, and 6 have been extracted into named constants in the provided diff.",
+            "kind": "",
+            "reason": "The diff shows the formatPhoneNumber function still contains the literal numbers 0, 3, and 6 in the slice calls without any named constants defined. The code has not been refactored to extract these magic numbers into constants.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "prefer-const",
+      "title": "Use const for variables that are never reassigned",
+      "message": "Replace `let` with `const` for variables that are never reassigned. In truncateText(), the variable `truncated` is assigned multiple times and cannot be const. However, the initial assignment could be broken into separate const bindings, or the function could be restructured to avoid reassignment.",
+      "location_hint": "src/utils/formatters.js:42-47",
+      "citation": "let truncated = text.slice(0, maxLength); ... truncated = truncated.slice(0, lastSpace);",
+      "faithfulness": {
+        "score": null,
+        "claims": []
+      }
+    },
+    {
+      "rule_id": "no-magic-numbers",
+      "title": "Name your magic numbers",
+      "message": "Extract the magic number `100` into a named constant at the top of the file. The default max length for truncation should be clearly named to show its purpose.",
+      "location_hint": "src/utils/formatters.js:38",
+      "citation": "export function truncateText(text, maxLength = 100)",
+      "faithfulness": {
+        "score": null,
+        "claims": []
       }
     }
   ],
@@ -136,6 +236,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "088f935780616abd96aa6c1e0b52d3a404f72c64fd2461eb3a6e89248a39b67d",
-    "gitSha": "fa0f047378d321d6a24a835e020f47cb187acb9a"
+    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
   }
 }

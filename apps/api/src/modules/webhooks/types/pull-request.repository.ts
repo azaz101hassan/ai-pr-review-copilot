@@ -27,4 +27,13 @@ export interface IPullRequestRepository {
   // filter spec (by repo / author) ordered by created_at DESC, bounded
   // by limit. Used to populate the single-PR selection dropdown.
   findRecentMatching(spec: ReviewFilterSpec, limit: number): PullRequestSummary[];
+
+  // Walkthrough cache — one Walkthrough issue comment per PR over
+  // its lifetime. The id is the GitHub-assigned comment id returned
+  // by `issues.createComment`. setWalkthroughCommentId throws if the
+  // PR row does not exist (the row is upserted on webhook ingestion
+  // before any worker code runs, so a missing row is a programming
+  // bug — fail loudly).
+  setWalkthroughCommentId(prNodeId: string, id: number | null): void;
+  getWalkthroughCommentId(prNodeId: string): number | null;
 }

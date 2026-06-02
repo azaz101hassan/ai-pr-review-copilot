@@ -61,6 +61,7 @@ function makePr(overrides: Partial<PullRequestRecord> = {}): PullRequestRecord {
     created_at: overrides.created_at ?? new Date('2024-01-01'),
     updated_at: overrides.updated_at ?? new Date('2024-01-01'),
     raw_payload: '{}',
+    walkthrough_comment_id: null,
     ...overrides,
   };
 }

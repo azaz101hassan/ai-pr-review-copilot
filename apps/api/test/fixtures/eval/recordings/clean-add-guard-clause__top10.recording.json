@@ -1,56 +1,7 @@
 {
   "status": "emitted",
   "fixtureId": "clean-add-guard-clause__top10",
-  "findings": [
-    {
-      "rule_id": "guard-clauses",
-      "title": "Use guard clauses for invalid inputs",
-      "message": "The refactored code uses a guard clause (`if (!rawTerm || rawTerm.trim().length === 0) return undefined;`) to handle the invalid input case early and return immediately. This is a correct application of the guard-clauses pattern, simplifying the function's control flow and removing nesting. No violation detected.",
-      "location_hint": "src/search/query-builder.ts:16",
-      "citation": null,
-      "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "The refactored code uses a guard clause to handle invalid input cases early.",
-            "kind": "",
-            "reason": "The diff shows that the refactored code at line 16 contains `if (!rawTerm || rawTerm.trim().length === 0) return undefined;`, which is a guard clause that checks for invalid inputs and returns immediately. This is directly visible in the diff.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The guard clause returns immediately when the input is invalid.",
-            "kind": "",
-            "reason": "The diff shows the guard clause `if (!rawTerm || rawTerm.trim().length === 0) return undefined;` which explicitly returns undefined when the condition is true, demonstrating an early return pattern.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The guard clause simplifies the function's control flow.",
-            "kind": "",
-            "reason": "The diff shows that the refactored code removes nested if statements (the original had `if (rawTerm && rawTerm.trim().length > 0) { ... }` wrapping all the logic) and replaces it with a single guard clause at the top, followed by the happy path logic at a single indentation level. This is a simplification of control flow compared to the original nested structure.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The guard clause removes nesting from the function.",
-            "kind": "",
-            "reason": "The diff shows that the original code had the happy path logic nested inside an if statement checking `if (rawTerm && rawTerm.trim().length > 0)`. The refactored code inverts this to use a guard clause, moving the happy path logic to the outer indentation level, thereby removing nesting. This aligns with the rule document's guidance on guard clauses.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The application of the guard-clauses pattern in the refactored code is correct.",
-            "kind": "",
-            "reason": "The rule document defines guard clauses as handling invalid inputs with early returns at the top of the function to keep the happy path at one indentation level and remove trailing else branches. The refactored code follows this pattern: it checks for invalid input (!rawTerm || rawTerm.trim().length === 0) at the top and returns early, leaving the happy path logic at the outer indentation level without else branches. This matches the 'Good' example in the rule document.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "No violation of the guard-clauses pattern is detected in the refactored code.",
-            "kind": "",
-            "reason": "The refactored code correctly implements the guard-clauses pattern as defined in the rule document. The guard clause is at the top of the function, returns early for invalid inputs, and the happy path logic follows at a single indentation level without nested conditionals or trailing else branches. There is no evidence of a violation.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    }
-  ],
+  "findings": [],
   "ruleSet": [
     "consistent-return",
     "eqeqeq",
@@ -70,6 +21,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "fa0f047378d321d6a24a835e020f47cb187acb9a"
+    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
   }
 }

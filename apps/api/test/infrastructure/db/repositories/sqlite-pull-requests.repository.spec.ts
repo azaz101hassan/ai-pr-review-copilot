@@ -19,6 +19,7 @@ function makePr(overrides: Partial<PullRequestRecord> = {}): PullRequestRecord {
     created_at: new Date('2026-05-25T10:00:00Z'),
     updated_at: new Date('2026-05-25T10:00:00Z'),
     raw_payload: JSON.stringify({ pull_request: { number: 42 } }),
+    walkthrough_comment_id: null,
     ...overrides,
   };
 }
@@ -131,6 +132,67 @@ describe('SqlitePullRequestsRepository', () => {
       });
       // raw_payload must NOT be present in the summary
       expect((result[0] as unknown as Record<string, unknown>).raw_payload).toBeUndefined();
+    });
+  });
+
+  describe('walkthrough_comment_id round-trip', () => {
+    it('returns null when no walkthrough comment id has been set', () => {
+      const pr = makePr();
+      repo.save(pr);
+      expect(repo.getWalkthroughCommentId(pr.node_id)).toBeNull();
+    });
+
+    it('round-trips a non-null id', () => {
+      const pr = makePr();
+      repo.save(pr);
+      repo.setWalkthroughCommentId(pr.node_id, 123_456_789);
+      expect(repo.getWalkthroughCommentId(pr.node_id)).toBe(123_456_789);
+    });
+
+    it('setting to null clears a previously set id', () => {
+      const pr = makePr();
+      repo.save(pr);
+      repo.setWalkthroughCommentId(pr.node_id, 42);
+      repo.setWalkthroughCommentId(pr.node_id, null);
+      expect(repo.getWalkthroughCommentId(pr.node_id)).toBeNull();
+    });
+
+    it('does not clobber other PR columns when updating the id', () => {
+      const pr = makePr({ title: 'Original' });
+      repo.save(pr);
+      repo.setWalkthroughCommentId(pr.node_id, 99);
+      const found = repo.findByNodeId(pr.node_id);
+      expect(found?.title).toBe('Original');
+      expect(found?.walkthrough_comment_id).toBe(99);
+    });
+
+    it('throws when setting on a non-existent PR', () => {
+      expect(() =>
+        repo.setWalkthroughCommentId('PR_doesnotexist', 1),
+      ).toThrow();
+    });
+
+    it('returns null for getWalkthroughCommentId on a non-existent PR', () => {
+      expect(repo.getWalkthroughCommentId('PR_doesnotexist')).toBeNull();
+    });
+
+    it('save() upsert preserves a cached walkthrough_comment_id on re-ingestion', () => {
+      // Webhooks fire on every push, calling save() with the same
+      // node_id. The repository's onConflictDoUpdate.set block lists
+      // the columns to overwrite on conflict — walkthrough_comment_id
+      // is intentionally absent so the cached id survives across
+      // re-ingestion on each webhook push. A future "tidy-up" of the
+      // set block via spread would silently wipe the cache; this test
+      // pins that contract.
+      const pr = makePr({ title: 'Original title' });
+      repo.save(pr);
+      repo.setWalkthroughCommentId(pr.node_id, 12345);
+
+      // Same node_id, different title (simulates a PR edit on push).
+      repo.save({ ...pr, title: 'Edited title' });
+
+      expect(repo.getWalkthroughCommentId(pr.node_id)).toBe(12345);
+      expect(repo.findByNodeId(pr.node_id)?.title).toBe('Edited title');
     });
   });
 });

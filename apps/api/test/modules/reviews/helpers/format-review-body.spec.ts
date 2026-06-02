@@ -5,33 +5,16 @@ import {
 
 const VALID_UUID = '01234567-89ab-4cde-8fed-cba987654321';
 
-function f(
-  overrides: Partial<FindingWithSeverity> = {},
-): FindingWithSeverity {
-  return {
-    rule_id: 'rule.test',
-    title: 'A finding',
-    message: 'Some explanation.',
-    severity: 'warning',
-    location_hint: null,
-    citation: null,
-    ...overrides,
-  };
-}
-
-// Inject a synchronous identity-style sanitize that preserves input
-// — lets us assert raw input survives without relying on the unified
-// pipeline's behavior. The production path runs the real sanitizer
-// (covered when the Vitest migration replaces this scaffolding).
 const passthroughSanitize = (s: string) => s;
 
-describe('formatReviewBody', () => {
+describe('formatReviewBody (slim shape)', () => {
   describe('reviewId UUID validation', () => {
     it('throws on a non-UUID reviewId', () => {
       expect(() =>
         formatReviewBody({
-          findings: [],
           reviewId: 'not-a-uuid',
+          counts: { error: 0, warning: 0, info: 0, total: 0 },
+          hasOutsideDiff: false,
           sanitize: passthroughSanitize,
         }),
       ).toThrow(/canonical UUID/);
@@ -40,8 +23,9 @@ describe('formatReviewBody', () => {
     it('throws on a UUID with an injected suffix', () => {
       expect(() =>
         formatReviewBody({
-          findings: [],
           reviewId: `${VALID_UUID} extra`,
+          counts: { error: 0, warning: 0, info: 0, total: 0 },
+          hasOutsideDiff: false,
           sanitize: passthroughSanitize,
         }),
       ).toThrow(/canonical UUID/);
@@ -50,8 +34,9 @@ describe('formatReviewBody', () => {
     it('accepts a canonical lowercase UUID', () => {
       expect(() =>
         formatReviewBody({
-          findings: [],
           reviewId: VALID_UUID,
+          counts: { error: 0, warning: 0, info: 0, total: 0 },
+          hasOutsideDiff: false,
           sanitize: passthroughSanitize,
         }),
       ).not.toThrow();
@@ -60,8 +45,9 @@ describe('formatReviewBody', () => {
     it('accepts a canonical uppercase UUID', () => {
       expect(() =>
         formatReviewBody({
-          findings: [],
           reviewId: VALID_UUID.toUpperCase(),
+          counts: { error: 0, warning: 0, info: 0, total: 0 },
+          hasOutsideDiff: false,
           sanitize: passthroughSanitize,
         }),
       ).not.toThrow();
@@ -69,10 +55,11 @@ describe('formatReviewBody', () => {
   });
 
   describe('header + marker', () => {
-    it('puts the self-identifying header on line 1 and the marker on line 2', () => {
+    it('puts the header on line 1 and the v1 review-id marker on line 2', () => {
       const body = formatReviewBody({
-        findings: [],
         reviewId: VALID_UUID,
+        counts: { error: 0, warning: 0, info: 0, total: 0 },
+        hasOutsideDiff: false,
         sanitize: passthroughSanitize,
       });
       const lines = body.split('\n');
@@ -83,170 +70,86 @@ describe('formatReviewBody', () => {
         `<!-- ai-pr-review-copilot:v1:review-id=${VALID_UUID} -->`,
       );
     });
-
-    it('matches the marker regex shape exactly', () => {
-      const body = formatReviewBody({
-        findings: [],
-        reviewId: VALID_UUID,
-        sanitize: passthroughSanitize,
-      });
-      const markerRe =
-        /<!-- ai-pr-review-copilot:v1:review-id=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} -->/i;
-      expect(body).toMatch(markerRe);
-    });
   });
 
-  describe('empty findings', () => {
-    it('renders a no-findings notice instead of a finding list', () => {
+  describe('counts', () => {
+    it('renders zero-findings line when total === 0', () => {
       const body = formatReviewBody({
-        findings: [],
         reviewId: VALID_UUID,
+        counts: { error: 0, warning: 0, info: 0, total: 0 },
+        hasOutsideDiff: false,
         sanitize: passthroughSanitize,
       });
       expect(body).toContain('No findings');
     });
-  });
 
-  describe('severity ordering', () => {
-    it('orders error → warning → info', () => {
+    it('renders counts when findings exist', () => {
       const body = formatReviewBody({
-        findings: [
-          f({ severity: 'info', title: 'Info finding' }),
-          f({ severity: 'error', title: 'Error finding' }),
-          f({ severity: 'warning', title: 'Warning finding' }),
-        ],
         reviewId: VALID_UUID,
+        counts: { error: 1, warning: 2, info: 0, total: 3 },
+        hasOutsideDiff: false,
         sanitize: passthroughSanitize,
       });
-      const idxError = body.indexOf('Error finding');
-      const idxWarning = body.indexOf('Warning finding');
-      const idxInfo = body.indexOf('Info finding');
-      expect(idxError).toBeGreaterThan(-1);
-      expect(idxWarning).toBeGreaterThan(idxError);
-      expect(idxInfo).toBeGreaterThan(idxWarning);
-    });
-
-    it('preserves emit order within the same severity (stable sort)', () => {
-      const body = formatReviewBody({
-        findings: [
-          f({ severity: 'warning', title: 'first warning' }),
-          f({ severity: 'warning', title: 'second warning' }),
-          f({ severity: 'warning', title: 'third warning' }),
-        ],
-        reviewId: VALID_UUID,
-        sanitize: passthroughSanitize,
-      });
-      expect(body.indexOf('first warning')).toBeLessThan(
-        body.indexOf('second warning'),
-      );
-      expect(body.indexOf('second warning')).toBeLessThan(
-        body.indexOf('third warning'),
-      );
+      expect(body).toContain('🛑');
+      expect(body).toContain('1');
+      expect(body).toContain('⚠️');
+      expect(body).toContain('2');
     });
   });
 
-  describe('per-finding rendering', () => {
-    it('renders severity tag, title, message, citation, rule_id', () => {
+  describe('walkthrough pointer', () => {
+    it('includes a pointer line when hasOutsideDiff is true', () => {
       const body = formatReviewBody({
-        findings: [
-          f({
-            severity: 'error',
-            title: 'Disallow var',
-            message: 'Use let or const.',
-            citation: 'var x = 1;',
-            rule_id: 'no-var',
-          }),
-        ],
         reviewId: VALID_UUID,
+        counts: { error: 0, warning: 1, info: 0, total: 1 },
+        hasOutsideDiff: true,
         sanitize: passthroughSanitize,
       });
-      expect(body).toContain('**[error]**');
-      expect(body).toContain('Disallow var');
-      expect(body).toContain('Use let or const.');
-      expect(body).toContain('var x = 1;');
-      expect(body).toContain('_Rule:_ `no-var`');
+      expect(body).toMatch(/Walkthrough/);
     });
 
-    it('wraps citations in a triple-backtick fence by default', () => {
+    it('omits the pointer when hasOutsideDiff is false', () => {
       const body = formatReviewBody({
-        findings: [f({ citation: 'plain citation' })],
         reviewId: VALID_UUID,
+        counts: { error: 0, warning: 1, info: 0, total: 1 },
+        hasOutsideDiff: false,
         sanitize: passthroughSanitize,
       });
-      expect(body).toContain('```\nplain citation\n```');
-    });
-
-    it('widens to four backticks when the citation contains a triple-backtick', () => {
-      const body = formatReviewBody({
-        findings: [
-          f({
-            citation: 'inside\n```js\nconsole.log(1)\n```\nback',
-          }),
-        ],
-        reviewId: VALID_UUID,
-        sanitize: passthroughSanitize,
-      });
-      expect(body).toMatch(/````\n/);
-      expect(body).toContain('```js');
-    });
-
-    it('renders a placeholder when citation is null', () => {
-      const body = formatReviewBody({
-        findings: [f({ citation: null })],
-        reviewId: VALID_UUID,
-        sanitize: passthroughSanitize,
-      });
-      expect(body).toContain('_(no citation)_');
-    });
-
-    it('falls back to _(no message)_ for empty messages', () => {
-      const body = formatReviewBody({
-        findings: [f({ message: '' })],
-        reviewId: VALID_UUID,
-        sanitize: passthroughSanitize,
-      });
-      expect(body).toContain('_(no message)_');
-    });
-
-    it('falls back to (untitled) for empty titles', () => {
-      const body = formatReviewBody({
-        findings: [f({ title: '' })],
-        reviewId: VALID_UUID,
-        sanitize: passthroughSanitize,
-      });
-      expect(body).toContain('(untitled)');
+      expect(body).not.toMatch(/Walkthrough/);
     });
   });
 
-  describe('sanitizer wiring', () => {
-    it('passes title and message through the sanitizer (called twice per finding)', () => {
-      const sanitize = jest.fn((s: string) => `S<${s}>S`);
-      const body = formatReviewBody({
-        findings: [
-          f({ title: 'TITLE', message: 'BODY' }),
-          f({ title: 'TITLE2', message: 'BODY2' }),
-        ],
+  describe('does NOT include per-finding blocks', () => {
+    // Per-finding rendering moved to format-inline-comment and
+    // format-walkthrough-body. The Review body itself is slim.
+    it('does not call the sanitizer (no per-finding text in body)', () => {
+      const calls: string[] = [];
+      const recordingSanitize = (s: string) => {
+        calls.push(s);
+        return s;
+      };
+      formatReviewBody({
         reviewId: VALID_UUID,
-        sanitize,
+        counts: { error: 1, warning: 0, info: 0, total: 1 },
+        hasOutsideDiff: false,
+        sanitize: recordingSanitize,
       });
-      // title + message per finding → 4 calls total.
-      expect(sanitize).toHaveBeenCalledTimes(4);
-      expect(body).toContain('S<TITLE>S');
-      expect(body).toContain('S<BODY2>S');
+      expect(calls).toHaveLength(0);
     });
+  });
+});
 
-    it('does NOT sanitize the citation (preserves verbatim inside fenced code)', () => {
-      const sanitize = jest.fn((s: string) => `IGNORE_${s}`);
-      const body = formatReviewBody({
-        findings: [f({ citation: 'raw <html> & **bold**' })],
-        reviewId: VALID_UUID,
-        sanitize,
-      });
-      expect(body).toContain('raw <html> & **bold**');
-      // The citation never appeared as a sanitize argument.
-      for (const call of sanitize.mock.calls) {
-        expect(call[0]).not.toContain('raw <html>');
-      }
-    });
+// Re-export check — FindingWithSeverity is still the shared shape.
+describe('FindingWithSeverity (type re-export)', () => {
+  it('compiles', () => {
+    const f: FindingWithSeverity = {
+      rule_id: 'r',
+      title: 't',
+      message: 'm',
+      severity: 'warning',
+      location_hint: null,
+      citation: null,
+    };
+    expect(f.severity).toBe('warning');
   });
 });

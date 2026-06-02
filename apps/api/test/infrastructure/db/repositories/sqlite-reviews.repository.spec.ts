@@ -65,6 +65,7 @@ describe('SqliteReviewsRepository', () => {
       created_at: NOW,
       updated_at: NOW,
       raw_payload: '{}',
+      walkthrough_comment_id: null,
     });
   });
 
@@ -451,6 +452,7 @@ describe('SqliteReviewsRepository', () => {
         created_at: NOW,
         updated_at: NOW,
         raw_payload: '{}',
+        walkthrough_comment_id: null,
       });
       repo.insert(
         makeReview({
@@ -511,6 +513,7 @@ describe('SqliteReviewsRepository', () => {
         created_at: NOW,
         updated_at: NOW,
         raw_payload: '{}',
+        walkthrough_comment_id: null,
       });
       repo.insert(makeReview({ id: 'r-main', pr_node_id: PR_NODE_ID }));
       repo.insert(makeReview({ id: 'r-other', pr_node_id: 'PR_other_repo' }));
@@ -757,6 +760,7 @@ describe('SqliteReviewsRepository', () => {
         created_at: NOW,
         updated_at: NOW,
         raw_payload: '{}',
+        walkthrough_comment_id: null,
       });
       repo.insert(makeReview({ id: 'r-main2', pr_node_id: PR_NODE_ID, status: 'completed', input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }));
       repo.insert(makeReview({ id: 'r-other2', pr_node_id: 'PR_other2', status: 'completed', input_tokens: 999, output_tokens: 999, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }));
@@ -781,6 +785,7 @@ describe('SqliteReviewsRepository', () => {
         created_at: NOW,
         updated_at: NOW,
         raw_payload: '{}',
+        walkthrough_comment_id: null,
       });
       repo.insert(makeReview({ id: 'dr-1', pr_node_id: PR_NODE_ID }));
       repo.insert(makeReview({ id: 'dr-2', pr_node_id: 'PR_beta' }));
@@ -812,6 +817,7 @@ describe('SqliteReviewsRepository', () => {
         created_at: NOW,
         updated_at: NOW,
         raw_payload: '{}',
+        walkthrough_comment_id: null,
       });
       repo.insert(makeReview({ id: 'da-1', pr_node_id: PR_NODE_ID })); // octocat
       repo.insert(makeReview({ id: 'da-2', pr_node_id: 'PR_alice' })); // alice

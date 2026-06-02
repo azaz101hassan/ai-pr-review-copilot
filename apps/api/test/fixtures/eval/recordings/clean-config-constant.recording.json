@@ -1,44 +1,7 @@
 {
   "status": "emitted",
   "fixtureId": "clean-config-constant",
-  "findings": [
-    {
-      "rule_id": "no-magic-numbers",
-      "title": "Name your magic numbers",
-      "message": "The constant string paths like './src/infrastructure/db/schema/*.ts' and './src/infrastructure/db/migrations' have been extracted into named constants SCHEMA_GLOB and MIGRATIONS_DIR. However, the hardcoded database URL in process.env fallback uses './data/local.sqlite' as a magic string without naming the intent. Consider extracting this path as a named constant (e.g., const DEFAULT_DB_PATH = './data/local.sqlite';) to clarify its purpose.",
-      "location_hint": "drizzle.config.ts:10",
-      "citation": "url: process.env.DATABASE_URL ?? './data/local.sqlite',",
-      "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "The constant string paths './src/infrastructure/db/schema/*.ts' and './src/infrastructure/db/migrations' have been extracted into named constants SCHEMA_GLOB and MIGRATIONS_DIR.",
-            "kind": "",
-            "reason": "The diff clearly shows that these two string literals have been extracted into named constants at the top of the file: 'const SCHEMA_GLOB = './src/infrastructure/db/schema/*.ts';' and 'const MIGRATIONS_DIR = './src/infrastructure/db/migrations';'. The diff also shows these constants are now used in place of the hardcoded strings in the config object.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The hardcoded database URL in process.env fallback uses './data/local.sqlite' as a magic string without naming the intent.",
-            "kind": "",
-            "reason": "The diff shows the line 'url: process.env.DATABASE_URL ?? './data/local.sqlite',' which contains the hardcoded string './data/local.sqlite' without it being extracted into a named constant. This is a literal value in the code without a descriptive constant name.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The rule 'Name your magic numbers' requires extracting literal values into named constants at the top of the file to clarify intent.",
-            "kind": "",
-            "reason": "The rule document explicitly states: 'Literal numbers scattered through business logic lose their meaning. Pull them into named constants at the top of the file (or a shared constants module) so the reader sees the intent, not the value.' This principle applies to magic strings as well as numbers.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The path './data/local.sqlite' should be extracted as a named constant (e.g., const DEFAULT_DB_PATH = './data/local.sqlite';) to clarify its purpose.",
-            "kind": "",
-            "reason": "The finding recommends extracting this hardcoded path into a named constant. While the rule document supports the general principle of extracting magic values into named constants, the specific recommendation to use 'DEFAULT_DB_PATH' as the constant name is a suggestion from the finding itself, not explicitly stated in the rule document. However, the principle of extracting such values is clearly supported by the rule.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    }
-  ],
+  "findings": [],
   "ruleSet": [
     "arrow-body-style",
     "complexity",
@@ -91,6 +54,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "fa0f047378d321d6a24a835e020f47cb187acb9a"
+    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
   }
 }

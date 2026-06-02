@@ -50,6 +50,14 @@ export class ConfigService {
   readonly redisUrl: string;
   readonly dogfoodRepos: ReadonlySet<string>;
   readonly anthropicUseZeroRetention: boolean;
+  // Hard ceiling on agent-loop turns per review. Reaching the cap
+  // without `emit_finding` marks the row failed/turn_cap_exceeded.
+  // Default 6 keeps the worst-case Anthropic spend bounded; bump for
+  // larger PRs that need more exploration turns. Bound 1–20 — values
+  // above 20 indicate a misconfig (any real review converges well
+  // before then, and unbounded loops are the wallet-protection failure
+  // mode this cap exists to prevent).
+  readonly anthropicAgentTurnCap: number;
   readonly workerConcurrency: number;
   readonly shutdownDrainTimeoutMs: number;
   readonly maxDiffBytes: number;
@@ -105,6 +113,13 @@ export class ConfigService {
     this.anthropicUseZeroRetention = parseBooleanFlag(
       process.env.ANTHROPIC_USE_ZERO_RETENTION,
       false,
+    );
+    this.anthropicAgentTurnCap = this.requireBoundedInteger(
+      'ANTHROPIC_AGENT_TURN_CAP',
+      process.env.ANTHROPIC_AGENT_TURN_CAP,
+      6,
+      1,
+      20,
     );
     this.workerConcurrency = this.requirePositiveInteger(
       'WORKER_CONCURRENCY',
@@ -292,6 +307,26 @@ export class ConfigService {
     if (!Number.isFinite(parsed) || parsed <= 0) {
       throw new Error(
         `${name} must be a positive finite integer (got "${value}").`,
+      );
+    }
+    return parsed;
+  }
+
+  // Bounded positive-integer parser. Layered on requirePositiveInteger
+  // with a closed [min, max] check. Used for knobs where an unbounded
+  // upper limit would itself be a misconfig (e.g., agent turn cap —
+  // unbounded loops are the wallet-protection failure mode).
+  private requireBoundedInteger(
+    name: string,
+    value: string | undefined,
+    fallback: number,
+    min: number,
+    max: number,
+  ): number {
+    const parsed = this.requirePositiveInteger(name, value, fallback);
+    if (parsed < min || parsed > max) {
+      throw new Error(
+        `${name} must be between ${min} and ${max} inclusive (got ${parsed}).`,
       );
     }
     return parsed;

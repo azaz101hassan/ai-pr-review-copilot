@@ -5,3 +5,25 @@ export {
   FormatReviewBodyInput,
   FindingWithSeverity,
 } from './format-review-body';
+export { parseLocationHint, ParsedAnchor } from './parse-location-hint';
+export { parseDiffHunks, HunkRange } from './parse-diff-hunks';
+export {
+  anchorFindingsToDiff,
+  AnchorableFinding,
+  OutsideDiffFinding,
+  AnchorPartition,
+  AnchorFindingsToDiffInput,
+} from './anchor-findings-to-diff';
+export {
+  formatInlineCommentBody,
+  FormatInlineCommentBodyInput,
+} from './format-inline-comment';
+export {
+  formatWalkthroughBody,
+  FormatWalkthroughBodyInput,
+} from './format-walkthrough-body';
+export { FindingCounts } from './finding-counts.types';
+export {
+  findWalkthroughCommentId,
+  FindWalkthroughCommentIdArgs,
+} from './find-walkthrough-comment-id';

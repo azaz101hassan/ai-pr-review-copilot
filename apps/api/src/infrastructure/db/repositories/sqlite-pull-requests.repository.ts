@@ -85,4 +85,29 @@ export class SqlitePullRequestsRepository implements IPullRequestRepository {
 
     return rows;
   }
+
+  setWalkthroughCommentId(prNodeId: string, id: number | null): void {
+    const result = this.db.drizzle
+      .update(pullRequests)
+      .set({ walkthrough_comment_id: id })
+      .where(eq(pullRequests.node_id, prNodeId))
+      .run();
+
+    // better-sqlite3 exposes `changes` on the run result. Zero means
+    // no row matched — fail loudly per the contract.
+    if ((result as { changes?: number }).changes === 0) {
+      throw new Error(
+        `setWalkthroughCommentId: no pull_requests row matches node_id "${prNodeId}"`,
+      );
+    }
+  }
+
+  getWalkthroughCommentId(prNodeId: string): number | null {
+    const row = this.db.drizzle
+      .select({ id: pullRequests.walkthrough_comment_id })
+      .from(pullRequests)
+      .where(eq(pullRequests.node_id, prNodeId))
+      .get();
+    return row?.id ?? null;
+  }
 }

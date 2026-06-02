@@ -197,6 +197,7 @@ describe('Dashboard REST endpoints (e2e)', () => {
       created_at: new Date('2024-01-01'),
       updated_at: new Date('2024-01-01'),
       raw_payload: '{}',
+      walkthrough_comment_id: null,
     });
 
     reviewsRepo.insert(makeReviewInsert({

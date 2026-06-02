@@ -130,6 +130,7 @@ export class WebhookService {
           created_at: new Date(pr.created_at),
           updated_at: new Date(pr.updated_at),
           raw_payload: JSON.stringify(pr),
+          walkthrough_comment_id: null,
         });
         this.logger.log(
           `pull_request.${action} #${pr.number} PR row upserted (${repoFullName})`,

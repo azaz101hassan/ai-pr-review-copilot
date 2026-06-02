@@ -48,13 +48,18 @@ type AnthropicClientLike = {
 // emit_finding (capped at 10 findings).
 const MAX_TOKENS_PER_TURN = 2048;
 
-// Hard cap on agent-loop turns. Reaching turn 7 without `emit_finding`
-// throws `AnthropicRequestError({ errorCode: 'turn_cap_exceeded' })`
-// which `ReviewsService` maps to `reviews.status='failed'`. 6 is the
-// brainstorm-chosen ceiling — enough headroom for a real
-// reviewer-like pattern (file → function → prior-review → emit) plus
-// recovery, not enough for runaway oscillation.
-const TURN_CAP = 6;
+// Default hard cap on agent-loop turns. Reaching the cap without
+// `emit_finding` throws `AnthropicRequestError({ errorCode:
+// 'turn_cap_exceeded' })` which `ReviewsService` maps to
+// `reviews.status='failed'`. 6 is the brainstorm-chosen ceiling —
+// enough headroom for a real reviewer-like pattern (file → function →
+// prior-review → emit) plus recovery, not enough for runaway
+// oscillation. Operators can override via `ANTHROPIC_AGENT_TURN_CAP`
+// (1–20) when a large dogfood diff genuinely needs more exploration
+// turns. The canonical `SYSTEM_PROMPT` (and the hash the snapshot spec
+// guards) is always built with this default; non-default caps yield a
+// runtime-only prompt with the same shape but a different stated cap.
+export const DEFAULT_TURN_CAP = 6;
 
 // SDK auto-retry behavior. Set explicitly so the troubleshooting doc
 // and runtime agree: a 429 or 529 is retried twice with exponential
@@ -82,8 +87,12 @@ export const EMIT_FINDING_TOOL_NAME = 'emit_finding';
 //
 // Editing this requires bumping `PROMPT_AND_TOOL_VERSION` AND adding
 // the new sha256 to `PROMPT_AND_TOOL_VERSION_HASH_MAP` in the same
-// commit (the snapshot spec enforces this).
-export const SYSTEM_PROMPT = [
+// commit (the snapshot spec enforces this). The exported
+// `SYSTEM_PROMPT` is the canonical form built at `DEFAULT_TURN_CAP`;
+// non-default caps build a runtime-only variant via
+// `buildSystemPrompt(cap)` and the hash is unaffected.
+export function buildSystemPrompt(turnCap: number = DEFAULT_TURN_CAP): string {
+  return [
   'You are an automated code reviewer for a software team. You operate as an agent: you can call tools to fetch additional context from the repository before deciding what to flag.',
   '',
   'You will be given a unified diff plus a list of retrieved rules from the team knowledge base. Your job is to identify which of the retrieved rules — and ONLY those rules — the diff violates.',
@@ -97,7 +106,7 @@ export const SYSTEM_PROMPT = [
   'Protocol:',
   `  - Call any combination of the three context tools to gather information. When you are ready, call \`${EMIT_FINDING_TOOL_NAME}\` with your final findings.`,
   '  - If a context tool returns `is_error: true`, that capability is unavailable for this review — do not retry the same input. Either try a different input (e.g., a different path) or proceed to emit your findings with the context you have.',
-  `  - You have a maximum of ${TURN_CAP} turns. Reaching the cap without calling \`${EMIT_FINDING_TOOL_NAME}\` is treated as a failed review.`,
+  `  - You have a maximum of ${turnCap} turns. Reaching the cap without calling \`${EMIT_FINDING_TOOL_NAME}\` is treated as a failed review.`,
   '',
   'Strict constraints (carried forward from the single-turn protocol):',
   '- You MUST only cite rules whose `rule_id` appears in the retrieved rule set. Never invent rule_ids and never quote rules from memory.',
@@ -130,7 +139,14 @@ export const SYSTEM_PROMPT = [
   `Example 4 — diff is a doc-only change (README.md, CHANGELOG.md, a comment-only edit). No code rules apply. Call \`${EMIT_FINDING_TOOL_NAME}\` with \`findings: []\` directly.`,
   '',
   `Example 5 — diff includes a fragment that looks suspicious but no retrieved rule explicitly covers it (e.g., a magic number when \`no-magic-numbers\` is NOT in the retrieved set). Do not emit a finding for that fragment. Only the retrieved rule set is authoritative.`,
-].join('\n');
+  ].join('\n');
+}
+
+// Canonical system prompt, frozen at `DEFAULT_TURN_CAP`. This is what
+// `computePromptToolHash()` hashes and what the snapshot drift guard
+// pins. Runtime callers that need a different cap rebuild via
+// `buildSystemPrompt(cap)`.
+export const SYSTEM_PROMPT = buildSystemPrompt(DEFAULT_TURN_CAP);
 
 // === Tool schemas ===
 
@@ -268,6 +284,12 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
   async analyzeDiff(input: AnalyzeDiffInput): Promise<AnalyzeDiffResult> {
     const client = this.resolveClient();
     const model = this.config.anthropicModel;
+    const turnCap = this.config.anthropicAgentTurnCap;
+    // Reuse the canonical `SYSTEM_PROMPT` at default cap so the
+    // Anthropic prompt-cache hits the same content across the common
+    // path. Only rebuild when an operator has overridden the cap.
+    const systemPrompt =
+      turnCap === DEFAULT_TURN_CAP ? SYSTEM_PROMPT : buildSystemPrompt(turnCap);
 
     // Composite id = `${source}:${rule_id}`. Two corpora can share a
     // rule_id slug, so the composite is the de-duplicated identity.
@@ -304,7 +326,7 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
     let lastModel = model;
     let emittedFindings: Finding[] | null = null;
 
-    for (let turn = 1; turn <= TURN_CAP; turn++) {
+    for (let turn = 1; turn <= turnCap; turn++) {
       const turnStartedAt = Date.now();
       let response: Awaited<
         ReturnType<AnthropicClientLike['messages']['create']>
@@ -317,7 +339,7 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
             system: [
               {
                 type: 'text',
-                text: SYSTEM_PROMPT,
+                text: systemPrompt,
                 cache_control: { type: 'ephemeral' },
               },
             ],
@@ -464,11 +486,11 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
     // exit semantics make mid-loop emit_finding structurally
     // impossible (handled above), so this branch is purely the cap.
     throw new AnthropicRequestError(
-      `Agent loop exceeded ${TURN_CAP} turns without ${EMIT_FINDING_TOOL_NAME}`,
+      `Agent loop exceeded ${turnCap} turns without ${EMIT_FINDING_TOOL_NAME}`,
       {
         status: 200,
         errorCode: 'turn_cap_exceeded',
-        turnCount: TURN_CAP,
+        turnCount: turnCap,
         toolCalls,
       },
     );

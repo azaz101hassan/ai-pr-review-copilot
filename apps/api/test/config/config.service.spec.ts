@@ -27,6 +27,7 @@ describe('ConfigService', () => {
     REDIS_URL: process.env.REDIS_URL,
     DOGFOOD_REPOS: process.env.DOGFOOD_REPOS,
     ANTHROPIC_USE_ZERO_RETENTION: process.env.ANTHROPIC_USE_ZERO_RETENTION,
+    ANTHROPIC_AGENT_TURN_CAP: process.env.ANTHROPIC_AGENT_TURN_CAP,
     WORKER_CONCURRENCY: process.env.WORKER_CONCURRENCY,
     SHUTDOWN_DRAIN_TIMEOUT_MS: process.env.SHUTDOWN_DRAIN_TIMEOUT_MS,
     MAX_DIFF_BYTES: process.env.MAX_DIFF_BYTES,
@@ -421,6 +422,38 @@ describe('ConfigService', () => {
     it('throws when MAX_DIFF_BYTES is non-numeric', () => {
       setEnv({ ...HAPPY_ENV, MAX_DIFF_BYTES: '1MB' });
       expect(() => new ConfigService()).toThrow(/MAX_DIFF_BYTES/);
+    });
+  });
+
+  describe('ANTHROPIC_AGENT_TURN_CAP', () => {
+    it('defaults to 6 when unset', () => {
+      setEnv(HAPPY_ENV);
+      expect(new ConfigService().anthropicAgentTurnCap).toBe(6);
+    });
+
+    it('honours an explicit value within bounds', () => {
+      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '15' });
+      expect(new ConfigService().anthropicAgentTurnCap).toBe(15);
+    });
+
+    it('accepts the upper bound of 20', () => {
+      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '20' });
+      expect(new ConfigService().anthropicAgentTurnCap).toBe(20);
+    });
+
+    it('throws when the value is zero', () => {
+      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '0' });
+      expect(() => new ConfigService()).toThrow(/ANTHROPIC_AGENT_TURN_CAP/);
+    });
+
+    it('throws when the value exceeds the upper bound', () => {
+      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '21' });
+      expect(() => new ConfigService()).toThrow(/ANTHROPIC_AGENT_TURN_CAP/);
+    });
+
+    it('throws when the value is non-numeric', () => {
+      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: 'fifteen' });
+      expect(() => new ConfigService()).toThrow(/ANTHROPIC_AGENT_TURN_CAP/);
     });
   });
 
