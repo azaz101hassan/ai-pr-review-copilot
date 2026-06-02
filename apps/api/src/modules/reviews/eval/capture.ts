@@ -51,6 +51,7 @@ import type {
 import { judgeFinding } from './faithfulness-judge';
 import { FAITHFULNESS_JUDGE_VERSION } from './faithfulness-judge.prompt';
 import { EvalCaptureModule } from './eval-capture.module';
+import { computeTrackedPathsHash } from './staleness';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -437,10 +438,16 @@ async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     console.log('[eval:capture] preflight: no rule_id collisions');
 
-    // 2d. Git SHA
+    // 2d. Git SHA + tracked-paths content hash
     const gitSha = getGitSha();
     // eslint-disable-next-line no-console
     console.log(`[eval:capture] gitSha: ${gitSha}`);
+    const repoRoot = path.resolve(apiRoot, '..', '..');
+    const trackedPathsHash = computeTrackedPathsHash(repoRoot, 'HEAD');
+    // eslint-disable-next-line no-console
+    console.log(
+      `[eval:capture] trackedPathsHash: ${trackedPathsHash || '(unavailable)'}`,
+    );
 
     // ── 3. Load manifest ───────────────────────────────────────────
 
@@ -516,6 +523,7 @@ async function main(): Promise<void> {
         seedCorpusVersion: SEED_CORPUS_VERSION,
         expectedSetHash: computeExpectedSetHash(entry.expected),
         gitSha,
+        ...(trackedPathsHash ? { trackedPathsHash } : {}),
       };
 
       if (entry.category === 'clean') {

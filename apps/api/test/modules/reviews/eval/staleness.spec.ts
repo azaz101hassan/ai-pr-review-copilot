@@ -1,7 +1,9 @@
 import {
   checkStaleness,
+  checkAllStaleness,
   hasStaleRecordings,
   getLatestTrackedCommit,
+  computeTrackedPathsHash,
 } from '@/modules/reviews/eval/staleness';
 import type { StalenessResult } from '@/modules/reviews/eval/staleness';
 import type { Recording, RecordingProvenance } from '@/modules/reviews/eval/recording';
@@ -128,8 +130,8 @@ describe('checkStaleness', () => {
 describe('hasStaleRecordings', () => {
   it('returns false when all are fresh', () => {
     const results: StalenessResult[] = [
-      { fixtureId: 'a', recordingGitSha: 'sha1', latestTrackedSha: 'sha1', stale: false },
-      { fixtureId: 'b', recordingGitSha: 'sha1', latestTrackedSha: 'sha1', stale: false },
+      { fixtureId: 'a', recordingGitSha: 'sha1', latestTrackedSha: 'sha1', stale: false, reason: 'sha-equal' },
+      { fixtureId: 'b', recordingGitSha: 'sha1', latestTrackedSha: 'sha1', stale: false, reason: 'sha-equal' },
     ];
 
     expect(hasStaleRecordings(results)).toBe(false);
@@ -137,8 +139,8 @@ describe('hasStaleRecordings', () => {
 
   it('returns true when any is stale', () => {
     const results: StalenessResult[] = [
-      { fixtureId: 'a', recordingGitSha: 'sha1', latestTrackedSha: 'sha1', stale: false },
-      { fixtureId: 'b', recordingGitSha: 'old', latestTrackedSha: 'new', stale: true },
+      { fixtureId: 'a', recordingGitSha: 'sha1', latestTrackedSha: 'sha1', stale: false, reason: 'sha-equal' },
+      { fixtureId: 'b', recordingGitSha: 'old', latestTrackedSha: 'new', stale: true, reason: 'sha-content-differs' },
     ];
 
     expect(hasStaleRecordings(results)).toBe(true);
@@ -162,5 +164,145 @@ describe('getLatestTrackedCommit', () => {
     ]);
 
     expect(sha).toBe('');
+  });
+});
+
+describe('computeTrackedPathsHash', () => {
+  it('returns a stable sha-256 hex string for a real tracked path', () => {
+    const hash = computeTrackedPathsHash(repoRoot, 'HEAD', [
+      'apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts',
+    ]);
+
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    // Idempotent on the same ref + paths.
+    const second = computeTrackedPathsHash(repoRoot, 'HEAD', [
+      'apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts',
+    ]);
+    expect(second).toBe(hash);
+  });
+
+  it('returns empty string when the ref is unreachable', () => {
+    const hash = computeTrackedPathsHash(
+      repoRoot,
+      '0000000000000000000000000000000000000000',
+      ['apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts'],
+    );
+
+    expect(hash).toBe('');
+  });
+
+  it('returns empty string when tracked paths produce no tree entries', () => {
+    const hash = computeTrackedPathsHash(repoRoot, 'HEAD', [
+      'definitely/does/not/exist/anywhere/',
+    ]);
+
+    expect(hash).toBe('');
+  });
+
+  it('returns empty string when ref is empty', () => {
+    const hash = computeTrackedPathsHash(repoRoot, '', [
+      'apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts',
+    ]);
+
+    expect(hash).toBe('');
+  });
+});
+
+describe('checkStaleness — trackedPathsHash path', () => {
+  it('hash equality => fresh, reason=hash-equal', () => {
+    const recording = makeRecording('orphan-sha-that-does-not-exist', 'fix-a');
+    recording.provenance.trackedPathsHash = 'abc123';
+
+    const result = checkStaleness(
+      recording,
+      'unrelated-latest-sha',
+      repoRoot,
+      ['definitely/does/not/exist/'],
+      'abc123',
+    );
+
+    expect(result.stale).toBe(false);
+    expect(result.reason).toBe('hash-equal');
+  });
+
+  it('hash differs => stale, reason=hash-differs', () => {
+    const recording = makeRecording('any-sha', 'fix-b');
+    recording.provenance.trackedPathsHash = 'old-hash';
+
+    const result = checkStaleness(
+      recording,
+      'unrelated-latest-sha',
+      repoRoot,
+      ['definitely/does/not/exist/'],
+      'new-hash',
+    );
+
+    expect(result.stale).toBe(true);
+    expect(result.reason).toBe('hash-differs');
+  });
+
+  it('hash present on recording but currentHash empty => falls back to gitSha logic', () => {
+    // gitSha equality fresh-path still works when current hash is unavailable.
+    const sha = 'abc123def456';
+    const recording = makeRecording(sha, 'fix-c');
+    recording.provenance.trackedPathsHash = 'unused-because-current-is-empty';
+
+    const result = checkStaleness(
+      recording,
+      sha,
+      repoRoot,
+      ['definitely/does/not/exist/'],
+      '',
+    );
+
+    expect(result.stale).toBe(false);
+    expect(result.reason).toBe('sha-equal');
+  });
+
+  it('recording lacks hash, SHA orphan => stale, reason=sha-unreachable', () => {
+    // Simulate the pre-fix CI failure: orphan SHA, no hash to rescue.
+    // Use a syntactically valid but unreachable SHA so isAncestor and
+    // git diff both throw.
+    const orphan = '0000000000000000000000000000000000000000';
+    const recording = makeRecording(orphan, 'fix-d');
+    delete recording.provenance.trackedPathsHash;
+
+    const latestSha = execSync('git rev-parse HEAD', {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+    }).trim();
+
+    const result = checkStaleness(
+      recording,
+      latestSha,
+      repoRoot,
+      // Pick a path with real history so getLatestTrackedCommit returns
+      // a real SHA, forcing the function past the equality and ancestry
+      // checks into the content-diff fallback (which fails on orphan).
+      ['apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts'],
+      // currentHash empty so the hash short-circuit doesn't fire.
+      '',
+    );
+
+    expect(result.stale).toBe(true);
+    expect(result.reason).toBe('sha-unreachable');
+  });
+
+  it('recording with hash recovers the orphan-SHA case that previously failed', () => {
+    // The regression: pre-fix, an orphan SHA + identical content was flagged
+    // stale because git diff threw. With the hash present, the check
+    // short-circuits to fresh regardless of SHA reachability.
+    const orphan = '0000000000000000000000000000000000000000';
+    const realHash = computeTrackedPathsHash(repoRoot, 'HEAD');
+    if (realHash === '') return; // skip if HEAD has no tracked content
+
+    const recording = makeRecording(orphan, 'fix-e');
+    recording.provenance.trackedPathsHash = realHash;
+
+    const results = checkAllStaleness([recording], repoRoot);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].stale).toBe(false);
+    expect(results[0].reason).toBe('hash-equal');
   });
 });

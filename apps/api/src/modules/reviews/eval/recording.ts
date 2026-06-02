@@ -60,6 +60,20 @@ export interface RecordingProvenance {
   seedCorpusVersion: string;
   expectedSetHash: string;
   gitSha: string;
+  /**
+   * Deterministic hash of the staleness-tracked paths' tree at capture time.
+   *
+   * The staleness checker prefers this when present so it can detect
+   * "tracked content has not changed" without needing the recording's
+   * gitSha to be reachable. Squash-merged feature branches leave their
+   * original commits orphan on the remote; without this field, fresh CI
+   * clones cannot resolve them and the SHA-based fallback throws.
+   *
+   * Optional for backward compatibility with recordings captured before
+   * this field was added. Missing means the checker falls back to the
+   * gitSha-based logic.
+   */
+  trackedPathsHash?: string;
 }
 
 // ── Threw branch ────────────────────────────────────────────────────
