@@ -5,29 +5,23 @@
     {
       "rule_id": "explicit-function-return-type",
       "title": "Declare return types on exported functions",
-      "message": "The exported function `computeLineTotal` in src/billing/helpers/compute-line-total.ts must have an explicit return type annotation. While the function body includes a return statement with a typed object, the function signature should explicitly declare the return type `InvoiceLine` to provide a clear contract for consumers and prevent silent type changes during refactoring.",
+      "message": "The exported function `computeLineTotal` is missing an explicit return type. Add a return type annotation (`: InvoiceLine`) to ensure type safety and prevent silent type changes during refactoring.",
       "location_hint": "src/billing/helpers/compute-line-total.ts:5",
       "citation": "export function computeLineTotal(item: LineItem): InvoiceLine {",
       "faithfulness": {
-        "score": 1,
+        "score": 0,
         "claims": [
           {
-            "claim": "The exported function `computeLineTotal` in src/billing/helpers/compute-line-total.ts has an explicit return type annotation.",
+            "claim": "The exported function `computeLineTotal` is missing an explicit return type.",
             "kind": "",
-            "reason": "The diff shows the function signature at line 5 of the new file: `export function computeLineTotal(item: LineItem): InvoiceLine {`. This clearly includes an explicit return type annotation of `InvoiceLine` after the colon.",
-            "verdict": "supported"
+            "reason": "The diff shows the function definition at line 5 of src/billing/helpers/compute-line-total.ts as: `export function computeLineTotal(item: LineItem): InvoiceLine {`. This function has an explicit return type annotation (`: InvoiceLine`), so it is not missing a return type.",
+            "verdict": "not_supported"
           },
           {
-            "claim": "The return type annotation on the exported function `computeLineTotal` is `InvoiceLine`.",
+            "claim": "A return type annotation (`: InvoiceLine`) should be added to the `computeLineTotal` function to ensure type safety and prevent silent type changes during refactoring.",
             "kind": "",
-            "reason": "The diff shows the function signature explicitly declares the return type as `InvoiceLine`: `export function computeLineTotal(item: LineItem): InvoiceLine {`.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The function body of `computeLineTotal` includes a return statement with a typed object.",
-            "kind": "",
-            "reason": "The diff shows the function returns an object with properties `sku`, `description`, and `amount` (lines 13-16). The types of these properties are inferred from the `InvoiceLine` type based on the function's return type annotation.",
-            "verdict": "supported"
+            "reason": "The rule document states that explicit return types prevent internal refactors from silently widening the public type, and the good example shows a function with an explicit return type annotation. However, the diff shows that the `computeLineTotal` function already has the return type annotation (`: InvoiceLine`) present in the code. Therefore, the recommended action has already been completed.",
+            "verdict": "not_supported"
           }
         ]
       }
@@ -52,7 +46,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }

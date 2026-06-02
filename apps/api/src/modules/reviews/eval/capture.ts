@@ -489,10 +489,17 @@ async function main(): Promise<void> {
     // Clean fixtures do A/B (2 calls each), so budget needs headroom.
     // Count: 6 violating + 1 agent-loop + 1 suppression + 5 clean * 2 = 18
     // Plus judge calls: ~18 * avg 2 findings = ~36 judge calls.
-    // Budget cap is generous: 80 total Anthropic calls.
+    // Plus a few external-validity fixtures bring the total to ~60-80.
+    //
+    // The rolling-window cap (maxCalls/windowMs) is defensive — it
+    // catches `jest --watch` accidents that fan out to the real API.
+    // The previous 10/60s threshold throttled the legitimate full
+    // capture before it could finish (each fixture issues 2-4 calls
+    // back-to-back). 30/60s is high enough to let the capture flow
+    // without losing the runaway-loop signal.
     const sessionGuard = new SessionRateLimitGuard({
       windowMs: 60_000,
-      maxCalls: 10, // rolling window
+      maxCalls: 30, // rolling window
       budgetCap: 80, // corpus-wide budget
     });
 

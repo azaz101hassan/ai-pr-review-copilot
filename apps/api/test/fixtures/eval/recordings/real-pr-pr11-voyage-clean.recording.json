@@ -1,7 +1,50 @@
 {
   "status": "emitted",
   "fixtureId": "real-pr-pr11-voyage-clean",
-  "findings": [],
+  "findings": [
+    {
+      "rule_id": "no-await-in-loop",
+      "title": "Avoid sequential await inside a loop when iterations are independent",
+      "message": "The retry loop awaits a timeout inside the loop body: `await new Promise((resolve) => setTimeout(resolve, retryAfterMs))`. If subsequent rate-limit retries are independent, consider using a backoff strategy outside the loop or consolidate the retry logic to a separate retry utility. If sequential retry delays are intentional (which they appear to be for exponential backoff), add a comment documenting the dependency.",
+      "location_hint": "apps/api/src/infrastructure/voyage/voyage-embedding.provider.ts:176",
+      "citation": "if (isRateLimit && !isLastAttempt) {\n        await new Promise((resolve) => setTimeout(resolve, retryAfterMs));\n        continue;\n      }",
+      "faithfulness": {
+        "score": 0.4,
+        "claims": [
+          {
+            "claim": "The retry loop awaits a timeout inside the loop body with `await new Promise((resolve) => setTimeout(resolve, retryAfterMs))`.",
+            "kind": "",
+            "reason": "The diff shows this exact code at line 176 (in the context of the new retry loop): `await new Promise((resolve) => setTimeout(resolve, retryAfterMs));` appears within the `for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++)` loop.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The retry loop contains sequential awaits inside the loop body.",
+            "kind": "",
+            "reason": "The diff shows the await statement is inside the for loop, and the loop iterates sequentially through attempts. Each iteration that hits a rate limit will await the timeout before continuing to the next iteration.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The sequential retry delays are intentional for exponential backoff.",
+            "kind": "",
+            "reason": "The diff does not show exponential backoff logic. Instead, the code uses a fixed `DEFAULT_RATE_LIMIT_BACKOFF_MS = 35_000` or a parsed `Retry-After` header value. The comment in the diff explains the 35s window is for Voyage's quota reset, not exponential backoff. The rule document mentions keeping sequential awaits when 'each iteration must wait for the previous one', but the finding claims this is 'exponential backoff' which is not supported by the evidence.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "If sequential retry delays are intentional, a comment should document the dependency.",
+            "kind": "",
+            "reason": "The rule document states: 'Keep the loop when each iteration must wait for the previous one (e.g., paginated reads where the next cursor depends on the prior response).' The finding recommends adding a comment if sequential delays are intentional. The diff does include a detailed comment block (lines 17-26) explaining the retry policy, though it does not explicitly document why the sequential await is necessary. However, the comment does explain the rationale for the 35s backoff and the provider-level retry strategy.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "Subsequent rate-limit retries are independent.",
+            "kind": "",
+            "reason": "The finding suggests that if subsequent retries are independent, a backoff strategy outside the loop or consolidated retry logic should be used. However, the diff shows that each retry attempt depends on the previous one failing with a 429 status, and the retry logic is intentionally sequential to respect the Retry-After header and allow the rate-limit window to reset. The comment in the diff explains this is by design. The rule document supports sequential awaits when iterations are dependent (e.g., paginated reads), which applies here.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    }
+  ],
   "ruleSet": [
     "config-service-only",
     "drizzle-schema-source-of-truth",
@@ -21,7 +64,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }

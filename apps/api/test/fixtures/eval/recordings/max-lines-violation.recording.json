@@ -4,71 +4,131 @@
   "findings": [
     {
       "rule_id": "max-lines-per-function",
-      "title": "Keep functions short \u2014 under ~50 lines",
-      "message": "The processOrder function now spans 67 lines (lines 8\u201374), exceeding the ~50-line guideline. Extract sub-helpers for validation, discount calculation, tax calculation, shipping calculation, persistence, notification, and inventory updates into separate named functions to keep the main function concise and focused.",
-      "location_hint": "src/process-order.js:5-74",
-      "citation": "function processOrder(order) {\n  // validate\n  if (!order) throw new Error('no order');\n  ...\n  return record;\n}",
+      "title": "Keep functions short — under ~50 lines",
+      "message": "The `processOrder` function now spans 70+ lines and does validation, calculations (subtotal, discount, tax, shipping), persistence, notifications, analytics, loyalty, inventory, and audit logging. Extract sub-helpers to keep functions under ~50 lines: validate(), calculatePricing(), persist(), notify(), trackAnalytics(), etc.",
+      "location_hint": "src/process-order.js:5-70",
+      "citation": "export function processOrder(order) {\n  // validate\n  if (!order) throw new Error('no order');\n  // ... 60+ more lines including discounts, tax, shipping, persistence, notifications, analytics, loyalty, inventory, audit",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The processOrder function spans 67 lines (lines 8\u201374).",
+            "claim": "The processOrder function spans 70+ lines.",
             "kind": "",
-            "reason": "The diff shows the function body starting at line 5 (the function declaration) and the last line of code is at line 74 (the return statement). Counting from line 8 (first line after the function declaration) to line 74 gives 67 lines of function body. This is directly visible in the diff.",
+            "reason": "The diff shows the processOrder function body spans from line 5 to line 70, which is 65 lines of code. The finding states '70+ lines' which is approximately accurate given the function length shown in the diff.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function exceeds the ~50-line guideline.",
+            "claim": "The processOrder function performs validation.",
             "kind": "",
-            "reason": "The rule document states 'Keep functions short \u2014 under ~50 lines'. The diff shows the processOrder function spans 67 lines, which is greater than 50 lines. This directly contradicts the guideline.",
+            "reason": "The diff shows validation logic at lines 7-14, including checks for order existence, user, items, and item properties (id, price, negative price).",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains validation logic that should be extracted into a separate named function.",
+            "claim": "The processOrder function performs calculations for subtotal.",
             "kind": "",
-            "reason": "The rule document's 'Good' example shows extracting validation into a separate function: 'validate(order);'. The diff shows lines 8\u201317 contain validation checks (checking for order, user, items, item ids, prices, etc.). The rule document supports extracting such logic into sub-helpers.",
+            "reason": "The diff shows subtotal calculation at lines 16-19, iterating through items and summing price * quantity.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains discount calculation logic that should be extracted into a separate named function.",
+            "claim": "The processOrder function performs calculations for discount.",
             "kind": "",
-            "reason": "The rule document's 'Good' example shows extracting logic into separate functions. The diff shows lines 19\u201328 contain discount calculation logic (coupon handling and premium tier discounts). The rule document supports extracting such logic into sub-helpers.",
+            "reason": "The diff shows discount calculation at lines 21-28, handling coupon types (percent and fixed) and premium user tier discounts.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains tax calculation logic that should be extracted into a separate named function.",
+            "claim": "The processOrder function performs calculations for tax.",
             "kind": "",
-            "reason": "The rule document's 'Good' example shows extracting logic into separate functions. The diff shows lines 30\u201335 contain tax calculation logic based on region. The rule document supports extracting such logic into sub-helpers.",
+            "reason": "The diff shows tax calculation at lines 30-35, applying region-based tax rates (CA, NY, TX, default).",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains shipping calculation logic that should be extracted into a separate named function.",
+            "claim": "The processOrder function performs calculations for shipping.",
             "kind": "",
-            "reason": "The rule document's 'Good' example shows extracting logic into separate functions. The diff shows lines 37\u201341 contain shipping calculation logic. The rule document supports extracting such logic into sub-helpers.",
+            "reason": "The diff shows shipping calculation at lines 37-41, with logic for express shipping, free shipping over $50, and default $8 shipping.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains persistence logic that should be extracted into a separate named function.",
+            "claim": "The processOrder function performs persistence.",
             "kind": "",
-            "reason": "The rule document's 'Good' example shows extracting persistence into a separate function: 'const saved = persist(order);'. The diff shows lines 43\u201345 contain persistence logic (creating the record and saving to db). The rule document supports extracting such logic into sub-helpers.",
+            "reason": "The diff shows persistence logic at lines 43-45, saving the order record to db.orders.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains notification logic that should be extracted into a separate named function.",
+            "claim": "The processOrder function performs notifications.",
             "kind": "",
-            "reason": "The rule document's 'Good' example shows extracting notification into a separate function: 'notify(saved);'. The diff shows lines 47\u201356 contain notification logic (email, SMS, analytics, and loyalty points). The rule document supports extracting such logic into sub-helpers.",
+            "reason": "The diff shows notification logic at lines 47-51, sending email and SMS notifications to the user.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains inventory update logic that should be extracted into a separate named function.",
+            "claim": "The processOrder function performs analytics tracking.",
             "kind": "",
-            "reason": "The rule document states to 'Extract sub-helpers' for functions that do more than one thing. The diff shows lines 58\u201361 contain inventory update logic (decrementing inventory for each item). The rule document supports extracting such logic into sub-helpers.",
+            "reason": "The diff shows analytics tracking at lines 53-54, calling analytics.track() with order_placed event.",
             "verdict": "supported"
           },
           {
-            "claim": "Extracting sub-helpers will keep the main processOrder function concise and focused.",
+            "claim": "The processOrder function performs loyalty point operations.",
             "kind": "",
-            "reason": "The rule document's 'Good' example demonstrates that extracting sub-helpers results in a concise, focused main function that is easier to understand. The rule document states 'Functions that span many screens are hard to keep in working memory and usually do more than one thing. Extract sub-helpers.' This directly supports the claim that extraction improves focus and conciseness.",
+            "reason": "The diff shows loyalty logic at lines 56-60, adding points based on user tier (premium gets full total, others get half).",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs inventory operations.",
+            "kind": "",
+            "reason": "The diff shows inventory logic at lines 62-64, decrementing inventory for each item in the order.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function performs audit logging.",
+            "kind": "",
+            "reason": "The diff shows audit logging at lines 66-67, writing an order.created event to the audit log.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Functions that span many screens are hard to keep in working memory.",
+            "kind": "",
+            "reason": "This claim is a general principle stated in the rule document. It is a restatement of the rule's rationale.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Long functions usually do more than one thing.",
+            "kind": "",
+            "reason": "This claim is a general principle stated in the rule document. It is a restatement of the rule's rationale.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Sub-helpers should be extracted to keep functions under ~50 lines.",
+            "kind": "",
+            "reason": "This is the core recommendation from the rule document, which explicitly states 'Extract sub-helpers' and provides a good example showing validate(), persist(), notify() as separate functions.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function should have a validate() sub-helper extracted.",
+            "kind": "",
+            "reason": "The finding recommends extracting validate() as a sub-helper. The rule document's good example shows validate(order) as a separate function call. The diff shows validation logic (lines 7-14) that could be extracted.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function should have a calculatePricing() sub-helper extracted.",
+            "kind": "",
+            "reason": "The finding recommends extracting calculatePricing() as a sub-helper. The diff shows pricing calculations (subtotal, discount, tax, shipping at lines 16-41) that could be extracted into this function.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function should have a persist() sub-helper extracted.",
+            "kind": "",
+            "reason": "The finding recommends extracting persist() as a sub-helper. The rule document's good example shows persist(order) as a separate function call. The diff shows persistence logic (lines 43-45) that could be extracted.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function should have a notify() sub-helper extracted.",
+            "kind": "",
+            "reason": "The finding recommends extracting notify() as a sub-helper. The rule document's good example shows notify(saved) as a separate function call. The diff shows notification logic (lines 47-51) that could be extracted.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The processOrder function should have a trackAnalytics() sub-helper extracted.",
+            "kind": "",
+            "reason": "The finding recommends extracting trackAnalytics() as a sub-helper. The diff shows analytics tracking logic (lines 53-54) that could be extracted.",
             "verdict": "supported"
           }
         ]
@@ -77,77 +137,59 @@
     {
       "rule_id": "complexity",
       "title": "Keep cyclomatic complexity low",
-      "message": "The processOrder function has high cyclomatic complexity due to nested conditionals (coupon type check, premium tier check, region-based tax calculation, shipping conditions, loyalty tier logic) combined with multiple sequential operations. Refactor by extracting discount calculation, tax calculation, and shipping calculation into separate named functions with early returns to reduce complexity below 10.",
-      "location_hint": "src/process-order.js:23-41",
-      "citation": "if (order.coupon) {\n    if (order.coupon.type === 'percent') {\n      discount = subtotal * (order.coupon.value / 100);\n    } else if (order.coupon.type === 'fixed') {\n      discount = order.coupon.value;\n    }\n  }\n  if (order.user.tier === 'premium') {\n    discount += subtotal * 0.05;\n  }\n  // tax\n  let tax = 0;\n  const region = order.shipping?.region ?? 'default';\n  if (region === 'CA') tax = subtotal * 0.0725;\n  else if (region === 'NY') tax = subtotal * 0.08875;\n  else if (region === 'TX') tax = subtotal * 0.0625;\n  else tax = subtotal * 0.05;",
+      "message": "The `processOrder` function has high cyclomatic complexity due to multiple nested conditionals for coupon types, region-based tax rates, shipping conditions, and loyalty tier checks. Refactor by extracting region tax logic and coupon/discount logic into named helper functions to reduce nesting.",
+      "location_hint": "src/process-order.js:23-39",
+      "citation": "if (order.coupon) {\n  if (order.coupon.type === 'percent') {\n    discount = subtotal * (order.coupon.value / 100);\n  } else if (order.coupon.type === 'fixed') {\n    discount = order.coupon.value;\n  }\n}\nif (order.user.tier === 'premium') {\n  discount += subtotal * 0.05;\n}\nconst region = order.shipping?.region ?? 'default';\nif (region === 'CA') tax = subtotal * 0.0725;\nelse if (region === 'NY') tax = subtotal * 0.08875;\nelse if (region === 'TX') tax = subtotal * 0.0625;\nelse tax = subtotal * 0.05;",
       "faithfulness": {
-        "score": 0.5454545454545454,
+        "score": 0.75,
         "claims": [
           {
             "claim": "The processOrder function has high cyclomatic complexity.",
             "kind": "",
-            "reason": "The diff shows the processOrder function contains multiple nested conditionals (coupon type check with if/else if, premium tier check, region-based tax calculation with multiple if/else if branches, shipping conditions with if/else if/else) and sequential operations (validation, discount calculation, tax calculation, shipping calculation, persistence, notifications, analytics, loyalty, inventory, audit logging). The rule document states that functions with deeply nested conditionals and many independent branches are hard to test and reason about, and the code exhibits this pattern. However, the actual cyclomatic complexity metric is not explicitly calculated in the evidence provided.",
+            "reason": "The rule document defines high cyclomatic complexity as functions with deeply nested conditionals and many independent branches that are hard to test and reason about, aiming for complexity under 10. The diff shows the processOrder function contains multiple nested conditionals (coupon type checks, region-based tax checks, shipping conditions, loyalty tier checks) and many independent branches (validation, discount calculation, tax calculation, shipping calculation, persistence, notifications, analytics, loyalty, inventory, audit logging). While the exact cyclomatic complexity metric is not calculated, the presence of these multiple nested and independent branches aligns with the rule's definition of high complexity.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function has nested conditionals for coupon type checking.",
+            "claim": "The high cyclomatic complexity is due to multiple nested conditionals for coupon types.",
             "kind": "",
-            "reason": "The diff clearly shows nested conditionals for coupon type checking at lines 23-28: 'if (order.coupon) { if (order.coupon.type === 'percent') { ... } else if (order.coupon.type === 'fixed') { ... } }'",
+            "reason": "The diff shows nested conditionals for coupon types at lines 23-26: 'if (order.coupon) { if (order.coupon.type === 'percent') { ... } else if (order.coupon.type === 'fixed') { ... } }'. This is a direct example of nested conditionals for coupon type handling visible in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function has a premium tier check.",
+            "claim": "The high cyclomatic complexity is due to region-based tax rates.",
             "kind": "",
-            "reason": "The diff shows a premium tier check at lines 29-31: 'if (order.user.tier === 'premium') { discount += subtotal * 0.05; }'",
+            "reason": "The diff shows region-based tax rate conditionals at lines 32-35: 'if (region === 'CA') tax = subtotal * 0.0725; else if (region === 'NY') tax = subtotal * 0.08875; else if (region === 'TX') tax = subtotal * 0.0625; else tax = subtotal * 0.05;'. This is a direct example of multiple conditional branches for region-based tax logic visible in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function has region-based tax calculation.",
+            "claim": "The high cyclomatic complexity is due to shipping conditions.",
             "kind": "",
-            "reason": "The diff shows region-based tax calculation at lines 34-39 with multiple conditional branches: 'if (region === 'CA') tax = subtotal * 0.0725; else if (region === 'NY') tax = subtotal * 0.08875; else if (region === 'TX') tax = subtotal * 0.0625; else tax = subtotal * 0.05;'",
+            "reason": "The diff shows shipping condition conditionals at lines 37-40: 'if (order.shipping?.express) shipping = 25; else if (subtotal > 50) shipping = 0; else shipping = 8;'. This is a direct example of multiple conditional branches for shipping logic visible in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function has shipping conditions.",
+            "claim": "The high cyclomatic complexity is due to loyalty tier checks.",
             "kind": "",
-            "reason": "The diff shows shipping conditions at lines 41-45: 'if (order.shipping?.express) shipping = 25; else if (subtotal > 50) shipping = 0; else shipping = 8;'",
+            "reason": "The diff shows loyalty tier checks at lines 27-28 ('if (order.user.tier === 'premium') { discount += subtotal * 0.05; }') and at lines 54-58 ('if (order.user.tier === 'premium') { loyalty.addPoints(...) } else { loyalty.addPoints(...) }'). These are direct examples of conditional branches for loyalty tier logic visible in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function has loyalty tier logic.",
+            "claim": "The processOrder function should be refactored by extracting region tax logic into named helper functions.",
             "kind": "",
-            "reason": "The diff shows loyalty tier logic at lines 56-60: 'if (order.user.tier === 'premium') { loyalty.addPoints(order.user.id, Math.floor(total)); } else { loyalty.addPoints(order.user.id, Math.floor(total / 2)); }'",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function should be refactored by extracting discount calculation into a separate named function.",
-            "kind": "",
-            "reason": "The rule document recommends extracting functions and using early returns to reduce complexity. The finding explicitly recommends extracting discount calculation into a separate named function. However, the diff does not show this refactoring being performed\u2014the discount calculation logic remains inline in the processOrder function.",
+            "reason": "The rule document explicitly recommends extracting logic into named functions to reduce complexity, stating 'Extract guard clauses; use early returns; replace boolean chains with named predicates.' The finding cites this recommendation and suggests extracting region tax logic into named helper functions. However, the diff does not show any such extraction—the region tax logic remains inline in the processOrder function. The finding recommends this refactoring, but the diff does not implement it.",
             "verdict": "not_supported"
           },
           {
-            "claim": "The processOrder function should be refactored by extracting tax calculation into a separate named function.",
+            "claim": "The processOrder function should be refactored by extracting coupon/discount logic into named helper functions.",
             "kind": "",
-            "reason": "The rule document recommends extracting functions and using early returns to reduce complexity. The finding explicitly recommends extracting tax calculation into a separate named function. However, the diff does not show this refactoring being performed\u2014the tax calculation logic remains inline in the processOrder function.",
+            "reason": "The rule document recommends extracting logic into named functions to reduce complexity. The finding suggests extracting coupon/discount logic into named helper functions. However, the diff does not show any such extraction—the coupon and discount logic remains inline in the processOrder function. The finding recommends this refactoring, but the diff does not implement it.",
             "verdict": "not_supported"
           },
           {
-            "claim": "The processOrder function should be refactored by extracting shipping calculation into a separate named function.",
+            "claim": "Extracting region tax logic and coupon/discount logic into named helper functions would reduce nesting.",
             "kind": "",
-            "reason": "The rule document recommends extracting functions and using early returns to reduce complexity. The finding explicitly recommends extracting shipping calculation into a separate named function. However, the diff does not show this refactoring being performed\u2014the shipping calculation logic remains inline in the processOrder function.",
-            "verdict": "not_supported"
-          },
-          {
-            "claim": "The refactored functions should use early returns to reduce complexity.",
-            "kind": "",
-            "reason": "The rule document explicitly recommends using early returns to reduce complexity, and the finding recommends extracting functions with early returns. However, the diff does not show any extracted functions with early returns\u2014the code remains in its original inline form without refactoring.",
-            "verdict": "not_supported"
-          },
-          {
-            "claim": "The cyclomatic complexity should be reduced below 10.",
-            "kind": "",
-            "reason": "The rule document states the goal is to aim for cyclomatic complexity under 10. The finding recommends reducing complexity below 10. However, the diff does not show the refactoring necessary to achieve this goal\u2014the code structure remains unchanged from the original problematic form.",
-            "verdict": "not_supported"
+            "reason": "The rule document supports this principle, stating that extracting logic and using named predicates helps reduce complexity. This is a general principle stated in the rule. However, the diff does not demonstrate this reduction—the code still contains the nested conditionals inline. The claim about what would reduce nesting is supported by the rule's guidance, but the actual implementation in the diff does not show this reduction.",
+            "verdict": "supported"
           }
         ]
       }
@@ -172,7 +214,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "80878730eb1078d6de9e168103498e51f79470182b1e64046f24682bbfd9cd7b",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }

@@ -5,58 +5,28 @@
     {
       "rule_id": "eqeqeq",
       "title": "Use === and !==, never == or !=",
-      "message": "Replace loose equality operators (== and !=) with strict equality (=== and !==). Loose equality performs type coercion that hides bugs. The diff replaces five strict equality checks with loose equality checks: 'order.status == \"pending\"', 'order.couponCode != null', 'order.user.role == \"admin\"', 'order.tier != \"free\"', and 'order.shippingMethod == \"express\"'. Revert these changes back to strict equality operators.",
-      "location_hint": "src/checkout.js:13-27",
-      "citation": "- if (order.status === \"pending\") {\n+ if (order.status == \"pending\") {\n...\n- if (order.couponCode !== null) {\n+ if (order.couponCode != null) {\n...\n- if (order.tier !== \"free\") {\n+ if (order.tier != \"free\") {",
+      "message": "Replace loose equality operators with strict equality. The diff changed strict equality checks (=== and !==) to loose equality (== and !=), which perform type coercion and can hide bugs. Always use === and !== instead.",
+      "location_hint": "src/checkout.js:10-24",
+      "citation": "- if (order.status === \"pending\") {\n+ if (order.status == \"pending\")\n- if (order.couponCode !== null) {\n+ if (order.couponCode != null)",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The diff replaces 'order.status === \"pending\"' with 'order.status == \"pending\"'.",
+            "claim": "The diff changed strict equality checks (=== and !==) to loose equality (== and !=).",
             "kind": "",
-            "reason": "The diff clearly shows this change at line 13, with the old code using === and the new code using ==.",
+            "reason": "The diff clearly shows multiple lines where === was replaced with == and !== was replaced with !=. Specifically: line 13 shows `===` changed to `==`, line 16 shows `!==` changed to `!=`, line 19 shows `===` changed to `==`, line 22 shows `!==` changed to `!=`, and line 25 shows `===` changed to `==`. This directly matches the finding's claim.",
             "verdict": "supported"
           },
           {
-            "claim": "The diff replaces 'order.couponCode !== null' with 'order.couponCode != null'.",
+            "claim": "Loose equality operators perform type coercion and can hide bugs.",
             "kind": "",
-            "reason": "The diff clearly shows this change at line 15, with the old code using !== and the new code using !=.",
+            "reason": "The rule document explicitly states: 'Loose equality performs type coercion that hides bugs (\"0\" == false, null == undefined, etc.).' This is a direct restatement of the rule document's core principle.",
             "verdict": "supported"
           },
           {
-            "claim": "The diff replaces 'order.user.role === \"admin\"' with 'order.user.role == \"admin\"'.",
+            "claim": "Strict equality (=== and !==) should always be used instead of loose equality (== and !=).",
             "kind": "",
-            "reason": "The diff clearly shows this change at line 17, with the old code using === and the new code using ==.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The diff replaces 'order.tier !== \"free\"' with 'order.tier != \"free\"'.",
-            "kind": "",
-            "reason": "The diff clearly shows this change at line 19, with the old code using !== and the new code using !=.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The diff replaces 'order.shippingMethod === \"express\"' with 'order.shippingMethod == \"express\"'.",
-            "kind": "",
-            "reason": "The diff clearly shows this change at line 21, with the old code using === and the new code using ==.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Loose equality operators (== and !=) perform type coercion that hides bugs.",
-            "kind": "",
-            "reason": "The rule document explicitly states: 'Loose equality performs type coercion that hides bugs (\"0\" == false, null == undefined, etc.).'",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Strict equality operators (=== and !==) should always be used instead of loose equality operators.",
-            "kind": "",
-            "reason": "The rule document states: 'Always use strict equality.' This is the core principle of the rule.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The changes in the diff should be reverted back to strict equality operators.",
-            "kind": "",
-            "reason": "The finding explicitly requests: 'Revert these changes back to strict equality operators.' This is a direct instruction based on the rule violation identified in the diff.",
+            "reason": "The rule document states: 'Always use strict equality.' and the title is 'Use === and !==, never == or !='. This is the core directive of the rule.",
             "verdict": "supported"
           }
         ]
@@ -82,7 +52,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "65a9ef88498c80677e698007a936ef4187cb8d7a23ac0c08181032ba6ab4f616",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }

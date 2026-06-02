@@ -5,41 +5,89 @@
     {
       "rule_id": "no-var",
       "title": "Use let or const, never var",
-      "message": "Replace `var` with `let` or `const`. The diff introduces three `var` declarations (lines 2, 3, 5) where the original code used `let` and `const`. `var` is function-scoped and hoisted, which leads to subtle re-declaration and closure bugs.",
+      "message": "Replace `var` with `let` or `const`. The code uses `var sum = 0`, `var i = 0`, and `var item = items[i]`, which are function-scoped and hoisted, leading to subtle re-declaration and closure bugs. Use `const` for variables that are never reassigned and `let` for loop counters.",
       "location_hint": "src/totals.js:2-5",
-      "citation": "var sum = 0;\n  for (var i = 0; i < items.length; i++) {\n    var item = items[i];\n    sum = sum + item.price;",
+      "citation": "var sum = 0;\n  for (var i = 0; i < items.length; i++) {\n    var item = items[i];",
       "faithfulness": {
-        "score": 0.8,
+        "score": 0.7142857142857143,
         "claims": [
           {
-            "claim": "The diff introduces three var declarations at lines 2, 3, and 5 in src/totals.js.",
+            "claim": "The code uses `var sum = 0`.",
             "kind": "",
-            "reason": "The diff shows the modified code with var declarations at line 2 (var sum = 0), line 3 (for (var i = 0; i < items.length; i++)), and line 5 (var item = items[i]). The location hint and citation align with these line numbers.",
+            "reason": "The diff shows that line 2 of src/totals.js contains `var sum = 0;`, which directly matches this claim.",
             "verdict": "supported"
           },
           {
-            "claim": "The original code used let and const instead of var.",
+            "claim": "The code uses `var i = 0`.",
             "kind": "",
-            "reason": "The diff's '-' lines show the original code used 'let sum = 0' (line 2) and 'for (const item of items)' (line 3), confirming the original code used let and const.",
+            "reason": "The diff shows that line 3 of src/totals.js contains `for (var i = 0; i < items.length; i++)`, which includes the declaration `var i = 0`.",
             "verdict": "supported"
           },
           {
-            "claim": "var is function-scoped and hoisted.",
+            "claim": "The code uses `var item = items[i]`.",
             "kind": "",
-            "reason": "The rule document explicitly states 'var declarations are function-scoped and hoisted in confusing ways.' This is a direct restatement of the rule.",
+            "reason": "The diff shows that line 4 of src/totals.js contains `var item = items[i];`, which directly matches this claim.",
             "verdict": "supported"
           },
           {
-            "claim": "var leads to subtle re-declaration and closure bugs.",
+            "claim": "var declarations are function-scoped and hoisted.",
             "kind": "",
-            "reason": "The rule document states that var declarations are 'hoisted in confusing ways' and contrasts this with let and const which 'are block-scoped and behave predictably.' While the rule document does not explicitly use the phrase 're-declaration and closure bugs,' it does indicate that var's function-scoping and hoisting behavior leads to confusing/problematic outcomes. However, the specific claim about 're-declaration and closure bugs' is not explicitly stated in the rule document.",
+            "reason": "The rule document explicitly states: 'var declarations are function-scoped and hoisted in confusing ways.' This is a direct restatement of the rule.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "var declarations lead to subtle re-declaration and closure bugs.",
+            "kind": "",
+            "reason": "The rule document states that var declarations are 'hoisted in confusing ways' and contrasts them with let/const which 'behave predictably,' implying var causes bugs. However, the rule document does not explicitly mention 're-declaration and closure bugs' as specific consequences. The claim about bugs is somewhat inferred rather than directly stated.",
             "verdict": "unclear"
           },
           {
-            "claim": "let and const are block-scoped and behave predictably.",
+            "claim": "const should be used for variables that are never reassigned.",
             "kind": "",
-            "reason": "The rule document explicitly states 'let and const are block-scoped and behave predictably.' This is a direct restatement of the rule.",
+            "reason": "The rule document states: 'Prefer const by default and let only when reassignment is required.' This directly supports the claim that const should be used for variables that are never reassigned.",
             "verdict": "supported"
+          },
+          {
+            "claim": "let should be used for loop counters.",
+            "kind": "",
+            "reason": "The rule document shows a good example using `for (const item of items)` rather than a traditional for loop with a counter. While the rule emphasizes using let/const over var, it does not explicitly state that 'let should be used for loop counters.' The example uses const in a for-of loop, not let for a counter variable.",
+            "verdict": "unclear"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "prefer-template",
+      "title": "Use template literals instead of string concatenation",
+      "message": "Replace the addition operator `sum = sum + item.price` with a clearer arithmetic expression or template literal where appropriate. While this is arithmetic rather than string concatenation, the pattern change from `sum += item.price` to `sum = sum + item.price` reduces code clarity.",
+      "location_hint": "src/totals.js:5",
+      "citation": "sum = sum + item.price;",
+      "faithfulness": {
+        "score": 0.5,
+        "claims": [
+          {
+            "claim": "The code at src/totals.js:5 uses the pattern `sum = sum + item.price`.",
+            "kind": "",
+            "reason": "The diff shows line 5 contains `sum = sum + item.price;`, which matches the citation and location hint provided in the finding.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The pattern `sum = sum + item.price` reduces code clarity compared to `sum += item.price`.",
+            "kind": "",
+            "reason": "The finding asserts this, and the diff shows the code was changed from `sum += item.price` (line 4 in the original) to `sum = sum + item.price` (line 5 in the modified version). However, the rule document provided is about template literals for string concatenation, not about arithmetic operators or the choice between `+=` and `=` patterns. The rule does not address whether `sum = sum + item.price` reduces clarity compared to `sum += item.price`. This claim is not supported by the rule document.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Template literals should be used instead of string concatenation.",
+            "kind": "",
+            "reason": "This is a direct restatement of the rule document title and core principle. The rule document explicitly states 'Use template literals instead of string concatenation' and provides examples of replacing string concatenation with template literals.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The code at src/totals.js:5 involves string concatenation.",
+            "kind": "",
+            "reason": "The diff shows `sum = sum + item.price;` at line 5, which is arithmetic addition (adding a numeric price to a numeric sum), not string concatenation. The rule document is about string concatenation, but this code performs numeric arithmetic. The finding's message acknowledges this by stating 'While this is arithmetic rather than string concatenation', which contradicts the applicability of the rule to this code.",
+            "verdict": "not_supported"
           }
         ]
       }
@@ -64,7 +112,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "d0d5eb3b5dfe99e2c40d0780d65dfe11b3d37909462de54b5db2671dd9267db9",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }
