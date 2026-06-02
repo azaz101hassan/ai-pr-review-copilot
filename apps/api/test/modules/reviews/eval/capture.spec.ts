@@ -22,6 +22,8 @@ import {
   assembleThrewRecordingFromGenericError,
   assertCorpusVersion,
   assertNoRuleIdCollisions,
+  parseOnlyFlag,
+  filterEntriesByFixtureIds,
   SEED_CORPUS_VERSION,
   EXPECTED_CHUNK_COUNT,
   FULL_CORPUS_MARKER,
@@ -416,6 +418,91 @@ describe('capture.ts pure helpers', () => {
       expect(() => assertNoRuleIdCollisions(chunks)).toThrow(
         /Cross-source rule_id collision.*no-var/,
       );
+    });
+  });
+
+  describe('parseOnlyFlag', () => {
+    it('returns an empty array when --only is absent', () => {
+      expect(parseOnlyFlag(['node', 'capture.js'])).toEqual([]);
+    });
+
+    it('parses a comma-separated list passed via "--only value"', () => {
+      const argv = ['node', 'capture.js', '--only', 'foo,bar,baz'];
+      expect(parseOnlyFlag(argv)).toEqual(['foo', 'bar', 'baz']);
+    });
+
+    it('parses a comma-separated list passed via "--only=value"', () => {
+      const argv = ['node', 'capture.js', '--only=foo,bar'];
+      expect(parseOnlyFlag(argv)).toEqual(['foo', 'bar']);
+    });
+
+    it('parses a single value', () => {
+      expect(parseOnlyFlag(['node', 'capture.js', '--only', 'foo'])).toEqual(['foo']);
+    });
+
+    it('trims whitespace around comma-separated values', () => {
+      const argv = ['node', 'capture.js', '--only', ' foo , bar , baz '];
+      expect(parseOnlyFlag(argv)).toEqual(['foo', 'bar', 'baz']);
+    });
+
+    it('drops empty tokens produced by stray commas', () => {
+      const argv = ['node', 'capture.js', '--only', 'foo,,bar,'];
+      expect(parseOnlyFlag(argv)).toEqual(['foo', 'bar']);
+    });
+
+    it('throws when --only is passed with no value', () => {
+      expect(() => parseOnlyFlag(['node', 'capture.js', '--only'])).toThrow(
+        /--only requires a value/,
+      );
+    });
+
+    it('throws when --only is passed with an empty value', () => {
+      expect(() => parseOnlyFlag(['node', 'capture.js', '--only', ''])).toThrow(
+        /--only requires a value/,
+      );
+    });
+
+    it('throws when --only= is passed with an empty value', () => {
+      expect(() => parseOnlyFlag(['node', 'capture.js', '--only='])).toThrow(
+        /--only requires a value/,
+      );
+    });
+
+    it('ignores unrelated flags', () => {
+      const argv = ['node', 'capture.js', '--verbose', '--only', 'foo', '--debug'];
+      expect(parseOnlyFlag(argv)).toEqual(['foo']);
+    });
+  });
+
+  describe('filterEntriesByFixtureIds', () => {
+    const entries: LoadedManifestEntry[] = [
+      makeEntry({ fixtureId: 'alpha' }),
+      makeEntry({ fixtureId: 'bravo' }),
+      makeEntry({ fixtureId: 'charlie' }),
+    ];
+
+    it('returns all entries unchanged when ids is empty', () => {
+      const result = filterEntriesByFixtureIds(entries, []);
+      expect(result.filtered).toEqual(entries);
+      expect(result.missing).toEqual([]);
+    });
+
+    it('returns only the requested entries, preserving manifest order', () => {
+      const result = filterEntriesByFixtureIds(entries, ['charlie', 'alpha']);
+      expect(result.filtered.map((e) => e.fixtureId)).toEqual(['alpha', 'charlie']);
+      expect(result.missing).toEqual([]);
+    });
+
+    it('reports missing ids without throwing', () => {
+      const result = filterEntriesByFixtureIds(entries, ['alpha', 'delta', 'echo']);
+      expect(result.filtered.map((e) => e.fixtureId)).toEqual(['alpha']);
+      expect(result.missing).toEqual(['delta', 'echo']);
+    });
+
+    it('deduplicates repeated ids', () => {
+      const result = filterEntriesByFixtureIds(entries, ['alpha', 'alpha', 'bravo']);
+      expect(result.filtered.map((e) => e.fixtureId)).toEqual(['alpha', 'bravo']);
+      expect(result.missing).toEqual([]);
     });
   });
 });
