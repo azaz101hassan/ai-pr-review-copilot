@@ -17,10 +17,12 @@ import { GitHubRepoContextProvider } from '@/infrastructure/github/github-repo-c
 import { formatBriefError, readStatus } from '@/types';
 import {
   anchorFindingsToDiff,
+  countChangedLines,
   findWalkthroughCommentId,
   formatInlineCommentBody,
   formatReviewBody,
   formatWalkthroughBody,
+  formatWalkthroughSkippedBody,
   parseDiffHunks,
   FindingWithSeverity,
 } from './helpers';
@@ -225,6 +227,48 @@ export class ReviewsProcessor
       await this.writeStandaloneFailure(data, 'diff_too_large', 0);
       this.logger.warn(
         `${jobLogPrefix} worker.job.failed diff_too_large bytes=${diffBytes} cap=${this.config.maxDiffBytes}`,
+      );
+      return;
+    }
+
+    // Step 6a-bis — MAX_REVIEW_DIFF_LINES (soft size gate).
+    // Distinct from MAX_DIFF_BYTES above: that one is a silent
+    // failure for runaway-size system safety; this one is product
+    // policy. The reviewer's quality is reliable on small focused
+    // diffs and degrades sharply on whole-PR-scale ones, so over
+    // the threshold we POST a friendly skip-walkthrough and persist
+    // a 'completed' standalone row marked with the dedicated
+    // prompt_version. No agent loop, no Anthropic call → ~$0 on
+    // big PRs.
+    const changedLines = countChangedLines(diff);
+    if (changedLines > this.config.maxReviewDiffLines) {
+      const skipBody = formatWalkthroughSkippedBody({
+        prNodeId: data.pr_node_id,
+        changedLines,
+        limit: this.config.maxReviewDiffLines,
+      });
+      try {
+        await this.upsertWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          body: skipBody,
+        });
+      } catch (err) {
+        // Best-effort POST. If GitHub rejects the comment we still
+        // want the audit row so dashboard / metrics see the skip.
+        // Don't retry, don't fail the job — the bot's decision was
+        // "skip", and the row records that decision regardless of
+        // whether the visible comment landed.
+        this.logger.warn(
+          `${jobLogPrefix} worker.skip.walkthrough_post_failed ${formatBriefError(err)}`,
+        );
+      }
+      this.writeStandaloneSkipped(data, diffBytes);
+      this.logger.log(
+        `${jobLogPrefix} worker.job.skipped diff_size changed_lines=${changedLines} cap=${this.config.maxReviewDiffLines}`,
       );
       return;
     }
@@ -661,6 +705,46 @@ export class ReviewsProcessor
     } catch (writeErr) {
       this.logger.error(
         `failed to persist standalone completion row for pr=${data.pr_node_id} — ${formatBriefError(writeErr)}`,
+      );
+    }
+  }
+
+  // Standalone skipped path — runs when the diff exceeds
+  // MAX_REVIEW_DIFF_LINES. Inserts a `completed` row with the
+  // dedicated `prompt_version='standalone-skipped-too-large'` so
+  // dashboards / eval can filter these out (or specifically count
+  // them) without misclassifying. No Anthropic call ran; the
+  // walkthrough comment was posted best-effort separately.
+  private writeStandaloneSkipped(
+    data: ReviewJobData,
+    diffLength: number,
+  ): void {
+    const id = randomUUID();
+    const now = new Date();
+    try {
+      this.reviewsRepo.insert({
+        id,
+        pr_node_id: data.pr_node_id,
+        created_by: null,
+        diff_length: diffLength,
+        model: this.config.anthropicModel,
+        prompt_version: 'standalone-skipped-too-large',
+        top_k: 0,
+        retrieved_chunk_ids: '[]',
+        retrieved_chunk_ids_hash: '0'.repeat(64),
+        status: 'completed',
+        error_status: null,
+        error_code: null,
+        input_tokens: null,
+        output_tokens: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        created_at: now,
+        completed_at: now,
+      });
+    } catch (writeErr) {
+      this.logger.error(
+        `failed to persist standalone skipped row for pr=${data.pr_node_id} — ${formatBriefError(writeErr)}`,
       );
     }
   }

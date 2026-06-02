@@ -342,6 +342,137 @@ describe('ReviewsProcessor.process — guards', () => {
     }
   });
 
+  describe('size gate (MAX_REVIEW_DIFF_LINES)', () => {
+    // A diff with 5 changed lines (3 added + 2 removed). Each "+" or
+    // "-" content line counts; +++/---/@@ headers do not.
+    const FIVE_LINE_DIFF = [
+      'diff --git a/x.js b/x.js',
+      '--- a/x.js',
+      '+++ b/x.js',
+      '@@ -1,3 +1,4 @@',
+      ' context',
+      '+added one',
+      '+added two',
+      '+added three',
+      '-removed one',
+      '-removed two',
+    ].join('\n');
+
+    function withSizeCap<T>(cap: string, fn: () => Promise<T>): Promise<T> {
+      const prev = process.env.MAX_REVIEW_DIFF_LINES;
+      process.env.MAX_REVIEW_DIFF_LINES = cap;
+      return fn().finally(() => {
+        if (prev === undefined) delete process.env.MAX_REVIEW_DIFF_LINES;
+        else process.env.MAX_REVIEW_DIFF_LINES = prev;
+      });
+    }
+
+    it('posts skip-walkthrough + inserts standalone-skipped row + does NOT call runRealReview when changed lines > cap', async () => {
+      await withSizeCap('2', async () => {
+        const parts = makeProcessor({
+          octokit: makeOctokit({
+            request: jest.fn().mockResolvedValue({ data: FIVE_LINE_DIFF }),
+          }),
+        });
+
+        await parts.processor.process(makeJob());
+
+        // No agent loop ran.
+        expect(parts.runRealReview).not.toHaveBeenCalled();
+        // No formal Review POST either.
+        expect(parts.octokit.rest.pulls.createReview).not.toHaveBeenCalled();
+        // Walkthrough comment was created (cold cache → createComment).
+        expect(parts.octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+        const commentArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
+        expect(commentArgs.body).toContain('review skipped');
+      });
+    });
+
+    it('quotes the actual changed-line count and the configured cap in the skip comment', async () => {
+      await withSizeCap('2', async () => {
+        const parts = makeProcessor({
+          octokit: makeOctokit({
+            request: jest.fn().mockResolvedValue({ data: FIVE_LINE_DIFF }),
+          }),
+        });
+
+        await parts.processor.process(makeJob());
+
+        const commentArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
+        // 5 changed lines (3 added + 2 removed), cap of 2.
+        expect(commentArgs.body).toContain('5 changed lines');
+        expect(commentArgs.body).toContain('limit of **2**');
+      });
+    });
+
+    it('persists a completed standalone-skipped-too-large row carrying the diff_length', async () => {
+      await withSizeCap('2', async () => {
+        const parts = makeProcessor({
+          octokit: makeOctokit({
+            request: jest.fn().mockResolvedValue({ data: FIVE_LINE_DIFF }),
+          }),
+        });
+
+        await parts.processor.process(makeJob());
+
+        expect(parts.insert).toHaveBeenCalledTimes(1);
+        const row = parts.insert.mock.calls[0][0];
+        expect(row.status).toBe('completed');
+        expect(row.prompt_version).toBe('standalone-skipped-too-large');
+        expect(row.error_code).toBeNull();
+        expect(row.error_status).toBeNull();
+        expect(row.diff_length).toBe(Buffer.byteLength(FIVE_LINE_DIFF, 'utf8'));
+        expect(row.top_k).toBe(0);
+      });
+    });
+
+    it('still persists the standalone-skipped row when the walkthrough POST fails (best-effort)', async () => {
+      await withSizeCap('2', async () => {
+        const createCommentErr: Error & { status?: number } =
+          new Error('Bad Gateway');
+        createCommentErr.status = 502;
+        const octokit = makeOctokit({
+          request: jest.fn().mockResolvedValue({ data: FIVE_LINE_DIFF }),
+        });
+        (octokit.rest.issues.createComment as unknown as jest.Mock).mockRejectedValue(
+          createCommentErr,
+        );
+        const parts = makeProcessor({ octokit });
+
+        await expect(parts.processor.process(makeJob())).resolves.toBeUndefined();
+
+        // No agent loop, no Review POST.
+        expect(parts.runRealReview).not.toHaveBeenCalled();
+        // The audit row landed despite the comment failure.
+        expect(parts.insert).toHaveBeenCalledTimes(1);
+        expect(parts.insert.mock.calls[0][0].prompt_version).toBe(
+          'standalone-skipped-too-large',
+        );
+      });
+    });
+
+    it('does NOT skip when changed-line count is at or below the cap (boundary)', async () => {
+      // 5 changed lines, cap of 5 → strict `>` check means this runs normally.
+      await withSizeCap('5', async () => {
+        const parts = makeProcessor({
+          octokit: makeOctokit({
+            request: jest.fn().mockResolvedValue({ data: FIVE_LINE_DIFF }),
+          }),
+        });
+
+        await parts.processor.process(makeJob());
+
+        // Agent loop ran — the gate did not fire.
+        expect(parts.runRealReview).toHaveBeenCalledTimes(1);
+        // No size-skip comment.
+        const createCalls = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls;
+        for (const args of createCalls) {
+          expect(args[0].body).not.toContain('review skipped');
+        }
+      });
+    });
+  });
+
   it('exits clean on empty diff without calling Anthropic or posting, and inserts a standalone completion row', async () => {
     const parts = makeProcessor({
       octokit: makeOctokit({

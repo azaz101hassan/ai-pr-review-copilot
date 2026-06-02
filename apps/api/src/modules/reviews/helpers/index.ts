@@ -23,6 +23,10 @@ export {
   formatWalkthroughBody,
   FormatWalkthroughBodyInput,
 } from './format-walkthrough-body';
+export {
+  formatWalkthroughSkippedBody,
+  FormatWalkthroughSkippedBodyInput,
+} from './format-walkthrough-skipped-body';
 export { FindingCounts } from './finding-counts.types';
 export {
   findWalkthroughCommentId,
