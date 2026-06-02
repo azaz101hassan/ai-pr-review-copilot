@@ -61,6 +61,14 @@ export class ConfigService {
   readonly workerConcurrency: number;
   readonly shutdownDrainTimeoutMs: number;
   readonly maxDiffBytes: number;
+  // Soft size gate: changed lines (additions + deletions). PRs above
+  // this threshold are skipped with a friendly walkthrough comment
+  // instead of running the agent loop. Distinct from `maxDiffBytes`
+  // which is the hard system-safety ceiling (silent failure path).
+  // Default 500 = evidence-based "small PR" threshold; the reviewer's
+  // quality holds on focused diffs and degrades on large ones, so the
+  // gate keeps the cost/quality contract honest.
+  readonly maxReviewDiffLines: number;
 
   // Test-only escape hatches. When true, the corresponding boot
   // probe is skipped so AppModule-bootstrapping specs don't need real
@@ -141,6 +149,13 @@ export class ConfigService {
       process.env.MAX_DIFF_BYTES,
       256 * 1024,
     );
+    this.maxReviewDiffLines = this.requireBoundedInteger(
+      'MAX_REVIEW_DIFF_LINES',
+      process.env.MAX_REVIEW_DIFF_LINES,
+      500,
+      1,
+      100_000,
+    );
     this.skipGithubAppProbe = parseBooleanFlag(
       process.env.SKIP_GITHUB_APP_PROBE,
       false,
@@ -204,18 +219,20 @@ export class ConfigService {
   // ANTHROPIC_MODEL resolution order:
   //   1. Explicit ANTHROPIC_MODEL value in process.env (validated as a
   //      non-empty token).
-  //   2. NODE_ENV=production → claude-sonnet-4-6.
-  //   3. Anything else (development/test/undefined) → claude-haiku-4-5.
-  // Dev iteration runs ~8× cheaper at Haiku rates; Sonnet stays the
-  // production default for demo-quality output.
+  //   2. Otherwise → claude-haiku-4-5-20251001 in every environment.
+  // Haiku is the deliberate default: the reviewer targets small
+  // focused diffs (MAX_REVIEW_DIFF_LINES), where empirically Haiku's
+  // quality holds and per-review cost is ~$0.02-0.05. Operators who
+  // want the marginal precision gain of Sonnet on a small subset of
+  // repos can opt in by setting ANTHROPIC_MODEL explicitly.
   private resolveAnthropicModel(
     explicit: string | undefined,
-    nodeEnv: string | undefined,
+    _nodeEnv: string | undefined,
   ): string {
     if (explicit !== undefined && explicit !== '') {
       return this.requireNonEmptyToken('ANTHROPIC_MODEL', explicit);
     }
-    return nodeEnv === 'production' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+    return 'claude-haiku-4-5-20251001';
   }
 
   private resolveEnableDryRun(

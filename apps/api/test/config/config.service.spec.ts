@@ -31,6 +31,7 @@ describe('ConfigService', () => {
     WORKER_CONCURRENCY: process.env.WORKER_CONCURRENCY,
     SHUTDOWN_DRAIN_TIMEOUT_MS: process.env.SHUTDOWN_DRAIN_TIMEOUT_MS,
     MAX_DIFF_BYTES: process.env.MAX_DIFF_BYTES,
+    MAX_REVIEW_DIFF_LINES: process.env.MAX_REVIEW_DIFF_LINES,
     SKIP_GITHUB_APP_PROBE: process.env.SKIP_GITHUB_APP_PROBE,
     SKIP_REDIS_PROBE: process.env.SKIP_REDIS_PROBE,
   };
@@ -170,17 +171,22 @@ describe('ConfigService', () => {
   });
 
   describe('Anthropic model resolution', () => {
-    it('defaults to Sonnet when NODE_ENV=production and ANTHROPIC_MODEL is unset', () => {
+    // The bot targets small focused diffs (MAX_REVIEW_DIFF_LINES). On
+    // that surface Haiku's quality matches Sonnet's at ~⅓ the per-review
+    // cost, so Haiku is the deliberate default in every environment.
+    // Operators who want Sonnet on specific repos set ANTHROPIC_MODEL
+    // explicitly.
+    it('defaults to Haiku regardless of NODE_ENV (production)', () => {
       setEnv({ ...HAPPY_ENV, NODE_ENV: 'production' });
-      expect(new ConfigService().anthropicModel).toBe('claude-sonnet-4-6');
+      expect(new ConfigService().anthropicModel).toBe('claude-haiku-4-5-20251001');
     });
 
-    it('defaults to Haiku when NODE_ENV=development and ANTHROPIC_MODEL is unset', () => {
+    it('defaults to Haiku regardless of NODE_ENV (development)', () => {
       setEnv({ ...HAPPY_ENV, NODE_ENV: 'development' });
       expect(new ConfigService().anthropicModel).toBe('claude-haiku-4-5-20251001');
     });
 
-    it('defaults to Haiku when NODE_ENV=test (any non-production)', () => {
+    it('defaults to Haiku regardless of NODE_ENV (test)', () => {
       setEnv({ ...HAPPY_ENV, NODE_ENV: 'test' });
       expect(new ConfigService().anthropicModel).toBe('claude-haiku-4-5-20251001');
     });
@@ -190,22 +196,20 @@ describe('ConfigService', () => {
       expect(new ConfigService().anthropicModel).toBe('claude-haiku-4-5-20251001');
     });
 
-    it('explicit ANTHROPIC_MODEL wins over NODE_ENV defaults (Haiku in prod)', () => {
+    it('explicit ANTHROPIC_MODEL=Sonnet overrides the Haiku default', () => {
       setEnv({
         ...HAPPY_ENV,
-        NODE_ENV: 'production',
-        ANTHROPIC_MODEL: 'claude-haiku-4-5-20251001',
-      });
-      expect(new ConfigService().anthropicModel).toBe('claude-haiku-4-5-20251001');
-    });
-
-    it('explicit ANTHROPIC_MODEL wins over NODE_ENV defaults (Sonnet in dev)', () => {
-      setEnv({
-        ...HAPPY_ENV,
-        NODE_ENV: 'development',
         ANTHROPIC_MODEL: 'claude-sonnet-4-6',
       });
       expect(new ConfigService().anthropicModel).toBe('claude-sonnet-4-6');
+    });
+
+    it('explicit ANTHROPIC_MODEL=Haiku is a valid (no-op) override', () => {
+      setEnv({
+        ...HAPPY_ENV,
+        ANTHROPIC_MODEL: 'claude-haiku-4-5-20251001',
+      });
+      expect(new ConfigService().anthropicModel).toBe('claude-haiku-4-5-20251001');
     });
 
     it('explicit ANTHROPIC_MODEL accepts other model ids verbatim', () => {
@@ -220,7 +224,7 @@ describe('ConfigService', () => {
 
     it('logs the resolved model at construction', () => {
       const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
-      setEnv({ ...HAPPY_ENV, NODE_ENV: 'production' });
+      setEnv(HAPPY_ENV);
 
       new ConfigService();
 
@@ -228,7 +232,7 @@ describe('ConfigService', () => {
         typeof args[0] === 'string' && /^Resolved model:\s/.test(args[0] as string),
       );
       expect(resolvedLog).toBeDefined();
-      expect(resolvedLog![0]).toContain('claude-sonnet-4-6');
+      expect(resolvedLog![0]).toContain('claude-haiku-4-5-20251001');
       logSpy.mockRestore();
     });
   });
@@ -454,6 +458,43 @@ describe('ConfigService', () => {
     it('throws when the value is non-numeric', () => {
       setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: 'fifteen' });
       expect(() => new ConfigService()).toThrow(/ANTHROPIC_AGENT_TURN_CAP/);
+    });
+  });
+
+  describe('MAX_REVIEW_DIFF_LINES', () => {
+    it('defaults to 500 when unset (small-PR copilot threshold)', () => {
+      setEnv(HAPPY_ENV);
+      expect(new ConfigService().maxReviewDiffLines).toBe(500);
+    });
+
+    it('honours an explicit value within bounds', () => {
+      setEnv({ ...HAPPY_ENV, MAX_REVIEW_DIFF_LINES: '250' });
+      expect(new ConfigService().maxReviewDiffLines).toBe(250);
+    });
+
+    it('accepts the lower bound of 1', () => {
+      setEnv({ ...HAPPY_ENV, MAX_REVIEW_DIFF_LINES: '1' });
+      expect(new ConfigService().maxReviewDiffLines).toBe(1);
+    });
+
+    it('accepts the upper bound of 100000', () => {
+      setEnv({ ...HAPPY_ENV, MAX_REVIEW_DIFF_LINES: '100000' });
+      expect(new ConfigService().maxReviewDiffLines).toBe(100000);
+    });
+
+    it('throws when the value is zero', () => {
+      setEnv({ ...HAPPY_ENV, MAX_REVIEW_DIFF_LINES: '0' });
+      expect(() => new ConfigService()).toThrow(/MAX_REVIEW_DIFF_LINES/);
+    });
+
+    it('throws when the value exceeds the upper bound', () => {
+      setEnv({ ...HAPPY_ENV, MAX_REVIEW_DIFF_LINES: '100001' });
+      expect(() => new ConfigService()).toThrow(/MAX_REVIEW_DIFF_LINES/);
+    });
+
+    it('throws when the value is non-numeric', () => {
+      setEnv({ ...HAPPY_ENV, MAX_REVIEW_DIFF_LINES: 'lots' });
+      expect(() => new ConfigService()).toThrow(/MAX_REVIEW_DIFF_LINES/);
     });
   });
 
