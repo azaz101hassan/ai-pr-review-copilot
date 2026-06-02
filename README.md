@@ -30,7 +30,7 @@ ai-pr-review-copilot/
 │   └── web/        # Next.js — dashboard placeholder (Day 7)
 ├── docs/
 │   ├── plans/      # 10-day sprint plan + per-day implementation plans
-│   └── setup/      # GitHub App + ngrok walkthrough
+│   └── setup/      # GitHub App + webhook tunnel walkthrough
 └── .github/
     └── workflows/  # CI (tests + next build)
 ```
