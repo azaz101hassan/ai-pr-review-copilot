@@ -208,6 +208,41 @@ describe('SqliteReviewsRepository', () => {
       expect(row.tool_calls_json).toHaveLength(6);
       expect(row.tool_calls_json).toEqual(calls);
     });
+
+    // Day-8 observability persistence — confirm both new columns
+    // round-trip through markCompleted + findById.
+    it('persists hallucinated_finding_count and cache_hit_count when provided', () => {
+      repo.insert(makeReview({ id: 'rc-obs' }));
+      repo.markCompleted('rc-obs', {
+        completed_at: new Date('2026-05-27T10:00:09Z'),
+        input_tokens: 1000,
+        output_tokens: 100,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        hallucinated_finding_count: 2,
+        cache_hit_count: 5,
+      });
+
+      const row = repo.findById('rc-obs')!;
+      expect(row.hallucinated_finding_count).toBe(2);
+      expect(row.cache_hit_count).toBe(5);
+    });
+
+    it('leaves hallucinated_finding_count and cache_hit_count at default 0 when patch omits them', () => {
+      repo.insert(makeReview({ id: 'rc-obs-default' }));
+      repo.markCompleted('rc-obs-default', {
+        completed_at: new Date('2026-05-27T10:00:10Z'),
+        input_tokens: 1000,
+        output_tokens: 100,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        // Both observability counters intentionally omitted.
+      });
+
+      const row = repo.findById('rc-obs-default')!;
+      expect(row.hallucinated_finding_count).toBe(0);
+      expect(row.cache_hit_count).toBe(0);
+    });
   });
 
   describe('markFailed', () => {

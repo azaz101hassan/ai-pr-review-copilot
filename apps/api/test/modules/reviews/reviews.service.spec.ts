@@ -198,6 +198,8 @@ function happyAnalyzeResult(
         stop_reason: 'tool_use',
       },
     ],
+    hallucinatedFindingCount: 0,
+    cacheHitCount: 0,
     ...overrides,
   };
 }

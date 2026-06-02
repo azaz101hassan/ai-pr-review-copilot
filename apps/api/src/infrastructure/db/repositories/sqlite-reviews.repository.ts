@@ -97,6 +97,17 @@ export class SqliteReviewsRepository implements IReviewRepository {
         ...(patch.tool_calls !== undefined && patch.tool_calls !== null
           ? { tool_calls_json: patch.tool_calls }
           : {}),
+        // Day-8 observability counters. Omit the SET when undefined so
+        // the column's schema default (0) applies — same shape as the
+        // turn_count handling above. A caller that explicitly passes 0
+        // still writes 0, which matches the default; no behavioral
+        // difference but keeps the SET deterministic for that case.
+        ...(patch.hallucinated_finding_count !== undefined
+          ? { hallucinated_finding_count: patch.hallucinated_finding_count }
+          : {}),
+        ...(patch.cache_hit_count !== undefined
+          ? { cache_hit_count: patch.cache_hit_count }
+          : {}),
       })
       .where(eq(reviews.id, id))
       .run();

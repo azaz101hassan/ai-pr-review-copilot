@@ -325,6 +325,11 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
     const toolCalls: ToolCallRecord[] = [];
     let lastModel = model;
     let emittedFindings: Finding[] | null = null;
+    // Day-8 observability counters. Both are reported on the terminal
+    // emit_finding path (the only path that returns an AnalyzeDiffResult);
+    // failure paths throw and the column defaults to 0.
+    let cacheHitCount = 0;
+    let hallucinatedFindingCount = 0;
 
     // Per-review dedup cache for non-terminal tool calls. The model
     // sometimes asks for the same (tool, input) pair across turns —
@@ -420,6 +425,10 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
           input.rules,
           inputRuleKeys,
         );
+        // Day-8: the filter drops findings silently; surface the count
+        // so the aggregator and dashboard can show hallucination volume
+        // across the time-window slice.
+        hallucinatedFindingCount = findings.length - emittedFindings.length;
         const toolInputHash = hashToolInput(emitBlock.input);
         const resultBytes = approximateBytes(emitBlock.input);
         toolCalls.push({
@@ -446,6 +455,8 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
           promptVersion: PROMPT_AND_TOOL_VERSION,
           turnCount: turn,
           toolCalls,
+          hallucinatedFindingCount,
+          cacheHitCount,
         };
       }
 
@@ -476,6 +487,7 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
         if (cached) {
           result = { content: replayWithDedupHint(cached.content, cached.turn) };
           isCacheHit = true;
+          cacheHitCount += 1;
         } else {
           result = await this.runToolCall(block, input.repoContext);
           if (result.is_error !== true) {

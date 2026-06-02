@@ -86,6 +86,8 @@ class StubLlmReviewer implements ILlmReviewer {
       promptVersion: PROMPT_AND_TOOL_VERSION,
       turnCount: 1,
       toolCalls: [],
+      hallucinatedFindingCount: 0,
+      cacheHitCount: 0,
     };
   }
 }
