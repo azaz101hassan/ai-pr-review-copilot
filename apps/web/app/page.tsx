@@ -41,6 +41,7 @@ const ZERO_AGGREGATE: AnalyticsResponse = {
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: 0,
   },
+  skippedCount: 0,
 };
 
 export default async function AnalyticsPage({

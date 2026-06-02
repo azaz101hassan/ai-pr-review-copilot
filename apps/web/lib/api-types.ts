@@ -193,6 +193,15 @@ export interface AnalyticsResponse {
   topRules: TopRuleEntry[];
   tokenTotals: TokenTotals;
   latency: LatencyPercentiles;
+  /**
+   * Count of PRs where the size gate fired (diff exceeded
+   * MAX_REVIEW_DIFF_LINES). These rows are excluded from
+   * statusBreakdown, so the count is reported separately.
+   *
+   * Optional in the type so older API responses (pre-skippedCount)
+   * still typecheck; treat missing/undefined as 0 in the UI.
+   */
+  skippedCount?: number;
 }
 
 // Derived totals for tile rendering. Volume is not returned by the API;

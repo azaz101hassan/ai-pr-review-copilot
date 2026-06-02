@@ -29,7 +29,7 @@ import Database from 'better-sqlite3';
 const SEED_PREFIX = 'seed:';
 const SEED_REPO = 'seed-org/sample-repo';
 const SEED_AUTHOR = 'seed-author';
-const SEED_PR_COUNT = 4;
+const SEED_PR_COUNT = 6;
 
 // ---------------------------------------------------------------------------
 // Fixture data
@@ -219,6 +219,53 @@ export function buildFixtures(): { prs: SeedPr[]; reviews: SeedReview[]; finding
       tool_calls_json: null,
       created_at: now - 4 * day,
       completed_at: now - 4 * day + 1_000,
+    },
+    // Size-gate skips — diff exceeded the configured line limit, so the
+    // bot stayed out of the way and persisted a standalone-skipped-too-large
+    // row. Excluded from the main aggregates but counted by skippedCount.
+    {
+      id: `${SEED_PREFIX}rev-skipped-1`,
+      pr_node_id: `${SEED_PREFIX}${SEED_REPO}/5`,
+      created_by: null,
+      diff_length: 12_400,
+      model: 'claude-haiku-4-5',
+      prompt_version: 'standalone-skipped-too-large',
+      top_k: 0,
+      retrieved_chunk_ids: '[]',
+      retrieved_chunk_ids_hash: 'skp001',
+      status: 'completed',
+      error_status: null,
+      error_code: null,
+      input_tokens: null,
+      output_tokens: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      turn_count: 0,
+      tool_calls_json: null,
+      created_at: now - 5 * day,
+      completed_at: now - 5 * day + 200,
+    },
+    {
+      id: `${SEED_PREFIX}rev-skipped-2`,
+      pr_node_id: `${SEED_PREFIX}${SEED_REPO}/6`,
+      created_by: null,
+      diff_length: 28_700,
+      model: 'claude-haiku-4-5',
+      prompt_version: 'standalone-skipped-too-large',
+      top_k: 0,
+      retrieved_chunk_ids: '[]',
+      retrieved_chunk_ids_hash: 'skp002',
+      status: 'completed',
+      error_status: null,
+      error_code: null,
+      input_tokens: null,
+      output_tokens: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      turn_count: 0,
+      tool_calls_json: null,
+      created_at: now - 12 * hour,
+      completed_at: now - 12 * hour + 200,
     },
   ];
 

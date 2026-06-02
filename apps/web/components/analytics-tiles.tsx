@@ -43,9 +43,10 @@ interface VolumeRowProps {
   completed: number;
   failed: number;
   in_progress: number;
+  skipped: number;
 }
 
-function VolumeRow({ volume, completed, failed, in_progress }: VolumeRowProps) {
+function VolumeRow({ volume, completed, failed, in_progress, skipped }: VolumeRowProps) {
   return (
     <div>
       {/* Primary headline: glance-readable volume count, mono 4xl */}
@@ -81,6 +82,23 @@ function VolumeRow({ volume, completed, failed, in_progress }: VolumeRowProps) {
           in progress
         </span>
       </p>
+      {/*
+        Skipped sits on its own line because it isn't part of the review
+        volume — these are PRs the bot deliberately stayed out of (diff
+        exceeded the configured size limit). The smaller text size carries
+        the hierarchy on its own; no alpha modifiers needed. Only renders
+        when > 0 so we don't drag attention to a zero state.
+      */}
+      {skipped > 0 ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span className="font-mono tabular-nums text-foreground">
+            {skipped}
+          </span>{' '}
+          <span>{skipped === 1 ? 'PR' : 'PRs'} skipped</span>{' '}
+          <span aria-hidden="true">·</span>{' '}
+          <span>diff too large</span>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -321,6 +339,7 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
           completed={statusBreakdown.completed}
           failed={statusBreakdown.failed}
           in_progress={statusBreakdown.in_progress}
+          skipped={data.skippedCount ?? 0}
         />
       </section>
 
