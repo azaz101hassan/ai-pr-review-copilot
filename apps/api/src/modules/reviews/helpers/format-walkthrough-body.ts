@@ -26,13 +26,15 @@ export function formatWalkthroughBody(
 
   const sanitize = input.sanitize ?? sanitizeFindingMarkdown;
   const marker = `<!-- ai-pr-review-copilot:walkthrough:v1:pr=${input.prNodeId} -->`;
-  const header = '**🤖 AI PR Review Copilot** — automated review (walkthrough)';
+  const header = '**🤖 AI PR Review Copilot** — bot review complete';
   const reviewMarker = `<!-- ai-pr-review-copilot:v1:review-id=${input.reviewId} -->`;
 
   const lines: string[] = [marker, header, reviewMarker, ''];
 
   if (input.counts.total === 0) {
-    lines.push('_No findings — the diff matched no team rules._');
+    lines.push(
+      '_No findings. The diff is within the bot\'s small-PR scope and matched no team rules._',
+    );
     return lines.join('\n');
   }
 

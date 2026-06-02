@@ -1,15 +1,23 @@
 # AI PR Review Copilot
 
-RAG + agentic LLM that reviews GitHub pull requests against a team knowledge base. Detects coding-standard violations, suggests fixes, and posts structured review comments back to the PR.
+A focused-scope GitHub PR reviewer for your team's own conventions. Retrieves the relevant rules from a per-team knowledge base, runs an agentic Claude review against the diff, and posts inline comments + a walkthrough summary back to the PR.
 
-**Status:** Day 3 of a 10-day sprint. Today the bot can ingest GitHub PR webhooks (Day 1), semantically retrieve relevant code-style rules for a given diff via Chroma + Voyage embeddings (Day 2), **and** run an end-to-end review against a diff using Anthropic Claude with prompt-cached system prompt + forced `tool_use` for structured findings (Day 3). Agentic tool use, comment posting, and the dashboard land on later days. See [`docs/plans/01-baseline.md`](docs/plans/01-baseline.md) for the full sprint plan.
+## Scope: small-PR copilot
 
-| Day | Status | What ships | Implementation plan |
-|---|---|---|---|
-| Day 1 | ✅ shipped | Webhook receiver + SQLite storage + 49 tests | [02-day1-baseline-implementation.md](docs/plans/02-day1-baseline-implementation.md) |
-| Day 2 | ✅ shipped | Chroma + Voyage embeddings + seeded ruleset + `POST /embeddings/search` | [03-day2-rag-foundation.md](docs/plans/03-day2-rag-foundation.md) |
-| Day 3 | ✅ shipped | Anthropic adapter + `ReviewsService` + `POST /reviews/dry-run` + `npm run review:dry-run` CLI ([setup](docs/setup/claude.md)) | [04-day3-claude-integration.md](docs/plans/04-day3-claude-integration.md) |
-| Day 4 | ⏳ next | Agent loop (multi-turn tool use) | |
+This bot is **not** trying to be a general-purpose PR reviewer for arbitrary diffs. Tools like [CodeRabbit](https://www.coderabbit.ai/) already do that job well, with multi-model ensembles, web search, and 50+ static analyzers. They are the recommended tool for large-PR review on this project's repos.
+
+What this bot does instead:
+
+- Reviews **small focused PRs** (default ≤ 500 changed lines, knob: `MAX_REVIEW_DIFF_LINES`). Above the threshold it posts a friendly "review skipped" walkthrough comment and exits — **zero LLM spend on big PRs**.
+- Enforces your team's **project-specific conventions** — the rules seeded from `apps/api/seeds/` (CLAUDE.md-style standards, naming, layering, etc.). These are the things generic linters and CodeRabbit don't know about.
+- Runs on **Claude Haiku** by default for cost — typical small-PR review costs ~$0.02–0.05. Set `ANTHROPIC_MODEL=claude-sonnet-4-6` if you want the precision bump on specific repos.
+- Posts **inline review comments** anchored to the diff hunks plus a single PATCH-edited walkthrough comment per PR (no comment spam on `synchronize`).
+
+The wedge: complementary to CodeRabbit, not competitive. CodeRabbit handles "review the whole PR for generic best practices." This bot handles "did you violate the team's specific written conventions on this small change?"
+
+### Honest about its limits
+
+The reviewer's quality is reliable on focused single-purpose diffs (the eval harness in `apps/api/src/modules/reviews/eval/` measures this — micro-F1 ≥ 0.70 on synthetic gating fixtures). On large, multi-concern PRs the retrieval averages over too much noise and recall drops; that's why the size gate exists. If the bot can't do a good job, it skips honestly rather than posting a low-confidence review.
 
 ---
 
@@ -122,7 +130,7 @@ Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseli
 | Webhook auth | HMAC-SHA256 + `crypto.timingSafeEqual` |
 | Tests | Jest + supertest |
 | Monorepo | npm workspaces |
-| Future LLM | Anthropic Claude (Sonnet for analysis, Opus for synthesis) — Day 3 |
+| LLM | Anthropic Claude Haiku (default; override via `ANTHROPIC_MODEL` env) |
 
 ---
 
@@ -140,4 +148,4 @@ Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseli
 
 ## License
 
-UNLICENSED. Private project during Day 1; flipping public around Day 5 when the MVP demo is recorded.
+UNLICENSED. Personal project.
