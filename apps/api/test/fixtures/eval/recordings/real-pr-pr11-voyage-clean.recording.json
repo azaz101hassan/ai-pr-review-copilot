@@ -1,0 +1,26 @@
+{
+  "status": "emitted",
+  "fixtureId": "real-pr-pr11-voyage-clean",
+  "findings": [],
+  "ruleSet": [
+    "config-service-only",
+    "drizzle-schema-source-of-truth",
+    "module-tier-dependencies",
+    "no-await-in-loop",
+    "no-co-authored-by-claude",
+    "no-empty-catch",
+    "no-mocks-for-the-db",
+    "no-throw-literal",
+    "repository-pattern",
+    "thin-controllers"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117"
+  }
+}
