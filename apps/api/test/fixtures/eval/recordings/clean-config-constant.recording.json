@@ -5,34 +5,34 @@
     {
       "rule_id": "no-magic-numbers",
       "title": "Name your magic numbers",
-      "message": "The string literals './src/infrastructure/db/schema/*.ts' and './src/infrastructure/db/migrations' should be extracted to named constants for clarity. Although they are currently named (SCHEMA_GLOB and MIGRATIONS_DIR), the magic number rule applies to all hardcoded values. However, in this case the constants are already properly named in the diff, so no violation exists.",
-      "location_hint": "drizzle.config.ts:4-5",
-      "citation": null,
+      "message": "Extract the glob pattern and directory path into named constants at the top of the file. Currently './src/infrastructure/db/schema/*.ts' and './src/infrastructure/db/migrations' are configuration values that should have descriptive names to clarify their purpose.",
+      "location_hint": "drizzle.config.ts:3-4",
+      "citation": "const SCHEMA_GLOB = './src/infrastructure/db/schema/*.ts';\nconst MIGRATIONS_DIR = './src/infrastructure/db/migrations';",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The string literal './src/infrastructure/db/schema/*.ts' should be extracted to a named constant for clarity.",
+            "claim": "The glob pattern './src/infrastructure/db/schema/*.ts' should be extracted into a named constant.",
             "kind": "",
-            "reason": "The rule document states that literal values scattered through code should be pulled into named constants so the reader sees the intent. The diff shows that './src/infrastructure/db/schema/*.ts' was indeed extracted to the named constant SCHEMA_GLOB at the top of the file. This aligns with the rule's guidance.",
+            "reason": "The rule document states that literal values scattered through code should be pulled into named constants at the top of the file so the reader sees the intent. The finding cites this glob pattern as a configuration value that should have a descriptive name. The diff shows this pattern has been extracted into a named constant SCHEMA_GLOB at the top of the file, supporting the claim that extraction is appropriate.",
             "verdict": "supported"
           },
           {
-            "claim": "The string literal './src/infrastructure/db/migrations' should be extracted to a named constant for clarity.",
+            "claim": "The directory path './src/infrastructure/db/migrations' should be extracted into a named constant.",
             "kind": "",
-            "reason": "The rule document states that literal values should be pulled into named constants. The diff shows that './src/infrastructure/db/migrations' was extracted to the named constant MIGRATIONS_DIR at the top of the file, following the rule's guidance.",
+            "reason": "The rule document states that literal values should be pulled into named constants at the top of the file. The finding cites this directory path as a configuration value that should have a descriptive name. The diff shows this path has been extracted into a named constant MIGRATIONS_DIR at the top of the file, supporting the claim that extraction is appropriate.",
             "verdict": "supported"
           },
           {
-            "claim": "The constants SCHEMA_GLOB and MIGRATIONS_DIR are properly named in the diff.",
+            "claim": "The named constants should be placed at the top of the file.",
             "kind": "",
-            "reason": "The diff shows that both SCHEMA_GLOB and MIGRATIONS_DIR are defined as named constants at the top of the file (lines 3-4), and they are used in place of the hardcoded string literals in the config object. The names clearly indicate their purpose.",
+            "reason": "The rule document explicitly states constants should be pulled 'at the top of the file (or a shared constants module)'. The diff shows SCHEMA_GLOB and MIGRATIONS_DIR are defined at lines 3-4, immediately after the import statement and before the export default statement, which is the top of the file. This directly supports the claim.",
             "verdict": "supported"
           },
           {
-            "claim": "No violation of the magic number rule exists in this case.",
+            "claim": "The named constants should have descriptive names to clarify their purpose.",
             "kind": "",
-            "reason": "The rule requires hardcoded values to be extracted into named constants. The diff demonstrates that the string literals have been properly extracted into named constants (SCHEMA_GLOB and MIGRATIONS_DIR) and are used throughout the code. Since the extraction has already been completed, there is no violation of the rule.",
+            "reason": "The rule document states constants should be named 'so the reader sees the intent, not the value'. The finding explicitly states the constants should have 'descriptive names to clarify their purpose'. The diff shows the constants are named SCHEMA_GLOB and MIGRATIONS_DIR, which are descriptive names that clarify what each value represents (a schema glob pattern and a migrations directory). This supports the claim.",
             "verdict": "supported"
           }
         ]
@@ -91,7 +91,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
-    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
+    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
+    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
   }
 }

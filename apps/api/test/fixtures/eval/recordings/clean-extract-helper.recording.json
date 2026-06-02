@@ -1,7 +1,50 @@
 {
   "status": "emitted",
   "fixtureId": "clean-extract-helper",
-  "findings": [],
+  "findings": [
+    {
+      "rule_id": "no-magic-numbers",
+      "title": "Name your magic numbers",
+      "message": "The literal number `100` in the division `item.discountPercent / 100` is a magic number. It should be extracted into a named constant. The refactored code defines `PERCENT_DIVISOR = 100` but the original inline calculation in invoice.service.ts used the bare literal. To maintain clarity, ensure this constant is used consistently throughout the codebase.",
+      "location_hint": "src/billing/helpers/compute-line-total.ts:7",
+      "citation": "const discountFraction = item.discountPercent / PERCENT_DIVISOR;",
+      "faithfulness": {
+        "score": 0.8,
+        "claims": [
+          {
+            "claim": "The literal number 100 in the division item.discountPercent / 100 is a magic number.",
+            "kind": "",
+            "reason": "The diff shows that in the original invoice.service.ts (line 16 in the old code), the calculation used the bare literal: `item.discountPercent / 100`. This matches the finding's description of a magic number—a literal value without semantic meaning.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The magic number 100 should be extracted into a named constant.",
+            "kind": "",
+            "reason": "The rule document explicitly states: 'Pull them into named constants at the top of the file (or a shared constants module) so the reader sees the intent, not the value.' This is the core guidance of the rule.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The refactored code defines PERCENT_DIVISOR = 100.",
+            "kind": "",
+            "reason": "The diff shows that in the new file src/billing/helpers/compute-line-total.ts, line 3 defines: `const PERCENT_DIVISOR = 100;`",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The original inline calculation in invoice.service.ts used the bare literal 100.",
+            "kind": "",
+            "reason": "The diff shows the original code in invoice.service.ts at line 16 contained `item.discountPercent / 100` without a named constant.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The constant PERCENT_DIVISOR is used consistently throughout the codebase.",
+            "kind": "",
+            "reason": "The diff shows PERCENT_DIVISOR is defined in compute-line-total.ts and used once in that file (line 7). However, the diff does not show usage throughout the entire codebase—only within this one helper function. The claim of 'consistent usage throughout the codebase' cannot be verified from the provided diff, which shows only a limited scope of changes.",
+            "verdict": "unclear"
+          }
+        ]
+      }
+    }
+  ],
   "ruleSet": [
     "arrow-body-style",
     "complexity",
@@ -54,7 +97,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
-    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
+    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
+    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
   }
 }

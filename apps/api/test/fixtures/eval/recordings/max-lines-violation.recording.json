@@ -5,190 +5,112 @@
     {
       "rule_id": "max-lines-per-function",
       "title": "Keep functions short — under ~50 lines",
-      "message": "The `processOrder` function now spans 70+ lines and does validation, calculations (subtotal, discount, tax, shipping), persistence, notifications, analytics, loyalty, inventory, and audit logging. Extract sub-helpers to keep functions under ~50 lines: validate(), calculatePricing(), persist(), notify(), trackAnalytics(), etc.",
-      "location_hint": "src/process-order.js:5-70",
-      "citation": "export function processOrder(order) {\n  // validate\n  if (!order) throw new Error('no order');\n  // ... 60+ more lines including discounts, tax, shipping, persistence, notifications, analytics, loyalty, inventory, audit",
+      "message": "The `processOrder` function now spans 67 lines (from line 5 to line 71), exceeding the recommended ~50 line limit. Extract sub-helpers for validation, discount computation, tax calculation, and notification logic into separate named functions to improve readability and maintainability.",
+      "location_hint": "src/process-order.js:5-71",
+      "citation": "export function processOrder(order) {\n  // validate\n  if (!order) throw new Error('no order');\n  if (!order.user) throw new Error('no user');\n  // ... (62 more lines) ...\n  return record;\n}",
       "faithfulness": {
-        "score": 1,
+        "score": 0.8571428571428571,
         "claims": [
           {
-            "claim": "The processOrder function spans 70+ lines.",
+            "claim": "The processOrder function spans 67 lines (from line 5 to line 71).",
             "kind": "",
-            "reason": "The diff shows the processOrder function body spans from line 5 to line 70, which is 65 lines of code. The finding states '70+ lines' which is approximately accurate given the function length shown in the diff.",
+            "reason": "The diff shows the processOrder function starting at line 5 and the added content extends to line 70 (the closing brace is at line 70, making the function span from line 5 to line 70, which is 66 lines). The finding claims 67 lines (5 to 71), which is off by one line. However, the diff clearly shows the function is long and exceeds typical line counts.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "The processOrder function exceeds the recommended ~50 line limit.",
+            "kind": "",
+            "reason": "The diff shows the processOrder function contains approximately 66-67 lines of code, which is clearly more than the ~50 line limit stated in the rule document. The rule document explicitly states 'Keep functions short — under ~50 lines' and the diff demonstrates the function far exceeds this threshold.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function performs validation.",
+            "claim": "The processOrder function contains validation logic.",
             "kind": "",
-            "reason": "The diff shows validation logic at lines 7-14, including checks for order existence, user, items, and item properties (id, price, negative price).",
+            "reason": "The diff shows lines 7-16 contain validation checks (checking for order, user, items, item ids, prices, etc.), which is explicitly labeled as '// validate' in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function performs calculations for subtotal.",
+            "claim": "The processOrder function contains discount computation logic.",
             "kind": "",
-            "reason": "The diff shows subtotal calculation at lines 16-19, iterating through items and summing price * quantity.",
+            "reason": "The diff shows lines 22-28 contain discount computation logic (handling coupon types and premium user discounts), which is explicitly labeled as '// apply discounts' in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function performs calculations for discount.",
+            "claim": "The processOrder function contains tax calculation logic.",
             "kind": "",
-            "reason": "The diff shows discount calculation at lines 21-28, handling coupon types (percent and fixed) and premium user tier discounts.",
+            "reason": "The diff shows lines 29-35 contain tax calculation logic based on region, which is explicitly labeled as '// tax' in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function performs calculations for tax.",
+            "claim": "The processOrder function contains notification logic.",
             "kind": "",
-            "reason": "The diff shows tax calculation at lines 30-35, applying region-based tax rates (CA, NY, TX, default).",
+            "reason": "The diff shows lines 45-50 contain notification logic (email and SMS sending), which is explicitly labeled as '// notify' in the code.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function performs calculations for shipping.",
+            "claim": "Extracting sub-helpers for validation, discount computation, tax calculation, and notification logic would improve readability and maintainability.",
             "kind": "",
-            "reason": "The diff shows shipping calculation at lines 37-41, with logic for express shipping, free shipping over $50, and default $8 shipping.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function performs persistence.",
-            "kind": "",
-            "reason": "The diff shows persistence logic at lines 43-45, saving the order record to db.orders.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function performs notifications.",
-            "kind": "",
-            "reason": "The diff shows notification logic at lines 47-51, sending email and SMS notifications to the user.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function performs analytics tracking.",
-            "kind": "",
-            "reason": "The diff shows analytics tracking at lines 53-54, calling analytics.track() with order_placed event.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function performs loyalty point operations.",
-            "kind": "",
-            "reason": "The diff shows loyalty logic at lines 56-60, adding points based on user tier (premium gets full total, others get half).",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function performs inventory operations.",
-            "kind": "",
-            "reason": "The diff shows inventory logic at lines 62-64, decrementing inventory for each item in the order.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function performs audit logging.",
-            "kind": "",
-            "reason": "The diff shows audit logging at lines 66-67, writing an order.created event to the audit log.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Functions that span many screens are hard to keep in working memory.",
-            "kind": "",
-            "reason": "This claim is a general principle stated in the rule document. It is a restatement of the rule's rationale.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Long functions usually do more than one thing.",
-            "kind": "",
-            "reason": "This claim is a general principle stated in the rule document. It is a restatement of the rule's rationale.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Sub-helpers should be extracted to keep functions under ~50 lines.",
-            "kind": "",
-            "reason": "This is the core recommendation from the rule document, which explicitly states 'Extract sub-helpers' and provides a good example showing validate(), persist(), notify() as separate functions.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function should have a validate() sub-helper extracted.",
-            "kind": "",
-            "reason": "The finding recommends extracting validate() as a sub-helper. The rule document's good example shows validate(order) as a separate function call. The diff shows validation logic (lines 7-14) that could be extracted.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function should have a calculatePricing() sub-helper extracted.",
-            "kind": "",
-            "reason": "The finding recommends extracting calculatePricing() as a sub-helper. The diff shows pricing calculations (subtotal, discount, tax, shipping at lines 16-41) that could be extracted into this function.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function should have a persist() sub-helper extracted.",
-            "kind": "",
-            "reason": "The finding recommends extracting persist() as a sub-helper. The rule document's good example shows persist(order) as a separate function call. The diff shows persistence logic (lines 43-45) that could be extracted.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function should have a notify() sub-helper extracted.",
-            "kind": "",
-            "reason": "The finding recommends extracting notify() as a sub-helper. The rule document's good example shows notify(saved) as a separate function call. The diff shows notification logic (lines 47-51) that could be extracted.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The processOrder function should have a trackAnalytics() sub-helper extracted.",
-            "kind": "",
-            "reason": "The finding recommends extracting trackAnalytics() as a sub-helper. The diff shows analytics tracking logic (lines 53-54) that could be extracted.",
+            "reason": "The rule document states 'Extract sub-helpers' and provides an example showing how breaking a long function into separate named functions improves code quality. The rule explicitly supports this recommendation as a best practice for improving readability and maintainability.",
             "verdict": "supported"
           }
         ]
       }
     },
     {
-      "rule_id": "complexity",
-      "title": "Keep cyclomatic complexity low",
-      "message": "The `processOrder` function has high cyclomatic complexity due to multiple nested conditionals for coupon types, region-based tax rates, shipping conditions, and loyalty tier checks. Refactor by extracting region tax logic and coupon/discount logic into named helper functions to reduce nesting.",
-      "location_hint": "src/process-order.js:23-39",
-      "citation": "if (order.coupon) {\n  if (order.coupon.type === 'percent') {\n    discount = subtotal * (order.coupon.value / 100);\n  } else if (order.coupon.type === 'fixed') {\n    discount = order.coupon.value;\n  }\n}\nif (order.user.tier === 'premium') {\n  discount += subtotal * 0.05;\n}\nconst region = order.shipping?.region ?? 'default';\nif (region === 'CA') tax = subtotal * 0.0725;\nelse if (region === 'NY') tax = subtotal * 0.08875;\nelse if (region === 'TX') tax = subtotal * 0.0625;\nelse tax = subtotal * 0.05;",
+      "rule_id": "no-floating-promises",
+      "title": "Do not leave promises unhandled",
+      "message": "The `emailService.send()`, `smsService.send()`, `analytics.track()`, `loyalty.addPoints()`, `inventory.decrement()`, and `auditLog.write()` calls on lines 50–63 appear to be asynchronous operations without await, .then/.catch, or `void` prefix. Either await them, explicitly handle their promises, or prefix with `void` if intentionally fire-and-forget.",
+      "location_hint": "src/process-order.js:50-63",
+      "citation": "emailService.send(order.user.email, 'order-confirmation', record);\n    }\n    if (order.user.smsOptIn) {\n      smsService.send(order.user.phone, `Order ${record.id} confirmed`);\n    }\n    // analytics\n    analytics.track('order_placed', { userId: order.user.id, total });",
       "faithfulness": {
-        "score": 0.75,
+        "score": 1,
         "claims": [
           {
-            "claim": "The processOrder function has high cyclomatic complexity.",
+            "claim": "The `emailService.send()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
             "kind": "",
-            "reason": "The rule document defines high cyclomatic complexity as functions with deeply nested conditionals and many independent branches that are hard to test and reason about, aiming for complexity under 10. The diff shows the processOrder function contains multiple nested conditionals (coupon type checks, region-based tax checks, shipping conditions, loyalty tier checks) and many independent branches (validation, discount calculation, tax calculation, shipping calculation, persistence, notifications, analytics, loyalty, inventory, audit logging). While the exact cyclomatic complexity metric is not calculated, the presence of these multiple nested and independent branches aligns with the rule's definition of high complexity.",
+            "reason": "The diff shows `emailService.send(order.user.email, 'order-confirmation', record);` on line 51 without any await, .then/.catch, or void prefix. The rule document defines this pattern as a promise without proper handling. The citation in the finding confirms this is the code in question.",
             "verdict": "supported"
           },
           {
-            "claim": "The high cyclomatic complexity is due to multiple nested conditionals for coupon types.",
+            "claim": "The `smsService.send()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
             "kind": "",
-            "reason": "The diff shows nested conditionals for coupon types at lines 23-26: 'if (order.coupon) { if (order.coupon.type === 'percent') { ... } else if (order.coupon.type === 'fixed') { ... } }'. This is a direct example of nested conditionals for coupon type handling visible in the code.",
+            "reason": "The diff shows `smsService.send(order.user.phone, \\`Order ${record.id} confirmed\\`);` on line 54 without any await, .then/.catch, or void prefix. This matches the pattern described in the rule document as an unhandled promise.",
             "verdict": "supported"
           },
           {
-            "claim": "The high cyclomatic complexity is due to region-based tax rates.",
+            "claim": "The `analytics.track()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
             "kind": "",
-            "reason": "The diff shows region-based tax rate conditionals at lines 32-35: 'if (region === 'CA') tax = subtotal * 0.0725; else if (region === 'NY') tax = subtotal * 0.08875; else if (region === 'TX') tax = subtotal * 0.0625; else tax = subtotal * 0.05;'. This is a direct example of multiple conditional branches for region-based tax logic visible in the code.",
+            "reason": "The diff shows `analytics.track('order_placed', { userId: order.user.id, total });` on line 57 without any await, .then/.catch, or void prefix. This matches the pattern of an unhandled promise as described in the rule document.",
             "verdict": "supported"
           },
           {
-            "claim": "The high cyclomatic complexity is due to shipping conditions.",
+            "claim": "The `loyalty.addPoints()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
             "kind": "",
-            "reason": "The diff shows shipping condition conditionals at lines 37-40: 'if (order.shipping?.express) shipping = 25; else if (subtotal > 50) shipping = 0; else shipping = 8;'. This is a direct example of multiple conditional branches for shipping logic visible in the code.",
+            "reason": "The diff shows `loyalty.addPoints(order.user.id, Math.floor(total));` on line 60 and `loyalty.addPoints(order.user.id, Math.floor(total / 2));` on line 62 without any await, .then/.catch, or void prefix. These match the pattern of unhandled promises.",
             "verdict": "supported"
           },
           {
-            "claim": "The high cyclomatic complexity is due to loyalty tier checks.",
+            "claim": "The `inventory.decrement()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
             "kind": "",
-            "reason": "The diff shows loyalty tier checks at lines 27-28 ('if (order.user.tier === 'premium') { discount += subtotal * 0.05; }') and at lines 54-58 ('if (order.user.tier === 'premium') { loyalty.addPoints(...) } else { loyalty.addPoints(...) }'). These are direct examples of conditional branches for loyalty tier logic visible in the code.",
+            "reason": "The diff shows `inventory.decrement(item.id, item.quantity);` on line 65 within a for loop, without any await, .then/.catch, or void prefix. This matches the pattern of an unhandled promise.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function should be refactored by extracting region tax logic into named helper functions.",
+            "claim": "The `auditLog.write()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
             "kind": "",
-            "reason": "The rule document explicitly recommends extracting logic into named functions to reduce complexity, stating 'Extract guard clauses; use early returns; replace boolean chains with named predicates.' The finding cites this recommendation and suggests extracting region tax logic into named helper functions. However, the diff does not show any such extraction—the region tax logic remains inline in the processOrder function. The finding recommends this refactoring, but the diff does not implement it.",
-            "verdict": "not_supported"
+            "reason": "The diff shows `auditLog.write({ kind: 'order.created', orderId: record.id, total });` on line 68 without any await, .then/.catch, or void prefix. This matches the pattern of an unhandled promise as described in the rule document.",
+            "verdict": "supported"
           },
           {
-            "claim": "The processOrder function should be refactored by extracting coupon/discount logic into named helper functions.",
+            "claim": "Unhandled promises result in silently-discarded async operations where errors become unhandled-rejection warnings and the operation may complete after the caller has moved on.",
             "kind": "",
-            "reason": "The rule document recommends extracting logic into named functions to reduce complexity. The finding suggests extracting coupon/discount logic into named helper functions. However, the diff does not show any such extraction—the coupon and discount logic remains inline in the processOrder function. The finding recommends this refactoring, but the diff does not implement it.",
-            "verdict": "not_supported"
+            "reason": "This is a direct restatement of the rule document, which explicitly states: 'A promise without an await, .then/.catch, or `void` prefix is a silently-discarded async operation. Errors inside it become unhandled-rejection warnings and the operation may complete after the caller has moved on.'",
+            "verdict": "supported"
           },
           {
-            "claim": "Extracting region tax logic and coupon/discount logic into named helper functions would reduce nesting.",
+            "claim": "The unhandled promises should either be awaited, explicitly handled with .then/.catch, or prefixed with `void` if intentionally fire-and-forget.",
             "kind": "",
-            "reason": "The rule document supports this principle, stating that extracting logic and using named predicates helps reduce complexity. This is a general principle stated in the rule. However, the diff does not demonstrate this reduction—the code still contains the nested conditionals inline. The claim about what would reduce nesting is supported by the rule's guidance, but the actual implementation in the diff does not show this reduction.",
+            "reason": "This is a direct restatement of the rule document, which provides examples of good practices: 'await saveDraft()' or 'void saveDraft()'. The finding's message also recommends these exact solutions.",
             "verdict": "supported"
           }
         ]
@@ -214,7 +136,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "80878730eb1078d6de9e168103498e51f79470182b1e64046f24682bbfd9cd7b",
-    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
-    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
+    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
+    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
   }
 }
