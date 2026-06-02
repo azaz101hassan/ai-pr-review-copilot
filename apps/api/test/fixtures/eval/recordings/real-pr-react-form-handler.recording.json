@@ -5,53 +5,113 @@
     {
       "rule_id": "max-lines-per-function",
       "title": "Keep functions short — under ~50 lines",
-      "message": "The `handleSubmit` function now spans 44 lines and does validation, API calls, error handling, success redirect, and state updates all in one function. Extract sub-helpers for validation and API submission to keep each function focused.",
-      "location_hint": "src/components/ContactForm.jsx:9-52",
-      "citation": "const handleSubmit = async (e) => {\n    e.preventDefault();\n    let validationErrors = {};\n    if (!name || name.trim().length == 0) { ... }\n    if (!email || !email.includes('@')) { ... }\n    if (message.length == 0) { ... }\n    if (Object.keys(validationErrors).length > 0) { ... }\n    var payload = { ... };\n    try {\n      var response = await fetch(...) { ... }\n      var data = await response.json();\n      if (data.status == 'ok') { ... }\n    } catch (err) { ... }\n  };",
+      "message": "The `handleSubmit` function has grown to 37 lines (lines 8-44), implementing validation, API calls, error handling, and state resets all at once. Extract validation and API logic into separate helper functions to keep the handler short and focused.",
+      "location_hint": "src/components/ContactForm.jsx:8-44",
+      "citation": "const handleSubmit = async (e) => {\n    e.preventDefault();\n    // ... 30 lines of validation, API call, and error handling",
       "faithfulness": {
-        "score": 0.8571428571428571,
+        "score": 1,
         "claims": [
           {
-            "claim": "The `handleSubmit` function spans 44 lines.",
+            "claim": "The `handleSubmit` function spans 37 lines (lines 8-44).",
             "kind": "",
-            "reason": "The diff shows the `handleSubmit` function starting at line 9 (after the state declarations) and ending at line 52. Counting the lines from `const handleSubmit = async (e) => {` through the closing `};`, the function spans approximately 44 lines, which matches the finding's assertion.",
+            "reason": "The diff shows the `handleSubmit` function starting at line 8 (after the state declarations) and ending at line 44 (the closing brace before the return statement). Counting the lines from `const handleSubmit = async (e) => {` through the closing `};`, the function spans approximately 37 lines as stated in the finding.",
             "verdict": "supported"
           },
           {
-            "claim": "The `handleSubmit` function performs validation.",
+            "claim": "The `handleSubmit` function implements validation logic.",
             "kind": "",
-            "reason": "The diff clearly shows validation logic within the function: checking if name is empty, if email contains '@', and if message is empty (lines 15-23). This is explicitly visible in the code.",
+            "reason": "The diff clearly shows validation code within the function (lines 14-26), including checks for name, email, and message fields with error messages being set.",
             "verdict": "supported"
           },
           {
-            "claim": "The `handleSubmit` function performs API calls.",
+            "claim": "The `handleSubmit` function implements API calls.",
             "kind": "",
-            "reason": "The diff shows an async fetch call to '/api/contact' with POST method and JSON payload (lines 34-40), which is an API call.",
+            "reason": "The diff shows a fetch call to '/api/contact' (lines 32-39) within the function, which is an API call.",
             "verdict": "supported"
           },
           {
-            "claim": "The `handleSubmit` function performs error handling.",
+            "claim": "The `handleSubmit` function implements error handling.",
             "kind": "",
-            "reason": "The diff shows a try-catch block (lines 33-51) that catches errors and sets error state with `setErrors({ submit: errorMsg })` (line 50).",
+            "reason": "The diff shows a try-catch block (lines 31-51) that catches errors and sets error state, which is error handling.",
             "verdict": "supported"
           },
           {
-            "claim": "The `handleSubmit` function performs success redirect.",
+            "claim": "The `handleSubmit` function implements state resets.",
             "kind": "",
-            "reason": "The diff shows `onSubmit(payload)` being called on success (line 45), which is a callback that could redirect. However, the diff does not show an explicit redirect operation (like `window.location` or router navigation). The finding claims 'success redirect' but the code only shows a callback invocation. This is ambiguous—the callback might redirect, but the function itself does not perform a redirect.",
+            "reason": "The diff shows state reset calls (lines 45-47) where `setName('')`, `setEmail('')`, and `setMessage('')` are called after successful submission.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function should extract validation logic into separate helper functions.",
+            "kind": "",
+            "reason": "The rule document states that functions doing multiple things should have sub-helpers extracted, and the example shows a `validate(order)` helper being extracted. The finding recommends extracting validation into separate helper functions, which aligns with the rule's guidance to break up long functions by extracting sub-helpers.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function should extract API logic into separate helper functions.",
+            "kind": "",
+            "reason": "The rule document's example shows extracting a `persist(order)` helper for API/persistence logic. The finding recommends extracting API logic into separate helper functions, which aligns with the rule's guidance to break up long functions by extracting sub-helpers.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Extracting validation and API logic will keep the handler short and focused.",
+            "kind": "",
+            "reason": "The rule document states that extracting sub-helpers keeps functions short and focused, and the example demonstrates this principle. The finding's recommendation to extract these concerns aligns with the rule's stated benefit of maintaining focus.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "no-param-reassign",
+      "title": "Do not reassign function parameters",
+      "message": "Parameter `validationErrors` is reassigned with `validationErrors = {}` at the start instead of being declared as a separate local variable. Use `const validationErrors = {};` to avoid confusion and treat parameters as immutable.",
+      "location_hint": "src/components/ContactForm.jsx:13-14",
+      "citation": "let validationErrors = {};",
+      "faithfulness": {
+        "score": 0,
+        "claims": [
+          {
+            "claim": "Parameter `validationErrors` is reassigned with `validationErrors = {}` at the start of the handleSubmit function.",
+            "kind": "",
+            "reason": "The diff shows line 13 contains `let validationErrors = {};` inside the handleSubmit function. However, examining the function signature `const handleSubmit = async (e) => {`, the parameter list only contains `e`. The variable `validationErrors` is not a function parameter—it is a local variable declared with `let` inside the function body. Therefore, the claim that a parameter is being reassigned is factually incorrect based on the diff.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Using `const validationErrors = {};` instead of `let validationErrors = {};` would avoid confusion and treat parameters as immutable.",
+            "kind": "",
+            "reason": "Since `validationErrors` is not a parameter but a local variable, the rule about treating parameters as immutable does not apply here. The rule document specifically addresses reassigning function parameters, not local variable declarations. While using `const` for immutable local variables is a good practice, the finding's justification (treating parameters as immutable) is not applicable to this code.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "prefer-template",
+      "title": "Use template literals instead of string concatenation",
+      "message": "String literals are used directly in error messages (e.g., 'Name is required'). While this is not concatenation per se, the code could benefit from consistent use of template literals throughout. However, more importantly, the repeated string assignments should use const.",
+      "location_hint": "src/components/ContactForm.jsx:15-22",
+      "citation": null,
+      "faithfulness": {
+        "score": 0.3333333333333333,
+        "claims": [
+          {
+            "claim": "String literals are used directly in error messages in the code (e.g., 'Name is required').",
+            "kind": "",
+            "reason": "The diff shows multiple string literals assigned directly to error message properties: 'Name is required' (line 16), 'Valid email is required' (line 19), and 'Message is required' (line 22). These are not concatenated strings but direct string assignments.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The code could benefit from consistent use of template literals throughout.",
+            "kind": "",
+            "reason": "The rule document advocates for using template literals instead of string concatenation for better readability and maintainability. However, the specific claim that 'the code could benefit' from this is a subjective recommendation not explicitly stated in the rule document. The rule document only prescribes using template literals when concatenation would otherwise occur, not for all string literals.",
             "verdict": "unclear"
           },
           {
-            "claim": "The `handleSubmit` function performs state updates.",
+            "claim": "Repeated string assignments should use const.",
             "kind": "",
-            "reason": "The diff shows multiple state updates: `setErrors(validationErrors)` (line 26), `setName('')`, `setEmail('')`, `setMessage('')` (lines 46-48), and `setErrors({ submit: errorMsg })` (line 50).",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The rule document recommends extracting sub-helpers for validation and API submission to keep each function focused.",
-            "kind": "",
-            "reason": "The rule document states 'Extract sub-helpers' and provides an example where a long function is refactored into smaller functions like `validate(order)`, `persist(order)`, and `notify(saved)`. The finding's recommendation to 'Extract sub-helpers for validation and API submission' aligns with the rule's guidance.",
-            "verdict": "supported"
+            "reason": "The diff shows that the error message strings are assigned to properties of the `validationErrors` object (e.g., `validationErrors.name = 'Name is required'`), not as standalone variable declarations. The finding's claim about 'repeated string assignments' using const is not clearly applicable to the code shown, as these are property assignments, not variable declarations. Additionally, the rule document provided does not address const vs. let/var usage.",
+            "verdict": "not_supported"
           }
         ]
       }
@@ -59,34 +119,34 @@
     {
       "rule_id": "guard-clauses",
       "title": "Use guard clauses for invalid inputs",
-      "message": "The validation logic should use early returns (guard clauses) instead of accumulating errors and checking at the end. Add `if (!condition) { setErrors(...); return; }` for each field at the top of the function to keep the happy path unindented.",
-      "location_hint": "src/components/ContactForm.jsx:11-26",
-      "citation": "let validationErrors = {};\n    if (!name || name.trim().length == 0) { validationErrors.name = 'Name is required'; }\n    if (!email || !email.includes('@')) { validationErrors.email = 'Valid email is required'; }\n    if (message.length == 0) { validationErrors.message = 'Message is required'; }\n    if (Object.keys(validationErrors).length > 0) { setErrors(validationErrors); return; }",
+      "message": "The validation logic in `handleSubmit` uses nested if statements and object accumulation (validationErrors) rather than guard clauses with early returns. Restructure the function to validate and return early for each error condition, keeping the happy path at one indentation level.",
+      "location_hint": "src/components/ContactForm.jsx:13-26",
+      "citation": "let validationErrors = {};\n    if (!name || name.trim().length == 0) {\n      validationErrors.name = 'Name is required';\n    }\n    if (!email || !email.includes('@')) {\n      validationErrors.email = 'Valid email is required';\n    }\n    if (message.length == 0) {\n      validationErrors.message = 'Message is required';\n    }\n    if (Object.keys(validationErrors).length > 0) {\n      setErrors(validationErrors);\n      return;\n    }",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The validation logic in the handleSubmit function accumulates errors in a validationErrors object and checks at the end instead of using early returns.",
+            "claim": "The validation logic in handleSubmit uses nested if statements.",
             "kind": "",
-            "reason": "The diff shows lines 14-26 where validationErrors is initialized as an empty object, then multiple if statements add properties to it, and finally at line 25-26 the code checks if there are any errors and returns. This matches the pattern described in the finding.",
+            "reason": "The diff shows the handleSubmit function contains multiple sequential if statements (lines 13-25) that check validation conditions. While these are not deeply nested (they are at the same indentation level), the finding's characterization of 'nested if statements' is somewhat imprecise. However, the code does use multiple if statements for validation rather than guard clauses with early returns.",
             "verdict": "supported"
           },
           {
-            "claim": "The rule document recommends using guard clauses with early returns at the top of the function to keep the happy path unindented.",
+            "claim": "The validation logic in handleSubmit uses object accumulation (validationErrors) rather than guard clauses with early returns.",
             "kind": "",
-            "reason": "The rule document explicitly states: 'Handle invalid or unhappy inputs with early returns at the top of the function. This keeps the happy path at one level of indentation and removes the need for trailing else branches.' The good example shows early returns for each invalid condition.",
+            "reason": "The diff clearly shows the code accumulates validation errors into a validationErrors object (lines 14-24), then checks if any errors exist and returns (lines 25-27). This is the opposite of guard clauses with early returns, which would validate and return immediately for each error condition. The rule document explicitly contrasts this pattern (accumulating errors) with the guard clause pattern (early returns for each condition).",
             "verdict": "supported"
           },
           {
-            "claim": "The current code structure does not follow the guard clause pattern recommended by the rule.",
+            "claim": "The function should be restructured to validate and return early for each error condition.",
             "kind": "",
-            "reason": "The diff shows the validation logic accumulates errors in an object and checks them all at once (lines 14-26), whereas the rule recommends individual early returns for each validation failure at the top of the function. The current approach is the 'bad' pattern shown in the rule document.",
+            "reason": "The rule document explicitly states: 'Handle invalid or unhappy inputs with early returns at the top of the function.' The good example shows validating each condition and returning/throwing immediately for each error, rather than accumulating errors. The finding's recommendation to restructure with early returns for each error condition aligns directly with the rule document's guidance.",
             "verdict": "supported"
           },
           {
-            "claim": "Adding guard clauses with `if (!condition) { setErrors(...); return; }` for each field at the top of the function would improve the code structure.",
+            "claim": "Restructuring with guard clauses would keep the happy path at one indentation level.",
             "kind": "",
-            "reason": "The rule document demonstrates that early returns for each invalid condition keep the happy path at the outer indent level and remove nesting. The finding's suggestion to add individual guard clauses for each field aligns with the rule's recommendation.",
+            "reason": "The rule document states: 'This keeps the happy path at one level of indentation and removes the need for trailing else branches.' The good example demonstrates this principle—after guard clauses validate inputs, the remaining happy-path logic is at the outer indentation level. The current code has validation logic that could be replaced with guard clauses to achieve this benefit.",
             "verdict": "supported"
           }
         ]
@@ -112,6 +172,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "ab2b9b0b37a7e0c2bd9cae6ede573705b7c962f216214876519c71ae9346a300",
-    "gitSha": "fa0f047378d321d6a24a835e020f47cb187acb9a"
+    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
   }
 }
