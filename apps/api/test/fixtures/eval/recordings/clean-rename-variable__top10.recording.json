@@ -20,7 +20,7 @@
           {
             "claim": "Adding an explicit return type annotation prevents silent type widening from internal refactors.",
             "kind": "",
-            "reason": "The rule document explicitly states: 'Explicit return types are a contract — they prevent an internal refactor from silently widening the public type.' This principle is directly supported by the rule document.",
+            "reason": "The rule document explicitly states: 'Explicit return types are a contract \u2014 they prevent an internal refactor from silently widening the public type.' This principle is directly supported by the rule document.",
             "verdict": "supported"
           },
           {
@@ -52,6 +52,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
+    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117"
   }
 }

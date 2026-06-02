@@ -4,7 +4,7 @@
   "findings": [
     {
       "rule_id": "thin-controllers",
-      "title": "Keep controllers thin — validation in DTOs, logic in services",
+      "title": "Keep controllers thin \u2014 validation in DTOs, logic in services",
       "message": "Controller method contains 50+ lines of business logic including order calculation, database CRUD, and Stripe API calls. Extract to an OrdersService: move subtotal/discount/tax calculation and the Stripe integration into a service, leaving the controller to parse the DTO and delegate.",
       "location_hint": "src/modules/orders/orders.controller.ts:18-66",
       "citation": "async create(@Body() dto: CreateOrderDto) {\n    if (!dto.items || dto.items.length === 0) {\n      throw new BadRequestException('order must have at least one item');\n    }\n    let subtotal = 0;\n    for (const item of dto.items) {\n      subtotal += item.price * item.quantity;\n    }\n    // ... tax calculation, database insert, Stripe API call ...",
@@ -20,7 +20,7 @@
           {
             "claim": "The controller method includes order calculation logic (subtotal, discount, tax).",
             "kind": "",
-            "reason": "The diff explicitly shows lines 26-37 containing subtotal calculation (looping through items and multiplying price × quantity), discount calculation (conditional logic for percent vs. fixed coupons), and tax calculation (subtotal × 0.08). This directly matches the finding's claim.",
+            "reason": "The diff explicitly shows lines 26-37 containing subtotal calculation (looping through items and multiplying price \u00d7 quantity), discount calculation (conditional logic for percent vs. fixed coupons), and tax calculation (subtotal \u00d7 0.08). This directly matches the finding's claim.",
             "verdict": "supported"
           },
           {
@@ -76,7 +76,7 @@
     },
     {
       "rule_id": "no-crud-on-database-service",
-      "title": "DatabaseService is lifecycle-only — no CRUD methods",
+      "title": "DatabaseService is lifecycle-only \u2014 no CRUD methods",
       "message": "Controller calls `this.db.drizzle.insert(...)` directly, bypassing the repository pattern. Create a repository interface in modules/orders/types/ and an implementation in infrastructure/db/repositories/ to handle order persistence.",
       "location_hint": "src/modules/orders/orders.controller.ts:39-50",
       "citation": "this.db.drizzle\n      .insert(this.db.drizzle._.schema.orders)\n      .values({\n        user_id: dto.userId,\n        subtotal,\n        discount,\n        tax,\n        total,\n        status: 'pending',\n        created_at: new Date(),\n      })\n      .run();",
@@ -92,7 +92,7 @@
           {
             "claim": "The controller bypasses the repository pattern by calling `this.db.drizzle.insert(...)` directly.",
             "kind": "",
-            "reason": "The rule document states that 'Per-table CRUD goes in repositories under infrastructure/db/repositories/' and that DatabaseService should be 'lifecycle-only — no CRUD methods'. The diff shows the controller performing CRUD (insert) directly on DatabaseService.drizzle instead of delegating to a repository. This violates the stated pattern.",
+            "reason": "The rule document states that 'Per-table CRUD goes in repositories under infrastructure/db/repositories/' and that DatabaseService should be 'lifecycle-only \u2014 no CRUD methods'. The diff shows the controller performing CRUD (insert) directly on DatabaseService.drizzle instead of delegating to a repository. This violates the stated pattern.",
             "verdict": "supported"
           },
           {
@@ -166,6 +166,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "a1e4c2049e5019c9a85b77d5a5063986d407446de64980d32a6284667e7cde28",
-    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
+    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117"
   }
 }

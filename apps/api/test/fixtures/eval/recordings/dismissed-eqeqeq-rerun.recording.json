@@ -12,7 +12,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
+    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117"
   },
   "priorReviewSnapshot": [
     {
@@ -22,7 +22,7 @@
       "file_path": "src/checkout.js",
       "location_hint": "src/checkout.js:15",
       "dismissed_at": 1779712800000,
-      "message": "Use === instead of == on order.status. (Dismissed by @octocat during last week's review with rationale: \"intentional — we want type coercion here so '1' from query string matches 1\".)"
+      "message": "Use === instead of == on order.status. (Dismissed by @octocat during last week's review with rationale: \"intentional \u2014 we want type coercion here so '1' from query string matches 1\".)"
     }
   ]
 }

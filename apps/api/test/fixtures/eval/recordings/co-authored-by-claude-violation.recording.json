@@ -7,7 +7,7 @@
       "title": "Never add Co-Authored-By: Claude to commits or PRs",
       "message": "The CHANGELOG.md contains `Co-Authored-By: Claude <noreply@anthropic.com>` and `Generated with [Claude Code](https://claude.com/claude-code)` trailers. These must be removed from commit messages and PR descriptions. The human running the session is the author of every commit.",
       "location_hint": "CHANGELOG.md:10-11",
-      "citation": "Co-Authored-By: Claude <noreply@anthropic.com>\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+      "citation": "Co-Authored-By: Claude <noreply@anthropic.com>\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)",
       "faithfulness": {
         "score": 1,
         "claims": [
@@ -20,7 +20,7 @@
           {
             "claim": "The CHANGELOG.md contains `Generated with [Claude Code](https://claude.com/claude-code)` trailers",
             "kind": "",
-            "reason": "The diff shows line 12 of CHANGELOG.md with the exact text `🤖 Generated with [Claude Code](https://claude.com/claude-code)` being added in the new version section.",
+            "reason": "The diff shows line 12 of CHANGELOG.md with the exact text `\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)` being added in the new version section.",
             "verdict": "supported"
           },
           {
@@ -58,6 +58,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "c672df107db3a1f636bb278fbe953c20fee9ac8024eba5dff08a6a8735cc97b4",
-    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
+    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117"
   }
 }
