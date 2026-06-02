@@ -1,7 +1,44 @@
 {
   "status": "emitted",
   "fixtureId": "clean-config-constant",
-  "findings": [],
+  "findings": [
+    {
+      "rule_id": "no-magic-numbers",
+      "title": "Name your magic numbers",
+      "message": "The string literals './src/infrastructure/db/schema/*.ts' and './src/infrastructure/db/migrations' should be extracted to named constants for clarity. Although they are currently named (SCHEMA_GLOB and MIGRATIONS_DIR), the magic number rule applies to all hardcoded values. However, in this case the constants are already properly named in the diff, so no violation exists.",
+      "location_hint": "drizzle.config.ts:4-5",
+      "citation": null,
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The string literal './src/infrastructure/db/schema/*.ts' should be extracted to a named constant for clarity.",
+            "kind": "",
+            "reason": "The rule document states that literal values scattered through code should be pulled into named constants so the reader sees the intent. The diff shows that './src/infrastructure/db/schema/*.ts' was indeed extracted to the named constant SCHEMA_GLOB at the top of the file. This aligns with the rule's guidance.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The string literal './src/infrastructure/db/migrations' should be extracted to a named constant for clarity.",
+            "kind": "",
+            "reason": "The rule document states that literal values should be pulled into named constants. The diff shows that './src/infrastructure/db/migrations' was extracted to the named constant MIGRATIONS_DIR at the top of the file, following the rule's guidance.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The constants SCHEMA_GLOB and MIGRATIONS_DIR are properly named in the diff.",
+            "kind": "",
+            "reason": "The diff shows that both SCHEMA_GLOB and MIGRATIONS_DIR are defined as named constants at the top of the file (lines 3-4), and they are used in place of the hardcoded string literals in the config object. The names clearly indicate their purpose.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "No violation of the magic number rule exists in this case.",
+            "kind": "",
+            "reason": "The rule requires hardcoded values to be extracted into named constants. The diff demonstrates that the string literals have been properly extracted into named constants (SCHEMA_GLOB and MIGRATIONS_DIR) and are used throughout the code. Since the extraction has already been completed, there is no violation of the rule.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
   "ruleSet": [
     "arrow-body-style",
     "complexity",
@@ -54,7 +91,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }

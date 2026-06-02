@@ -5,34 +5,40 @@
     {
       "rule_id": "no-co-authored-by-claude",
       "title": "Never add Co-Authored-By: Claude to commits or PRs",
-      "message": "The CHANGELOG.md contains `Co-Authored-By: Claude <noreply@anthropic.com>` and `Generated with [Claude Code](https://claude.com/claude-code)` trailers. These must be removed from commit messages and PR descriptions. The human running the session is the author of every commit.",
-      "location_hint": "CHANGELOG.md:10-11",
-      "citation": "Co-Authored-By: Claude <noreply@anthropic.com>\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)",
+      "message": "The CHANGELOG.md update includes 'Co-Authored-By: Claude <noreply@anthropic.com>' and '🤖 Generated with [Claude Code](https://claude.com/claude-code)' trailers. These must be removed—commit messages and PR descriptions must not contain AI-attribution trailers. The author of every commit is the human running the session.",
+      "location_hint": "CHANGELOG.md:9-12",
+      "citation": "Co-Authored-By: Claude <noreply@anthropic.com>\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The CHANGELOG.md contains `Co-Authored-By: Claude <noreply@anthropic.com>`",
+            "claim": "The CHANGELOG.md update includes 'Co-Authored-By: Claude <noreply@anthropic.com>' trailer.",
             "kind": "",
-            "reason": "The diff shows lines 10-11 of CHANGELOG.md with the exact text `Co-Authored-By: Claude <noreply@anthropic.com>` being added in the new version section.",
+            "reason": "The diff shows lines 9-12 of CHANGELOG.md contain exactly this text: 'Co-Authored-By: Claude <noreply@anthropic.com>' on line 11 and '🤖 Generated with [Claude Code](https://claude.com/claude-code)' on line 13. The citation also directly quotes this trailer.",
             "verdict": "supported"
           },
           {
-            "claim": "The CHANGELOG.md contains `Generated with [Claude Code](https://claude.com/claude-code)` trailers",
+            "claim": "The CHANGELOG.md update includes '🤖 Generated with [Claude Code](https://claude.com/claude-code)' trailer.",
             "kind": "",
-            "reason": "The diff shows line 12 of CHANGELOG.md with the exact text `\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)` being added in the new version section.",
+            "reason": "The diff shows this exact text appears in the CHANGELOG.md update at lines 9-12 (specifically line 13 in the added content). The citation also directly quotes this trailer.",
             "verdict": "supported"
           },
           {
-            "claim": "These trailers must be removed from commit messages and PR descriptions",
+            "claim": "Commit messages and PR descriptions must not contain AI-attribution trailers.",
             "kind": "",
-            "reason": "The rule document explicitly states: 'Commit messages, PR descriptions, and review comments must not contain `Co-Authored-By: Claude`, `Generated with Claude Code`, or any other AI-attribution trailer.' This directly supports the requirement to remove such trailers.",
+            "reason": "The rule document explicitly states: 'Commit messages, PR descriptions, and review comments must not contain `Co-Authored-By: Claude`, `Generated with Claude Code`, or any other AI-attribution trailer.'",
             "verdict": "supported"
           },
           {
-            "claim": "The human running the session is the author of every commit",
+            "claim": "The author of every commit is the human running the session.",
             "kind": "",
-            "reason": "The rule document states: 'The author of every commit is the human running the session.' This is a direct restatement of the rule.",
+            "reason": "The rule document explicitly states: 'The author of every commit is the human running the session.' This is also reiterated in the finding message.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The Co-Authored-By: Claude and Generated with Claude Code trailers in CHANGELOG.md must be removed.",
+            "kind": "",
+            "reason": "The rule document states that commit messages and PR descriptions must not contain these trailers. The finding explicitly states 'These must be removed.' The presence of these trailers in the CHANGELOG.md violates the rule, making removal necessary.",
             "verdict": "supported"
           }
         ]
@@ -58,7 +64,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "c672df107db3a1f636bb278fbe953c20fee9ac8024eba5dff08a6a8735cc97b4",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }

@@ -1,7 +1,44 @@
 {
   "status": "emitted",
   "fixtureId": "clean-add-guard-clause__top10",
-  "findings": [],
+  "findings": [
+    {
+      "rule_id": "consistent-return",
+      "title": "Either always return a value or never return one",
+      "message": "The function mixes explicit returns with different patterns. The last line `return { term, maxResults };` always returns a value, but after applying guard-clause refactoring, the final return should be unconditional. The logic is now consistent and correct, but verify that all branches definitively return (either a SearchQuery object or undefined via the early return guard).",
+      "location_hint": "src/search/query-builder.ts:17-26",
+      "citation": null,
+      "faithfulness": {
+        "score": 0.75,
+        "claims": [
+          {
+            "claim": "The function buildSearchQuery mixes explicit returns with different patterns.",
+            "kind": "",
+            "reason": "The original code (before the diff) shows explicit `return` statements with values in some branches (lines 18-24 and 27) and an explicit `return undefined;` at the end (line 29). However, the refactored code (after the diff) consistently uses explicit returns: an early guard clause `return undefined;` (line 18) and two explicit value returns (lines 23 and 25). The finding claims the function 'mixes' patterns, but the diff shows the refactoring has actually resolved this by making all returns explicit and consistent. The finding's claim about mixing appears to describe the original code, not the refactored state.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "The last line `return { term, maxResults };` always returns a value.",
+            "kind": "",
+            "reason": "The diff shows that after refactoring, line 25 contains `return { term, maxResults };`, which is indeed an explicit return of a value (an object). This statement is factually accurate about the refactored code.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "After applying guard-clause refactoring, the final return should be unconditional.",
+            "kind": "",
+            "reason": "The diff demonstrates guard-clause refactoring: the early return `if (!rawTerm || rawTerm.trim().length === 0) return undefined;` (line 18) eliminates the outer conditional. This leaves the final `return { term, maxResults };` (line 25) as unconditional code that always executes when the function reaches that point. The rule document supports this pattern as correct practice.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "All branches of the function definitively return either a SearchQuery object or undefined via the early return guard.",
+            "kind": "",
+            "reason": "The refactored code has three execution paths: (1) the early guard clause returns `undefined` if the term is invalid (line 18), (2) if filters.category exists, the function returns a SearchQuery object with category (line 23), and (3) otherwise, the function returns a SearchQuery object without category (line 25). All paths have explicit returns with either undefined or a SearchQuery object. No path falls through without returning.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
   "ruleSet": [
     "consistent-return",
     "eqeqeq",
@@ -21,7 +58,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }

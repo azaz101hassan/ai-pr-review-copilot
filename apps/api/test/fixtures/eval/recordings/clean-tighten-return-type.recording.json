@@ -1,62 +1,7 @@
 {
   "status": "emitted",
   "fixtureId": "clean-tighten-return-type",
-  "findings": [
-    {
-      "rule_id": "explicit-function-return-type",
-      "title": "Declare return types on exported functions",
-      "message": "The `send()` method is newly exported with a return type annotation `Promise<DeliveryResult>`. However, since the method was previously untyped and callers may exist elsewhere in the codebase, verify that all call sites are compatible with the new return type. If this is an exported function, ensure the return type is explicitly declared (which it now is, so the violation is resolved).",
-      "location_hint": "src/notifications/notification.service.ts:11-16",
-      "citation": "async send(\n    userId: string,\n    channel: string,\n    payload: Record<string, unknown>,\n  ): Promise<DeliveryResult>",
-      "faithfulness": {
-        "score": 0.5714285714285714,
-        "claims": [
-          {
-            "claim": "The `send()` method is newly exported.",
-            "kind": "",
-            "reason": "The diff shows the `send()` method is a public method of the `NotificationService` class (decorated with `@Injectable()` and exported). However, the diff does not show a change in export status \u2014 the method was already part of an exported class. The finding states it is 'newly exported', but the evidence does not clearly support that the export status itself changed; rather, a return type annotation was added to an already-exported method.",
-            "verdict": "unclear"
-          },
-          {
-            "claim": "The `send()` method has a return type annotation `Promise<DeliveryResult>`.",
-            "kind": "",
-            "reason": "The diff clearly shows the method signature was updated to include `: Promise<DeliveryResult>` on lines 11-16. This is directly visible in the code change.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The `send()` method was previously untyped.",
-            "kind": "",
-            "reason": "The diff shows the old signature (line 11 in the original) as `async send(userId: string, channel: string, payload: Record<string, unknown>)` with no return type annotation. The new signature includes the return type. This confirms the method was previously untyped.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Callers of the `send()` method may exist elsewhere in the codebase.",
-            "kind": "",
-            "reason": "The diff does not show all call sites in the codebase. While it is plausible that callers exist elsewhere, the diff itself does not provide evidence of this. The finding makes a general statement about potential callers, but this is not directly inferable from the provided evidence.",
-            "verdict": "unclear"
-          },
-          {
-            "claim": "All call sites must be compatible with the new return type.",
-            "kind": "",
-            "reason": "This is a general requirement stated in the finding, but the diff does not show verification of all call sites. The rule document emphasizes that explicit return types prevent silent widening of public types, which aligns with the need for compatibility, but the diff does not demonstrate that compatibility has been verified.",
-            "verdict": "unclear"
-          },
-          {
-            "claim": "The return type is explicitly declared on the `send()` method.",
-            "kind": "",
-            "reason": "The diff clearly shows the return type annotation `: Promise<DeliveryResult>` is now present in the method signature. This is directly visible in the code.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The violation of the rule 'Declare return types on exported functions' is resolved.",
-            "kind": "",
-            "reason": "The rule requires exported functions to have explicit return type annotations. The diff shows that the `send()` method (which is part of an exported class) now has an explicit return type annotation `Promise<DeliveryResult>`. This satisfies the rule's requirement.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    }
-  ],
+  "findings": [],
   "ruleSet": [
     "arrow-body-style",
     "complexity",
@@ -109,7 +54,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117",
-    "trackedPathsHash": "8ad214317a872cbaf3d69cc400f44e98beb3acc1a642d0bb22bf03fcacc5556c"
+    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
+    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
   }
 }

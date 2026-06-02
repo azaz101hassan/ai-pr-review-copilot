@@ -409,6 +409,138 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
     });
   });
 
+  describe('loop — tool-call dedup cache', () => {
+    it('cache hit: second call with same (tool, input) skips the provider, returns prior content + steering hint, records cache_hit=true', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/checkout.js' }),
+        )
+        // Turn 2: requests the same file again — should hit the cache.
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/checkout.js' }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(result.turnCount).toBe(3);
+      expect(repoContext.fetchFile).toHaveBeenCalledTimes(1);
+      const [t1, t2, t3] = result.toolCalls;
+      expect(t1.tool_name).toBe(FETCH_FILE_TOOL_NAME);
+      expect(t1.cache_hit).toBeUndefined();
+      expect(t2.tool_name).toBe(FETCH_FILE_TOOL_NAME);
+      expect(t2.cache_hit).toBe(true);
+      expect(t2.input_hash).toBe(t1.input_hash);
+      expect(t3.cache_hit).toBeUndefined();
+
+      // Turn 3's tool_result message (the user message replying to turn 2)
+      // carries the cached content prefixed with the steering hint.
+      const turn3Args = client.messages.create.mock.calls[2][0];
+      const turn3UserMessage = turn3Args.messages[turn3Args.messages.length - 1];
+      const toolResult = turn3UserMessage.content[0];
+      expect(toolResult.type).toBe('tool_result');
+      expect(toolResult.content[0].text).toMatch(/identical request was already served on turn 1/);
+      expect(toolResult.content[0].text).toContain('file content for src/checkout.js');
+    });
+
+    it('different inputs to the same tool do NOT collide in the cache', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/a.js' }),
+        )
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/b.js' }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(repoContext.fetchFile).toHaveBeenCalledTimes(2);
+      expect(repoContext.fetchFile).toHaveBeenNthCalledWith(1, 'src/a.js');
+      expect(repoContext.fetchFile).toHaveBeenNthCalledWith(2, 'src/b.js');
+      expect(result.toolCalls[0].cache_hit).toBeUndefined();
+      expect(result.toolCalls[1].cache_hit).toBeUndefined();
+      expect(result.toolCalls[0].input_hash).not.toBe(result.toolCalls[1].input_hash);
+    });
+
+    it('error responses are NOT cached: a retried failing fetch hits the provider again', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/missing.js' }),
+        )
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/missing.js' }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider({
+        fetchFile: jest.fn(async () => ({
+          ok: false as const,
+          reason: 'not_found' as const,
+          message: 'no such file',
+        })),
+      });
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      // Both calls reached the provider — error didn't poison the cache.
+      expect(repoContext.fetchFile).toHaveBeenCalledTimes(2);
+      expect(result.toolCalls[0].is_error).toBe(true);
+      expect(result.toolCalls[1].is_error).toBe(true);
+      expect(result.toolCalls[0].cache_hit).toBeUndefined();
+      expect(result.toolCalls[1].cache_hit).toBeUndefined();
+    });
+
+    it('dedup cache is scoped per-review: a second analyzeDiff call re-hits the provider', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/a.js' }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]))
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/a.js' }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+      await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      // Two separate reviews, same path requested in each — the second
+      // review must NOT inherit the first review's cache.
+      expect(repoContext.fetchFile).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('loop — same-turn mixed content', () => {
     it('[fetch_related_file, emit_finding] in one turn — takes emit_finding, ignores the fetcher', async () => {
       const client = makeMockClient();
