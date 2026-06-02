@@ -22,8 +22,10 @@ import {
   formatInlineCommentBody,
   formatReviewBody,
   formatWalkthroughBody,
+  formatWalkthroughFailedBody,
   formatWalkthroughSkippedBody,
   parseDiffHunks,
+  FailureReason,
   FindingWithSeverity,
 } from './helpers';
 import {
@@ -183,6 +185,18 @@ export class ReviewsProcessor
       if (status === 401 || status === 404 || status === 410) {
         throw new UnrecoverableError(formatBriefError(err));
       }
+      // Other GitHub failures are retryable — post a failed-walkthrough
+      // so the PR author sees a signal between retries; a later success
+      // will PATCH-edit it back to the success body.
+      await this.tryPostFailedWalkthrough({
+        octokit,
+        owner: data.owner,
+        repo: data.repo,
+        pr_number: data.pr_number,
+        pr_node_id: data.pr_node_id,
+        reason: 'github_api_error',
+        jobLogPrefix,
+      });
       throw classifyToRequestError(err);
     }
 
@@ -195,6 +209,8 @@ export class ReviewsProcessor
       this.logger.log(
         `${jobLogPrefix} worker.job.skipped pr_state=${prState}`,
       );
+      // Intentionally do NOT post a failed-walkthrough here — the PR
+      // is closed, the author won't see it and we'd waste an API call.
       return;
     }
 
@@ -218,6 +234,17 @@ export class ReviewsProcessor
         this.githubAuth.invalidateInstallation(data.installation_id);
         throw new UnrecoverableError(formatBriefError(err));
       }
+      // Retryable GitHub failure on the diff fetch — same rationale as
+      // the pulls.get retryable branch above.
+      await this.tryPostFailedWalkthrough({
+        octokit,
+        owner: data.owner,
+        repo: data.repo,
+        pr_number: data.pr_number,
+        pr_node_id: data.pr_node_id,
+        reason: 'github_api_error',
+        jobLogPrefix,
+      });
       throw classifyToRequestError(err);
     }
 
@@ -225,6 +252,15 @@ export class ReviewsProcessor
     const diffBytes = Buffer.byteLength(diff, 'utf8');
     if (diffBytes > this.config.maxDiffBytes) {
       await this.writeStandaloneFailure(data, 'diff_too_large', 0);
+      await this.tryPostFailedWalkthrough({
+        octokit,
+        owner: data.owner,
+        repo: data.repo,
+        pr_number: data.pr_number,
+        pr_node_id: data.pr_node_id,
+        reason: 'diff_too_large',
+        jobLogPrefix,
+      });
       this.logger.warn(
         `${jobLogPrefix} worker.job.failed diff_too_large bytes=${diffBytes} cap=${this.config.maxDiffBytes}`,
       );
@@ -325,6 +361,23 @@ export class ReviewsProcessor
       this.logger.warn(
         `${jobLogPrefix} worker.review.failed ${formatBriefError(err)}`,
       );
+      // Post a failed-walkthrough so the PR author sees the bot's
+      // status. On retryable failures the next attempt — if it
+      // succeeds — will PATCH the same comment back to the success
+      // body. On terminal failures the failed-walkthrough is the
+      // final state.
+      const reason: FailureReason = isAnthropicErrorLike(err)
+        ? 'anthropic_error'
+        : 'internal_error';
+      await this.tryPostFailedWalkthrough({
+        octokit,
+        owner: data.owner,
+        repo: data.repo,
+        pr_number: data.pr_number,
+        pr_node_id: data.pr_node_id,
+        reason,
+        jobLogPrefix,
+      });
       // F4 closure: terminal Anthropic errors (credit_balance_too_low,
       // invalid_request_error, etc.) must not retry — a retry of the
       // same agent loop would produce the same failure AND burn
@@ -499,6 +552,46 @@ export class ReviewsProcessor
       );
     } finally {
       this.activeReviewIds.delete(reviewId);
+    }
+  }
+
+  // Best-effort POST of a failed-walkthrough comment when a review
+  // could not complete. Shares the outer marker (and therefore the
+  // cached comment id) with the success and skipped bodies — so a
+  // later success in the same PR PATCH-edits this comment back to
+  // the success body, and concurrent failures PATCH-edit a single
+  // comment rather than spamming the thread.
+  //
+  // Intentionally swallows errors. The failed-walkthrough is a UX
+  // courtesy on top of the audit row; if GitHub returns an error
+  // (PR closed in the meantime, comment-rate-limited, transient
+  // 5xx), we log and move on — the row is the load-bearing record.
+  private async tryPostFailedWalkthrough(args: {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    pr_number: number;
+    pr_node_id: string;
+    reason: FailureReason;
+    jobLogPrefix: string;
+  }): Promise<void> {
+    const body = formatWalkthroughFailedBody({
+      prNodeId: args.pr_node_id,
+      reason: args.reason,
+    });
+    try {
+      await this.upsertWalkthrough({
+        octokit: args.octokit,
+        owner: args.owner,
+        repo: args.repo,
+        pr_number: args.pr_number,
+        pr_node_id: args.pr_node_id,
+        body,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `${args.jobLogPrefix} worker.failure.walkthrough_post_failed reason=${args.reason} ${formatBriefError(err)}`,
+      );
     }
   }
 
@@ -832,6 +925,15 @@ const TERMINAL_ANTHROPIC_CODES = new Set([
 export function isTerminalAnthropicError(err: unknown): boolean {
   if (!(err instanceof AnthropicRequestError)) return false;
   return Boolean(err.errorCode && TERMINAL_ANTHROPIC_CODES.has(err.errorCode));
+}
+
+// Broader sibling of isTerminalAnthropicError — true for any failure
+// that originated from the Anthropic call (terminal or retryable).
+// Used by the failure-walkthrough path to pick the user-facing reason
+// hint: Anthropic-shaped failures get the model-side copy; everything
+// else falls back to the generic internal-error copy.
+export function isAnthropicErrorLike(err: unknown): boolean {
+  return err instanceof AnthropicRequestError;
 }
 
 // F4 closure — paired with QueueModule's `backoff: { type: 'custom' }`.

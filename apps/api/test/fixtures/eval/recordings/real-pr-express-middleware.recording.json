@@ -5,64 +5,40 @@
     {
       "rule_id": "prefer-const",
       "title": "Use const (or let) instead of var",
-      "message": "All new variable declarations use `var` instead of `const`. Since none of these bindings are reassigned, they should be declared with `const`. Replace every `var` declaration in this diff with `const` (or `let` if reassignment is needed).",
-      "location_hint": "src/middleware/auth.js:1-28",
-      "citation": "var jwt = require('jsonwebtoken');\nvar config = require('../config');\n...\nvar token = req.headers.authorization?.split(' ')[1];\n...\nvar decoded = jwt.verify(token, process.env.JWT_SECRET);\nvar userId = decoded.id;\nvar role = decoded.role;\nvar message = err.message;",
+      "message": "All new variable declarations use `var` instead of `const`. Variables that are never reassigned should use `const`; others should use `let`. `var` is function-scoped and hoisted, which can cause subtle bugs.",
+      "location_hint": "src/middleware/auth.js:2-3",
+      "citation": "+var jwt = require('jsonwebtoken');\n+var config = require('../config');",
       "faithfulness": {
-        "score": 1,
+        "score": 0.6,
         "claims": [
           {
-            "claim": "The variable jwt is declared with var instead of const in the diff.",
+            "claim": "The code at src/middleware/auth.js:2-3 uses `var` for variable declarations instead of `const`.",
             "kind": "",
-            "reason": "The diff shows the line '+var jwt = require('jsonwebtoken');' at line 1, confirming that jwt is declared with var.",
+            "reason": "The diff shows lines 2-3 of src/middleware/auth.js contain `var jwt = require('jsonwebtoken');` and `var config = require('../config');`, which directly demonstrates the use of `var` instead of `const`.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable config is declared with var instead of const in the diff.",
+            "claim": "Variables that are never reassigned should use `const`.",
             "kind": "",
-            "reason": "The diff shows the line '+var config = require('../config');' at line 2, confirming that config is declared with var.",
+            "reason": "This statement is directly from the rule document, which states: 'If a binding is never reassigned, declare it const. const signals intent and prevents accidental reassignment that breaks the reader's mental model.'",
             "verdict": "supported"
           },
           {
-            "claim": "The variable token is declared with var instead of const in the diff.",
+            "claim": "Variables that are reassigned should use `let`.",
             "kind": "",
-            "reason": "The diff shows the line '+  var token = req.headers.authorization?.split(' ')[1];' confirming that token is declared with var.",
-            "verdict": "supported"
+            "reason": "The rule document does not explicitly state that reassigned variables should use `let`. The rule document only addresses the use of `const` for non-reassigned variables. The finding's message claims this, but the rule document does not provide this guidance.",
+            "verdict": "not_supported"
           },
           {
-            "claim": "The variable decoded is declared with var instead of const in the diff.",
+            "claim": "`var` is function-scoped and hoisted, which can cause subtle bugs.",
             "kind": "",
-            "reason": "The diff shows the line '+    var decoded = jwt.verify(token, process.env.JWT_SECRET);' confirming that decoded is declared with var.",
-            "verdict": "supported"
+            "reason": "This statement is a general JavaScript fact about `var` behavior, but it is not present in the rule document provided. The rule document focuses on using `const` for non-reassigned variables but does not explain the scoping and hoisting issues with `var`.",
+            "verdict": "not_supported"
           },
           {
-            "claim": "The variable userId is declared with var instead of const in the diff.",
+            "claim": "The variables `jwt` and `config` at src/middleware/auth.js:2-3 are never reassigned.",
             "kind": "",
-            "reason": "The diff shows the line '+    var userId = decoded.id;' confirming that userId is declared with var.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variable role is declared with var instead of const in the diff.",
-            "kind": "",
-            "reason": "The diff shows the line '+    var role = decoded.role;' confirming that role is declared with var.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variable message is declared with var instead of const in the diff.",
-            "kind": "",
-            "reason": "The diff shows the line '+    var message = err.message;' confirming that message is declared with var.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "None of the var-declared bindings (jwt, config, token, decoded, userId, role, message) are reassigned in the diff.",
-            "kind": "",
-            "reason": "Examining the diff, jwt is assigned once from require(), config is assigned once from require(), token is assigned once from the authorization header, decoded is assigned once from jwt.verify(), userId is assigned once from decoded.id, role is assigned once from decoded.role, and message is assigned once from err.message. None of these variables are reassigned after their initial declaration.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "All var declarations in the diff should be replaced with const.",
-            "kind": "",
-            "reason": "The rule document states 'If a binding is never reassigned, declare it const.' Since none of the var-declared bindings are reassigned, they should all be declared with const according to the rule. The finding's message also explicitly states this recommendation.",
+            "reason": "The diff shows that `jwt` and `config` are assigned once from `require()` calls and are not reassigned anywhere in the visible code. However, the diff does not show the entire file or all uses of these variables, so we cannot definitively confirm they are never reassigned elsewhere. Based on the visible diff, they appear to be used only for reading, supporting the claim they are not reassigned.",
             "verdict": "supported"
           }
         ]
@@ -71,34 +47,34 @@
     {
       "rule_id": "config-service-only",
       "title": "Do not read process.env directly — use ConfigService",
-      "message": "`process.env.JWT_SECRET` is read directly in feature code. Add a typed property to `ConfigService` and inject it here instead, so that missing or malformed env vars fail at boot rather than at first use.",
+      "message": "`process.env.JWT_SECRET` is read directly in feature code. Add a typed property to ConfigService and inject it here instead, so missing/malformed env vars fail at boot rather than at runtime.",
       "location_hint": "src/middleware/auth.js:12",
-      "citation": "var decoded = jwt.verify(token, process.env.JWT_SECRET);",
+      "citation": "+    var decoded = jwt.verify(token, process.env.JWT_SECRET);",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
             "claim": "process.env.JWT_SECRET is read directly in feature code at src/middleware/auth.js:12",
             "kind": "",
-            "reason": "The diff shows line 12 contains `var decoded = jwt.verify(token, process.env.JWT_SECRET);` which directly accesses process.env.JWT_SECRET. This matches the citation provided and confirms the direct env access.",
+            "reason": "The diff shows line 12 contains `var decoded = jwt.verify(token, process.env.JWT_SECRET);` which directly accesses process.env.JWT_SECRET. This is visible in the PR diff and matches the citation provided.",
             "verdict": "supported"
           },
           {
             "claim": "A typed property should be added to ConfigService for JWT_SECRET",
             "kind": "",
-            "reason": "The rule document states 'Add a typed property + validator on ConfigService' for env values. This is a prescriptive requirement from the rule that applies to the JWT_SECRET case.",
+            "reason": "The rule document states 'Add a typed property + validator on ConfigService' for env values. This is a prescriptive requirement from the rule, and the finding correctly recommends this action.",
             "verdict": "supported"
           },
           {
             "claim": "ConfigService should be injected into the code at src/middleware/auth.js instead of reading process.env directly",
             "kind": "",
-            "reason": "The rule document explicitly states 'Feature code must never read process.env directly' and requires injecting ConfigService where the value is needed. The diff shows the code still reads process.env.JWT_SECRET directly, indicating this injection has not been done.",
+            "reason": "The rule document explicitly states 'Feature code must never read process.env directly' and requires injecting ConfigService where the value is needed. The finding correctly recommends this approach.",
             "verdict": "supported"
           },
           {
-            "claim": "Using ConfigService instead of direct process.env access causes missing or malformed env vars to fail at boot rather than at first use",
+            "claim": "Missing or malformed env vars fail at boot rather than at runtime when using ConfigService",
             "kind": "",
-            "reason": "The rule document states 'ConfigService validates at construction so missing or malformed env vars fail at boot, not at first use.' This is the stated benefit of the pattern.",
+            "reason": "The rule document states 'ConfigService validates at construction so missing or malformed env vars fail at boot, not at first use.' The finding correctly cites this benefit of using ConfigService.",
             "verdict": "supported"
           }
         ]
@@ -107,34 +83,40 @@
     {
       "rule_id": "no-console",
       "title": "Do not leave console.log/warn/error in production code",
-      "message": "Two `console` calls were added (`console.warn` and `console.error`). Replace them with the project's logger to avoid noise in production logs and potential PII leakage.",
-      "location_hint": "src/middleware/auth.js:20-25",
-      "citation": "console.warn('Token has no expiration');\n...\nconsole.error('Auth failed: ' + message);",
+      "message": "Both `console.warn` and `console.error` calls added in this diff should be replaced with the project's logger (e.g., `logger.warn(...)`, `logger.error(...)`). Raw console calls are noise in production and may leak sensitive data.",
+      "location_hint": "src/middleware/auth.js:19-24",
+      "citation": "+    if (decoded.exp == null) {\n+      console.warn('Token has no expiration');\n+    }\n...\n+    console.error('Auth failed: ' + message);",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "Two console calls (console.warn and console.error) were added to the code.",
+            "claim": "console.warn calls should be replaced with the project's logger",
             "kind": "",
-            "reason": "The diff shows two new console calls added: 'console.warn('Token has no expiration')' at line 20 and 'console.error('Auth failed: ' + message)' at line 25 in src/middleware/auth.js. These are clearly visible as additions in the diff.",
+            "reason": "The rule document states 'console.log is for debugging. Replacement: use the project's logger.' The finding extends this principle to console.warn, which is a similar console method used for debugging/logging. The diff shows a console.warn call at line 20 that should follow the same replacement pattern as console.log according to the rule's intent.",
             "verdict": "supported"
           },
           {
-            "claim": "The console calls should be replaced with the project's logger.",
+            "claim": "console.error calls should be replaced with the project's logger",
             "kind": "",
-            "reason": "The rule document explicitly states: 'console.log is for debugging. Replacement: use the project's logger.' The rule applies to console calls generally (the title mentions console.log/warn/error), and the good example shows using 'logger.debug()' instead of console.log. This guidance directly applies to the console.warn and console.error calls found in the diff.",
+            "reason": "The rule document states 'console.log is for debugging. Replacement: use the project's logger.' The finding extends this principle to console.error, which is a similar console method used for debugging/logging. The diff shows a console.error call at line 25 that should follow the same replacement pattern as console.log according to the rule's intent.",
             "verdict": "supported"
           },
           {
-            "claim": "Leaving console calls in production code causes noise in production logs.",
+            "claim": "Raw console calls are noise in production",
             "kind": "",
-            "reason": "The rule document explicitly states: 'Stale console.log calls are noise in production logs and may leak request bodies or PII.' This is the stated rationale for the rule.",
+            "reason": "The rule document explicitly states 'Stale console.log calls are noise in production logs'. This principle applies to all console methods including console.warn and console.error.",
             "verdict": "supported"
           },
           {
-            "claim": "Console calls in production code may leak PII.",
+            "claim": "Raw console calls may leak sensitive data",
             "kind": "",
-            "reason": "The rule document explicitly states: 'Stale console.log calls are noise in production logs and may leak request bodies or PII.' This is a stated concern in the rule.",
+            "reason": "The rule document explicitly states console.log calls 'may leak request bodies or PII'. This principle applies to all console methods including console.warn and console.error, which could similarly leak sensitive information.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The diff adds console.warn and console.error calls in src/middleware/auth.js",
+            "kind": "",
+            "reason": "The diff clearly shows two new console calls being added: console.warn('Token has no expiration') at line 20 and console.error('Auth failed: ' + message) at line 25 in src/middleware/auth.js.",
             "verdict": "supported"
           }
         ]
@@ -160,6 +142,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "9b4928f03d80279e2c388424218217e53a3fd2bc0fe9029e33858d139390599e",
-    "gitSha": "77aa361c63bb40c2d2cddd1688e73e5844027ab9"
+    "gitSha": "d7dc4f0772c9213692e997a8e191d54c20611c2c"
   }
 }

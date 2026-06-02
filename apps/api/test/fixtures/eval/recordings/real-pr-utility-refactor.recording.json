@@ -5,64 +5,64 @@
     {
       "rule_id": "prefer-const",
       "title": "Use const for variables that are never reassigned",
-      "message": "Multiple `let` declarations are introduced that are never reassigned after initialization: `formatter`, `result`, `defaultOptions`, `mergedOptions`, `formatted`, `digits`, `area`, `prefix`, `line`. All of these should be declared with `const` instead of `let`.",
-      "location_hint": "src/utils/formatters.js:4-42",
-      "citation": "let formatter = new Intl.NumberFormat(locale, {\n  style: 'currency',\n  currency,\n});\nlet result = formatter.format(amount);\n...\nlet defaultOptions = { ... };\nlet mergedOptions = { ...defaultOptions, ...options };\nlet formatted = ...",
+      "message": "Multiple variables declared with `let` are never reassigned and should use `const` instead: `formatter`, `result`, `defaultOptions`, `mergedOptions`, `formatted`, `digits`, `area`, `prefix`, `line`. Declare each with `const` to signal immutability and prevent accidental reassignment.",
+      "location_hint": "src/utils/formatters.js:4-35",
+      "citation": "let formatter = new Intl.NumberFormat(locale, {\n  ...\n});\nlet result = formatter.format(amount);\n...\nlet defaultOptions = { ... };\nlet mergedOptions = { ... };\nlet formatted = ...\nlet digits = phone.replace(/\\D/g, '');\nlet area = ...\nlet prefix = ...\nlet line = ...",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The variable `formatter` is never reassigned after initialization.",
+            "claim": "The variable `formatter` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let formatter = new Intl.NumberFormat(locale, {...});` at line 6, and `formatter` is only used once in `formatter.format(amount)` at line 10 with no subsequent reassignment. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let formatter = new Intl.NumberFormat(locale, {...});` at line 6, and there is no subsequent reassignment of `formatter` in the function. The variable is only used once to call `.format(amount)` on line 9.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable `result` is never reassigned after initialization.",
+            "claim": "The variable `result` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let result = formatter.format(amount);` at line 10, and `result` is only returned at line 11 with no reassignment in between. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let result = formatter.format(amount);` at line 9, and there is no subsequent reassignment of `result` in the function. It is only returned at line 10.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable `defaultOptions` is never reassigned after initialization.",
+            "claim": "The variable `defaultOptions` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let defaultOptions = {...};` at lines 17-21, and `defaultOptions` is only used in the spread operator at line 22 (`{ ...defaultOptions, ...options }`) with no subsequent reassignment. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let defaultOptions = {...};` at line 15-19, and there is no subsequent reassignment of `defaultOptions` in the function. It is only used in the spread operator on line 20.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable `mergedOptions` is never reassigned after initialization.",
+            "claim": "The variable `mergedOptions` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let mergedOptions = { ...defaultOptions, ...options };` at line 22, and `mergedOptions` is only used in the Intl.DateTimeFormat constructor at line 23 with no subsequent reassignment. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let mergedOptions = { ...defaultOptions, ...options };` at line 20, and there is no subsequent reassignment of `mergedOptions` in the function. It is only used as an argument to `Intl.DateTimeFormat` on line 21.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable `formatted` is never reassigned after initialization.",
+            "claim": "The variable `formatted` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let formatted = new Intl.DateTimeFormat('en-US', mergedOptions).format(new Date(date));` at lines 23-25, and `formatted` is only returned at line 26 with no reassignment in between. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let formatted = new Intl.DateTimeFormat('en-US', mergedOptions).format(new Date(date),);` at lines 21-23, and there is no subsequent reassignment of `formatted` in the function. It is only returned at line 24.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable `digits` is never reassigned after initialization.",
+            "claim": "The variable `digits` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let digits = phone.replace(/\\D/g, '');` at line 31, and `digits` is only used in the condition `if (digits.length == 10)` at line 32 and in slice operations at lines 33-35 with no reassignment. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let digits = phone.replace(/\\D/g, '');` at line 29, and there is no subsequent reassignment of `digits` in the function. It is only used in the `.length` check on line 30 and in `.slice()` calls on lines 31-33.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable `area` is never reassigned after initialization.",
+            "claim": "The variable `area` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let area = digits.slice(0, 3);` at line 33, and `area` is only used in the return statement at line 36 with no reassignment in between. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let area = digits.slice(0, 3);` at line 31, and there is no subsequent reassignment of `area` in the function. It is only used in the template literal on line 34.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable `prefix` is never reassigned after initialization.",
+            "claim": "The variable `prefix` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let prefix = digits.slice(3, 6);` at line 34, and `prefix` is only used in the return statement at line 36 with no reassignment in between. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let prefix = digits.slice(3, 6);` at line 32, and there is no subsequent reassignment of `prefix` in the function. It is only used in the template literal on line 34.",
             "verdict": "supported"
           },
           {
-            "claim": "The variable `line` is never reassigned after initialization.",
+            "claim": "The variable `line` is declared with `let` and is never reassigned.",
             "kind": "",
-            "reason": "The diff shows `let line = digits.slice(6);` at line 35, and `line` is only used in the return statement at line 36 with no reassignment in between. The code confirms this variable is never reassigned after initialization.",
+            "reason": "The diff shows `let line = digits.slice(6);` at line 33, and there is no subsequent reassignment of `line` in the function. It is only used in the template literal on line 34.",
             "verdict": "supported"
           },
           {
@@ -75,43 +75,67 @@
       }
     },
     {
-      "rule_id": "prefer-const",
-      "title": "Use const for variable that is conditionally reassigned — but prefer-template applies to concatenation",
-      "message": "In `truncateText`, `truncated` is declared with `let` and reassigned inside an `if` block — this use of `let` is acceptable. However, the final `return truncated + '...'` uses string concatenation instead of a template literal. Replace it with `return \\`${truncated}...\\`` to comply with the prefer-template rule.",
-      "location_hint": "src/utils/formatters.js:39",
+      "rule_id": "prefer-template",
+      "title": "Use template literals instead of string concatenation",
+      "message": "In `truncateText`, the return value uses string concatenation (`truncated + '...'`). Replace with a template literal: `` `${truncated}...` ``.",
+      "location_hint": "src/utils/formatters.js:41",
       "citation": "return truncated + '...';",
       "faithfulness": {
-        "score": 0.6,
+        "score": 1,
         "claims": [
           {
-            "claim": "In the truncateText function, the variable truncated is declared with let and reassigned inside an if block.",
+            "claim": "The `truncateText` function's return value uses string concatenation with the `+` operator.",
             "kind": "",
-            "reason": "The diff shows the truncateText function at lines 38-48. The variable truncated is declared with let at line 41 (let truncated = text.slice(0, maxLength);) and is reassigned at line 44 inside an if block (truncated = truncated.slice(0, lastSpace);). This directly matches the finding's description.",
+            "reason": "The diff shows the `truncateText` function at line 41 with the statement `return truncated + '...';`, which is string concatenation using the `+` operator.",
             "verdict": "supported"
           },
           {
-            "claim": "The use of let for the truncated variable is acceptable because it is reassigned.",
+            "claim": "The string concatenation in the `truncateText` function should be replaced with a template literal.",
             "kind": "",
-            "reason": "The rule document states 'If a binding is never reassigned, declare it const.' Since truncated is reassigned in the if block, it should not be const. The finding correctly identifies that using let here is acceptable. This is consistent with the rule.",
+            "reason": "The rule document states: 'Use template literals (backticks) whenever you would otherwise concatenate.' The finding cites this rule and the diff shows string concatenation that violates this rule. The rule document provides guidance that template literals should be used instead of the `+` operator for string concatenation.",
             "verdict": "supported"
           },
           {
-            "claim": "The final return statement in truncateText uses string concatenation (return truncated + '...') instead of a template literal.",
+            "claim": "The template literal replacement should be `` `${truncated}...` ``.",
             "kind": "",
-            "reason": "The diff shows line 47 contains 'return truncated + '...';' which is string concatenation. The citation in the finding also confirms this exact line. This is directly visible in the diff.",
+            "reason": "The finding specifies the exact template literal form. The diff shows `truncated + '...'` which would directly translate to `` `${truncated}...` `` when converted to a template literal. This is the correct and straightforward conversion.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "no-param-reassign",
+      "title": "Do not reassign function parameters",
+      "message": "In `truncateText`, the local variable `truncated` is reassigned after its initial declaration — but more critically, the pattern should use a new binding rather than mutating a re-sliced copy. Additionally, be careful that `truncated` is derived from (and re-assigned inside the same function), which is the exact pattern this rule targets. Refactor to avoid the reassignment: e.g., `const trimmed = lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated;` and return that.",
+      "location_hint": "src/utils/formatters.js:37-41",
+      "citation": "let truncated = text.slice(0, maxLength);\nlet lastSpace = truncated.lastIndexOf(' ');\nif (lastSpace > 0) {\n  truncated = truncated.slice(0, lastSpace);\n}",
+      "faithfulness": {
+        "score": 0.75,
+        "claims": [
+          {
+            "claim": "In the `truncateText` function, the local variable `truncated` is reassigned after its initial declaration.",
+            "kind": "",
+            "reason": "The diff shows that `truncated` is declared with `let truncated = text.slice(0, maxLength);` on line 37, and then reassigned with `truncated = truncated.slice(0, lastSpace);` on line 40 inside the if block. This is directly visible in the PR diff.",
             "verdict": "supported"
           },
           {
-            "claim": "The prefer-template rule requires replacing string concatenation with template literals.",
+            "claim": "The pattern in `truncateText` should use a new binding rather than mutating a re-sliced copy.",
             "kind": "",
-            "reason": "The finding references a 'prefer-template rule' and suggests replacing the concatenation with a template literal. However, the rule document provided only discusses using const for variables that are never reassigned. The rule document does not mention or discuss the prefer-template rule at all. The finding cites a rule that is not present in the provided rule document.",
+            "reason": "The rule document states 'Treat parameters as immutable; assign to a new local if you need to transform.' The finding recommends using a new binding (e.g., `const trimmed = ...`) instead of reassigning `truncated`. This aligns with the rule's guidance to create new locals for transformations rather than reassigning.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `truncated` variable is derived from a function parameter and re-assigned inside the same function, which is the exact pattern the rule targets.",
+            "kind": "",
+            "reason": "The rule document targets reassignment of variables derived from parameters. In the diff, `truncated` is derived from the `text` parameter via `text.slice(0, maxLength)`, and then reassigned within the function. However, the rule document specifically addresses reassigning function *parameters* themselves (e.g., `name = name.trim()`), not reassigning local variables derived from parameters. The finding conflates reassigning a local variable with reassigning a parameter, which is not the exact pattern the rule targets.",
             "verdict": "not_supported"
           },
           {
-            "claim": "The return statement should be replaced with return `${truncated}...` to comply with the prefer-template rule.",
+            "claim": "The recommended refactor is to use `const trimmed = lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated;` and return that instead of reassigning `truncated`.",
             "kind": "",
-            "reason": "While the diff shows the concatenation exists and could technically be replaced with a template literal, the rule document provided does not contain any prefer-template rule. The finding references a rule that is not in the evidence provided. Therefore, this recommendation cannot be verified against the cited rule document.",
-            "verdict": "not_supported"
+            "reason": "The finding explicitly recommends this refactoring approach. The diff shows the current code reassigns `truncated`, and the suggested approach would avoid the reassignment by creating a new binding `trimmed` with a ternary expression. This is a valid refactoring suggestion visible in the finding message.",
+            "verdict": "supported"
           }
         ]
       }
@@ -136,6 +160,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "088f935780616abd96aa6c1e0b52d3a404f72c64fd2461eb3a6e89248a39b67d",
-    "gitSha": "77aa361c63bb40c2d2cddd1688e73e5844027ab9"
+    "gitSha": "d7dc4f0772c9213692e997a8e191d54c20611c2c"
   }
 }

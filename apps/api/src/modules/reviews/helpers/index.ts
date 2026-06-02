@@ -27,6 +27,11 @@ export {
   formatWalkthroughSkippedBody,
   FormatWalkthroughSkippedBodyInput,
 } from './format-walkthrough-skipped-body';
+export {
+  formatWalkthroughFailedBody,
+  FormatWalkthroughFailedBodyInput,
+  FailureReason,
+} from './format-walkthrough-failed-body';
 export { FindingCounts } from './finding-counts.types';
 export {
   findWalkthroughCommentId,

@@ -860,3 +860,157 @@ describe('ReviewsProcessor.onApplicationShutdown', () => {
     }
   });
 });
+
+describe('ReviewsProcessor.process — failure walkthrough', () => {
+  // Helper: extract the body strings of every createComment call.
+  function failedWalkthroughBodies(parts: ProcessorParts): string[] {
+    const calls = (
+      parts.octokit.rest.issues.createComment as unknown as jest.Mock
+    ).mock.calls;
+    return calls
+      .map((c) => c[0]?.body as string | undefined)
+      .filter((b): b is string => typeof b === 'string')
+      .filter((b) => b.includes('review failed'));
+  }
+
+  it('posts a "review failed" walkthrough on a retryable pulls.get failure (github_api_error)', async () => {
+    const err: Error & { status?: number } = new Error('Bad Gateway');
+    err.status = 502;
+    const parts = makeProcessor({
+      octokit: makeOctokit({
+        prsGet: jest.fn().mockRejectedValue(err),
+      }),
+    });
+
+    await expect(parts.processor.process(makeJob())).rejects.toThrow(/Bad Gateway/);
+
+    const bodies = failedWalkthroughBodies(parts);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toContain('<!-- ai-pr-review-copilot:v1:mode=failed -->');
+    expect(bodies[0].toLowerCase()).toContain('github');
+  });
+
+  it('posts a "review failed" walkthrough on a retryable diff-fetch failure (github_api_error)', async () => {
+    const err: Error & { status?: number } = new Error('Bad Gateway');
+    err.status = 502;
+    const parts = makeProcessor({
+      octokit: makeOctokit({
+        request: jest.fn().mockRejectedValue(err),
+      }),
+    });
+
+    await expect(parts.processor.process(makeJob())).rejects.toThrow(/Bad Gateway/);
+
+    const bodies = failedWalkthroughBodies(parts);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].toLowerCase()).toContain('github');
+  });
+
+  it('posts a "review failed" walkthrough on diff_too_large (diff_too_large reason)', async () => {
+    const prevCap = process.env.MAX_DIFF_BYTES;
+    process.env.MAX_DIFF_BYTES = '10';
+    try {
+      const parts = makeProcessor({
+        octokit: makeOctokit({
+          request: jest
+            .fn()
+            .mockResolvedValue({ data: 'this diff is way more than ten bytes' }),
+        }),
+      });
+      await parts.processor.process(makeJob());
+
+      const bodies = failedWalkthroughBodies(parts);
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0].toLowerCase()).toMatch(/diff|cap/);
+    } finally {
+      if (prevCap === undefined) delete process.env.MAX_DIFF_BYTES;
+      else process.env.MAX_DIFF_BYTES = prevCap;
+    }
+  });
+
+  it('posts a "review failed" walkthrough with anthropic_error reason on a terminal Anthropic error', async () => {
+    const {
+      AnthropicRequestError,
+    } = jest.requireActual('@/infrastructure/anthropic');
+    const err = new AnthropicRequestError('credit too low', {
+      status: 400,
+      errorCode: 'credit_balance_too_low',
+    });
+    const parts = makeProcessor({ runRealReviewError: err });
+
+    const { UnrecoverableError } = jest.requireActual('bullmq');
+    await expect(parts.processor.process(makeJob())).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+
+    const bodies = failedWalkthroughBodies(parts);
+    expect(bodies).toHaveLength(1);
+    // Anthropic reason copy says the model call was rejected — does NOT
+    // expose the raw error code.
+    expect(bodies[0].toLowerCase()).toMatch(/language-model|model|account|configuration/);
+    expect(bodies[0]).not.toContain('credit_balance_too_low');
+  });
+
+  it('posts a "review failed" walkthrough with internal_error reason on a non-Anthropic mid-loop error', async () => {
+    const parts = makeProcessor({
+      runRealReviewError: new Error('boom'),
+    });
+
+    await expect(parts.processor.process(makeJob())).rejects.toThrow(/boom/);
+
+    const bodies = failedWalkthroughBodies(parts);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].toLowerCase()).toContain('internal');
+  });
+
+  it('does NOT post a "review failed" walkthrough when the PR is closed (state !== open)', async () => {
+    const parts = makeProcessor({
+      octokit: makeOctokit({
+        prsGet: jest
+          .fn()
+          .mockResolvedValue({ data: { state: 'closed' } }),
+      }),
+    });
+
+    await parts.processor.process(makeJob());
+
+    expect(failedWalkthroughBodies(parts)).toHaveLength(0);
+  });
+
+  it('does NOT post a "review failed" walkthrough on a terminal pulls.get 404', async () => {
+    const err: Error & { status?: number } = new Error('Not Found');
+    err.status = 404;
+    const parts = makeProcessor({
+      octokit: makeOctokit({
+        prsGet: jest.fn().mockRejectedValue(err),
+      }),
+    });
+
+    await expect(parts.processor.process(makeJob())).rejects.toThrow(/Not Found/);
+    expect(failedWalkthroughBodies(parts)).toHaveLength(0);
+  });
+
+  it('does not propagate failed-walkthrough POST errors — the job still throws the original error', async () => {
+    const upstream: Error & { status?: number } = new Error('Bad Gateway');
+    upstream.status = 502;
+    const commentErr: Error & { status?: number } = new Error(
+      'createComment rate-limited',
+    );
+    commentErr.status = 403;
+
+    const octokit = makeOctokit({
+      prsGet: jest.fn().mockRejectedValue(upstream),
+    });
+    (octokit.rest.issues.createComment as unknown as jest.Mock).mockRejectedValue(
+      commentErr,
+    );
+    const parts = makeProcessor({ octokit });
+
+    // The original 502 propagates — the comment-POST failure was
+    // swallowed (best-effort).
+    await expect(parts.processor.process(makeJob())).rejects.toThrow(/Bad Gateway/);
+    // The audit row still landed.
+    expect(parts.insert).toHaveBeenCalledTimes(1);
+    expect(parts.insert.mock.calls[0][0].error_code).toBe('github_api_error');
+  });
+});

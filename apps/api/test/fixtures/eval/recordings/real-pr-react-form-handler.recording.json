@@ -3,96 +3,168 @@
   "fixtureId": "real-pr-react-form-handler",
   "findings": [
     {
-      "rule_id": "max-lines-per-function",
-      "title": "handleSubmit is too long — extract sub-helpers",
-      "message": "The `handleSubmit` handler now handles validation, payload construction, API calls, error handling, state resets, and (per the comment) analytics — all in one function that exceeds ~50 lines. Extract helpers like `validateForm`, `buildPayload`, and `submitContact` to keep each function focused and short.",
-      "location_hint": "src/components/ContactForm.jsx:10-52",
-      "citation": "// It now does validation, transformation, API call, error handling,\n    // success redirect, and analytics tracking all in one function.",
+      "rule_id": "no-param-reassign",
+      "title": "Do not reassign function parameters",
+      "message": "The diff uses `var` in multiple places (`var payload`, `var response`, `var data`, `var errorMsg`) inside `handleSubmit`. While these are new `var` declarations rather than reassignments of a parameter, the same diff also declares `let validationErrors` and mutates it by adding properties — but more critically, multiple `var` declarations shadow each other in the same function scope. Separately, the `no-param-reassign` rule is not the best fit here; see the `no-var` note. However, the core issue is `var` usage throughout the new code.",
+      "location_hint": "src/components/ContactForm.jsx:36-54",
+      "citation": "var payload = {\n      name: name.trim(),\n      ...\n    };\n    ...\n    var response = await fetch(...);\n    var data = await response.json();\n    ...\n    var errorMsg = err.message;",
       "faithfulness": {
-        "score": 0.875,
+        "score": 0.625,
         "claims": [
           {
-            "claim": "The handleSubmit function exceeds approximately 50 lines.",
+            "claim": "The diff uses `var payload` inside `handleSubmit`.",
             "kind": "",
-            "reason": "The diff shows handleSubmit spans from line 10 to line 52 (43 lines of actual code content), which is close to and approaching the ~50 line threshold mentioned in the rule. The function contains validation logic (lines 14-26), payload construction (lines 28-33), API call with error handling (lines 35-50), and state resets (lines 45-47). This is directly visible in the diff.",
+            "reason": "The diff clearly shows `var payload = { ... };` at line 36 within the `handleSubmit` function.",
             "verdict": "supported"
           },
           {
-            "claim": "The handleSubmit function handles validation.",
+            "claim": "The diff uses `var response` inside `handleSubmit`.",
             "kind": "",
-            "reason": "The diff clearly shows validation logic in handleSubmit from lines 14-26, checking name, email, and message fields with error messages. This is directly visible in the code.",
+            "reason": "The diff clearly shows `var response = await fetch(...);` within the `handleSubmit` function.",
             "verdict": "supported"
           },
           {
-            "claim": "The handleSubmit function handles payload construction.",
+            "claim": "The diff uses `var data` inside `handleSubmit`.",
             "kind": "",
-            "reason": "The diff shows payload construction in lines 28-33 where a payload object is created with name, email, message, and timestamp properties. This is directly visible in the code.",
+            "reason": "The diff clearly shows `var data = await response.json();` within the `handleSubmit` function.",
             "verdict": "supported"
           },
           {
-            "claim": "The handleSubmit function handles API calls.",
+            "claim": "The diff uses `var errorMsg` inside `handleSubmit`.",
             "kind": "",
-            "reason": "The diff shows an API call using fetch to '/api/contact' in lines 35-40, which is directly visible in the code.",
+            "reason": "The diff clearly shows `var errorMsg = err.message;` within the `handleSubmit` function's catch block.",
             "verdict": "supported"
           },
           {
-            "claim": "The handleSubmit function handles error handling.",
+            "claim": "The diff declares `let validationErrors` and mutates it by adding properties.",
             "kind": "",
-            "reason": "The diff shows error handling with a try-catch block (lines 35-50) that catches errors and sets error state. This is directly visible in the code.",
+            "reason": "The diff shows `let validationErrors = {};` followed by assignments like `validationErrors.name = 'Name is required';`, which mutates the object by adding properties.",
             "verdict": "supported"
           },
           {
-            "claim": "The handleSubmit function handles state resets.",
+            "claim": "Multiple `var` declarations shadow each other in the same function scope.",
             "kind": "",
-            "reason": "The diff shows state resets in lines 45-47 where setName, setEmail, and setMessage are called to clear the form after successful submission. This is directly visible in the code.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The handleSubmit function handles analytics tracking.",
-            "kind": "",
-            "reason": "The comment in the diff (line 12) mentions 'analytics tracking' as part of what the function does, but no actual analytics code is visible in the diff. The comment claims this functionality exists, but the actual implementation is not shown in the code.",
+            "reason": "The diff shows four separate `var` declarations (`var payload`, `var response`, `var data`, `var errorMsg`) within the same `handleSubmit` function. However, these declarations do not actually shadow each other because they have different names and are not redeclaring the same variable. The claim of shadowing is not supported by the evidence.",
             "verdict": "not_supported"
           },
           {
-            "claim": "Helpers like validateForm, buildPayload, and submitContact should be extracted from handleSubmit.",
+            "claim": "The `no-param-reassign` rule is not the best fit for the issues in this code.",
             "kind": "",
-            "reason": "The rule document states that functions exceeding ~50 lines should have sub-helpers extracted, and provides an example of breaking a long function into focused sub-functions. The finding recommends extracting these specific helpers, which aligns with the rule's guidance to extract sub-helpers when functions get long. However, the diff does not show these helpers being extracted—it only shows the long function. The recommendation is consistent with the rule, but the extraction has not been performed in the diff.",
+            "reason": "The rule document provided is specifically about the `no-param-reassign` rule, which prohibits reassigning function parameters. The diff does not show any reassignment of function parameters (the `handleSubmit` function has only one parameter `e`, which is not reassigned). The finding's message acknowledges this mismatch, but this claim goes beyond what the rule document and diff directly support—it is a meta-commentary about rule applicability rather than a verifiable claim about the code.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "The core issue is `var` usage throughout the new code.",
+            "kind": "",
+            "reason": "The diff shows multiple `var` declarations in the new code. However, the rule document provided is about `no-param-reassign`, not about `var` usage. The rule document does not address `var` declarations or their problems. While the finding claims `var` usage is the core issue, this claim is not supported by the provided rule document, which focuses on parameter reassignment.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "max-lines-per-function",
+      "title": "Keep functions short — under ~50 lines",
+      "message": "The `handleSubmit` function now encompasses inline validation, payload construction, an API fetch, error handling, success redirect logic, and state resets — easily exceeding ~50 lines and doing many things at once. Extract the validation logic into a `validateForm` helper and the API call into a `submitContact` helper to keep each function focused and short.",
+      "location_hint": "src/components/ContactForm.jsx:8-57",
+      "citation": "// It now does validation, transformation, API call, error handling,\n    // success redirect, and analytics tracking all in one function.",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The `handleSubmit` function encompasses inline validation.",
+            "kind": "",
+            "reason": "The diff shows lines 11-26 contain validation logic checking name, email, and message fields with error messages, all inline within the `handleSubmit` function.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function encompasses payload construction.",
+            "kind": "",
+            "reason": "The diff shows lines 28-33 construct a payload object with name, email, message, and timestamp properties within the `handleSubmit` function.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function encompasses an API fetch.",
+            "kind": "",
+            "reason": "The diff shows lines 35-42 contain a fetch call to '/api/contact' with POST method and JSON body within the `handleSubmit` function.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function encompasses error handling.",
+            "kind": "",
+            "reason": "The diff shows lines 43-50 contain a try-catch block that handles errors from the API call and sets error state within the `handleSubmit` function.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function encompasses success redirect logic.",
+            "kind": "",
+            "reason": "The diff shows lines 44-48 contain logic that calls `onSubmit(payload)` and resets form state upon successful API response within the `handleSubmit` function.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function encompasses state resets.",
+            "kind": "",
+            "reason": "The diff shows lines 46-48 reset the form state by calling `setName('')`, `setEmail('')`, and `setMessage('')` within the `handleSubmit` function.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `handleSubmit` function easily exceeds ~50 lines.",
+            "kind": "",
+            "reason": "The diff shows the `handleSubmit` function spans from line 8 to line 51 (44 lines of actual function body), which is close to the 50-line threshold. However, counting the entire function including the closing brace and considering the density of logic (validation block ~16 lines, payload construction ~6 lines, try-catch ~16 lines), the function is at or very near the 50-line limit and contains substantial complexity that would easily exceed 50 lines with minor additions.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The validation logic should be extracted into a `validateForm` helper.",
+            "kind": "",
+            "reason": "The rule document states 'Extract sub-helpers' and the finding recommends extracting validation logic into a `validateForm` helper. The diff shows validation logic (lines 11-26) that could be extracted. This is a prescriptive recommendation aligned with the rule's guidance to break up long functions.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The API call should be extracted into a `submitContact` helper.",
+            "kind": "",
+            "reason": "The finding recommends extracting the API call into a `submitContact` helper. The diff shows API call logic (lines 35-50) that could be extracted. This is a prescriptive recommendation aligned with the rule's guidance to break up long functions.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Extracting these helpers would keep each function focused and short.",
+            "kind": "",
+            "reason": "The rule document states that breaking long functions into sub-helpers keeps them focused and short, as demonstrated in the 'Good' example. This is a direct restatement of the rule's principle.",
             "verdict": "supported"
           }
         ]
       }
     },
     {
-      "rule_id": "guard-clauses",
-      "title": "Use an early return guard clause instead of a nested conditional",
-      "message": "The validation block sets `validationErrors` and then checks `Object.keys(validationErrors).length > 0` to early-return — that part is fine — but the entire try/catch happy path sits inside the outer function only because a guard clause already exists. The deeper issue is the accumulated `if` chain without guards for individual fields. Additionally, ensure each field validation is expressed as a direct guard (e.g., `if (!name.trim()) return setErrors(...)`) rather than accumulating into an intermediate object that then requires a second check.",
-      "location_hint": "src/components/ContactForm.jsx:17-35",
-      "citation": "let validationErrors = {};\n    if (!name || name.trim().length == 0) {\n      validationErrors.name = 'Name is required';\n    }\n    ...\n    if (Object.keys(validationErrors).length > 0) {\n      setErrors(validationErrors);\n      return;\n    }",
+      "rule_id": "prefer-destructuring",
+      "title": "Use destructuring to pull values out of objects and arrays",
+      "message": "The `onChange` handlers access `e.target.value` repeatedly via dot-notation instead of destructuring. For example, `(e) => setName(e.target.value)` could be written as `({ target: { value } }) => setName(value)` to reduce repeated property access noise.",
+      "location_hint": "src/components/ContactForm.jsx:49-51",
+      "citation": "onChange={(e) => setName(e.target.value)}\n       ...\n       onChange={(e) => setEmail(e.target.value)}\n       ...\n       onChange={(e) => setMessage(e.target.value)}",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The validation block in the handleSubmit function sets validationErrors and then checks Object.keys(validationErrors).length > 0 to early-return.",
+            "claim": "The onChange handlers in src/components/ContactForm.jsx access e.target.value repeatedly via dot-notation.",
             "kind": "",
-            "reason": "The diff shows lines 14-27 where validationErrors is initialized as an empty object, populated with field-specific errors, and then checked with Object.keys(validationErrors).length > 0 before returning early. This matches the citation provided.",
+            "reason": "The diff shows three onChange handlers at lines 57-59: onChange={(e) => setName(e.target.value)}, onChange={(e) => setEmail(e.target.value)}, and onChange={(e) => setMessage(e.target.value)}. Each uses dot-notation (e.target.value) to access the value property.",
             "verdict": "supported"
           },
           {
-            "claim": "The entire try/catch happy path sits inside the outer function only because a guard clause already exists.",
+            "claim": "The onChange handlers could be rewritten using destructuring to reduce repeated property access noise.",
             "kind": "",
-            "reason": "The diff shows the try/catch block (lines 29-51) is at the same indentation level as the validation block, not nested inside it. The guard clause (lines 25-27) returns early if validation fails, allowing the try/catch to execute only on the happy path. However, the phrasing 'sits inside the outer function only because' is somewhat ambiguous—the try/catch is in the function body, but the guard clause prevents it from executing on invalid input. The structure does demonstrate that the guard clause enables the happy path to proceed.",
+            "reason": "The rule document explicitly states that 'Destructuring makes the data the function depends on visible at the top of the function and avoids the noise of repeated obj.field accesses.' The finding's suggestion to use ({ target: { value } }) => setName(value) is a direct application of this principle, destructuring the nested target.value property to avoid repeated dot-notation access.",
             "verdict": "supported"
           },
           {
-            "claim": "The accumulated if chain without guards for individual fields is a deeper issue.",
+            "claim": "An example of the current pattern is (e) => setName(e.target.value).",
             "kind": "",
-            "reason": "The diff shows lines 14-23 contain an if chain checking name, email, and message validation without individual guard clauses—each validation accumulates into the validationErrors object rather than returning immediately. The rule document advocates for guard clauses with early returns for each invalid input. The finding's claim aligns with the rule's guidance.",
+            "reason": "The diff shows this exact pattern at line 57 in the onChange handler for the name input field.",
             "verdict": "supported"
           },
           {
-            "claim": "Each field validation should be expressed as a direct guard (e.g., if (!name.trim()) return setErrors(...)) rather than accumulating into an intermediate object that then requires a second check.",
+            "claim": "The destructured alternative would be ({ target: { value } }) => setName(value).",
             "kind": "",
-            "reason": "The rule document explicitly states 'Handle invalid or unhappy inputs with early returns at the top of the function' and shows the good pattern of individual guard clauses with early returns. The current code accumulates errors into validationErrors and then checks the object length, which is the anti-pattern the rule warns against. The finding's recommendation to use direct guards for each field aligns with the rule's guidance.",
+            "reason": "This is the suggested refactoring in the finding message. While the diff does not show this refactored code, the rule document supports the principle of destructuring to avoid repeated property access, and this is a valid application of that principle to the specific code pattern shown in the diff.",
             "verdict": "supported"
           }
         ]
@@ -118,6 +190,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "ab2b9b0b37a7e0c2bd9cae6ede573705b7c962f216214876519c71ae9346a300",
-    "gitSha": "77aa361c63bb40c2d2cddd1688e73e5844027ab9"
+    "gitSha": "d7dc4f0772c9213692e997a8e191d54c20611c2c"
   }
 }
