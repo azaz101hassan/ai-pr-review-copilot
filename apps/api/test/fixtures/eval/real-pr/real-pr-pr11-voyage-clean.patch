@@ -1,0 +1,165 @@
+diff --git a/apps/api/src/infrastructure/voyage/voyage-embedding.provider.ts b/apps/api/src/infrastructure/voyage/voyage-embedding.provider.ts
+index 8848742..81442ca 100644
+--- a/apps/api/src/infrastructure/voyage/voyage-embedding.provider.ts
++++ b/apps/api/src/infrastructure/voyage/voyage-embedding.provider.ts
+@@ -14,6 +14,18 @@ const VOYAGE_EMBEDDINGS_URL = 'https://api.voyageai.com/v1/embeddings';
+ const BATCH_SIZE = 128;
+ const DEFAULT_DIMENSION = 1024;
+ 
++// In-provider retry policy for 429 responses. Voyage's free-tier
++// embeddings quota resets on a ~30s window; 35s gives the window time
++// to roll over plus a small safety margin. The provider does its own
++// retry inside the worker job so a single rate-limit stall doesn't
++// re-run the entire BullMQ job (Anthropic call, DB writes, octokit).
++// On final exhaust we still set `retryAfterMs` on the thrown error so
++// the worker-level BullMQ backoff (`reviewBackoffStrategy`) also
++// honours the hint instead of falling back to exponential 1s/2s/4s.
++const DEFAULT_RATE_LIMIT_BACKOFF_MS = 35_000;
++const MAX_RATE_LIMIT_RETRIES = 3;
++const MAX_RETRY_AFTER_MS = 60_000;
++
+ // Voyage uses asymmetric encoding: documents and queries get different
+ // `input_type` values. Mixing them degrades recall measurably, so we
+ // encode the discipline at the method level rather than letting the
+@@ -35,16 +47,47 @@ export class VoyageRequestError extends Error {
+   readonly name = 'VoyageRequestError';
+   readonly status: number;
+   readonly errorCode?: string;
++  // Surfaces to the BullMQ-level reviewBackoffStrategy when the
++  // provider gives up after exhausting its own retries. Honoured by
++  // the F4 closure with a 60s ceiling.
++  readonly retryAfterMs?: number;
+   override readonly cause?: unknown;
+ 
+-  constructor(message: string, opts: { status: number; errorCode?: string; cause?: unknown }) {
++  constructor(
++    message: string,
++    opts: { status: number; errorCode?: string; retryAfterMs?: number; cause?: unknown },
++  ) {
+     super(message);
+     this.status = opts.status;
+     this.errorCode = opts.errorCode;
++    this.retryAfterMs = opts.retryAfterMs;
+     this.cause = opts.cause;
+   }
+ }
+ 
++// Parses an RFC 9110 Retry-After header value. Supports the
++// delta-seconds form (most APIs, including Voyage) and the
++// HTTP-date form. Caps to MAX_RETRY_AFTER_MS so a hostile or
++// malformed header can't park the provider for a long time.
++export function parseRetryAfterMs(raw: string | null): number | undefined {
++  if (!raw) return undefined;
++  const trimmed = raw.trim();
++  if (trimmed.length === 0) return undefined;
++
++  const seconds = Number(trimmed);
++  if (Number.isFinite(seconds) && seconds > 0) {
++    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
++  }
++
++  const dateMs = Date.parse(trimmed);
++  if (Number.isFinite(dateMs)) {
++    const deltaMs = dateMs - Date.now();
++    if (deltaMs > 0) return Math.min(deltaMs, MAX_RETRY_AFTER_MS);
++  }
++
++  return undefined;
++}
++
+ @Injectable()
+ export class VoyageEmbeddingProvider implements IEmbeddingProvider {
+   readonly modelName: string;
+@@ -80,30 +123,36 @@ export class VoyageEmbeddingProvider implements IEmbeddingProvider {
+     input: string[],
+     inputType: VoyageInputType,
+   ): Promise<VoyageResponseBody> {
+-    let response: Response;
+-    try {
+-      response = await fetch(VOYAGE_EMBEDDINGS_URL, {
+-        method: 'POST',
+-        headers: {
+-          Authorization: `Bearer ${this.apiKey}`,
+-          'Content-Type': 'application/json',
+-        },
+-        body: JSON.stringify({
+-          input,
+-          model: this.modelName,
+-          input_type: inputType,
+-          output_dimension: this.dimension,
+-          truncation: true,
+-        }),
+-      });
+-    } catch (err) {
+-      throw new VoyageRequestError('Voyage request failed (network or transport error)', {
+-        status: 0,
+-        cause: err,
+-      });
+-    }
++    // attempt 0 is the initial call; the loop runs up to MAX_RATE_LIMIT_RETRIES
++    // additional iterations, so total attempts = MAX_RATE_LIMIT_RETRIES + 1.
++    for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
++      let response: Response;
++      try {
++        response = await fetch(VOYAGE_EMBEDDINGS_URL, {
++          method: 'POST',
++          headers: {
++            Authorization: `Bearer ${this.apiKey}`,
++            'Content-Type': 'application/json',
++          },
++          body: JSON.stringify({
++            input,
++            model: this.modelName,
++            input_type: inputType,
++            output_dimension: this.dimension,
++            truncation: true,
++          }),
++        });
++      } catch (err) {
++        throw new VoyageRequestError(
++          'Voyage request failed (network or transport error)',
++          { status: 0, cause: err },
++        );
++      }
++
++      if (response.ok) {
++        return (await response.json()) as VoyageResponseBody;
++      }
+ 
+-    if (!response.ok) {
+       // Parse just enough of the body to extract `error_code` for
+       // routing. We do NOT propagate the full body into the error
+       // message; that body can contain echoed input or a misformatted
+@@ -115,13 +164,30 @@ export class VoyageEmbeddingProvider implements IEmbeddingProvider {
+       } catch {
+         // Body wasn't JSON — drop it on the floor. Status is the signal.
+       }
++
++      const isRateLimit = response.status === 429;
++      const retryAfterMs = isRateLimit
++        ? parseRetryAfterMs(response.headers.get('retry-after')) ??
++          DEFAULT_RATE_LIMIT_BACKOFF_MS
++        : undefined;
++      const isLastAttempt = attempt === MAX_RATE_LIMIT_RETRIES;
++
++      if (isRateLimit && !isLastAttempt) {
++        await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
++        continue;
++      }
++
+       throw new VoyageRequestError(
+         `Voyage request failed: HTTP ${response.status}${errorCode ? ` (${errorCode})` : ''}`,
+-        { status: response.status, errorCode },
++        { status: response.status, errorCode, retryAfterMs },
+       );
+     }
+ 
+-    return (await response.json()) as VoyageResponseBody;
++    // Unreachable — the loop either returns a parsed body or throws.
++    // Present to satisfy strict TypeScript flow analysis.
++    throw new Error(
++      'VoyageEmbeddingProvider: retry loop exited without returning or throwing',
++    );
+   }
+ 
+   private sortByIndex(body: VoyageResponseBody, expectedLength: number): number[][] {

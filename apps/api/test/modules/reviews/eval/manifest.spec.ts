@@ -190,15 +190,28 @@ describe('manifest loader', () => {
   });
 
   describe('loads the real expectations manifest', () => {
-    it('loads and validates the committed manifest for the 8 existing fixtures', () => {
+    it('loads and validates the committed manifest for all committed fixtures', () => {
       const manifestPath = path.join(
         __dirname,
         '../../../fixtures/eval/expectations.manifest.json',
       );
       const manifest = loadManifest(manifestPath);
 
-      expect(manifest.entries).toHaveLength(16);
+      expect(manifest.entries).toHaveLength(18);
       expect(manifest.manifestVersion).toMatch(/^[0-9a-f]{64}$/);
+
+      // Verify the in-repo verbatim external-validity fixtures are present
+      // (added alongside the synthetic real-pr-* set to anchor the eval
+      // against actual diffs from this repo's own git history).
+      const inRepoIds = manifest.entries
+        .map((e) => e.fixtureId)
+        .filter((id) => id.startsWith('real-pr-pr11-') || id.startsWith('real-pr-day5-'));
+      expect(inRepoIds).toEqual(
+        expect.arrayContaining([
+          'real-pr-pr11-voyage-clean',
+          'real-pr-day5-queue-process-env',
+        ]),
+      );
 
       // Verify the multi-rule fixture
       const thinControllers = manifest.entries.find(
@@ -232,15 +245,16 @@ describe('manifest loader', () => {
       expect(agentLoop!.injectedRules).toEqual(['no-param-reassign']);
       expect(agentLoop!.needsRepoContext).toBe(true);
 
-      // All 9 violating entries (6 gating + 3 held-out real-PR)
+      // All 11 violating entries (6 gating + 5 held-out real-PR: 3
+      // synthetic + 2 in-repo verbatim).
       const violating = manifest.entries.filter(
         (e) => e.category === 'violating',
       );
-      expect(violating).toHaveLength(9);
+      expect(violating).toHaveLength(11);
       const gatingViolating = violating.filter((v) => v.gates);
       expect(gatingViolating).toHaveLength(6);
       const heldOut = violating.filter((v) => !v.gates);
-      expect(heldOut).toHaveLength(3);
+      expect(heldOut).toHaveLength(5);
     });
   });
 });

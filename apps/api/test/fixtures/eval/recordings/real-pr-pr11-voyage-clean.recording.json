@@ -1,18 +1,18 @@
 {
   "status": "emitted",
-  "fixtureId": "clean-config-constant__top10",
+  "fixtureId": "real-pr-pr11-voyage-clean",
   "findings": [],
   "ruleSet": [
     "config-service-only",
     "drizzle-schema-source-of-truth",
-    "explicit-function-return-type",
     "module-tier-dependencies",
-    "no-crud-on-database-service",
-    "no-explicit-any",
+    "no-await-in-loop",
+    "no-co-authored-by-claude",
+    "no-empty-catch",
     "no-mocks-for-the-db",
-    "no-non-null-assertion",
-    "prefer-const",
-    "repository-pattern"
+    "no-throw-literal",
+    "repository-pattern",
+    "thin-controllers"
   ],
   "provenance": {
     "promptVersion": "v3",

@@ -1,0 +1,57 @@
+{
+  "status": "emitted",
+  "fixtureId": "real-pr-day5-queue-process-env",
+  "findings": [
+    {
+      "rule_id": "config-service-only",
+      "title": "All env access goes through ConfigService",
+      "message": "Direct access to process.env.SKIP_REDIS_PROBE detected on line 90. All environment variable access must go through ConfigService. The value should be read from a typed ConfigService property instead of directly from process.env.",
+      "location_hint": "apps/api/src/infrastructure/queue/queue.module.ts:90",
+      "citation": "const skip = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "Direct access to process.env.SKIP_REDIS_PROBE is detected on line 90 of apps/api/src/infrastructure/queue/queue.module.ts",
+            "kind": "",
+            "reason": "The diff shows line 90 contains: `const skip = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);` This is a direct access to process.env.SKIP_REDIS_PROBE.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "All environment variable access must go through ConfigService",
+            "kind": "",
+            "reason": "The rule document explicitly states: 'Feature code must never read process.env directly. Add a typed property + validator on ConfigService and inject ConfigService where you need the value.' This is the core requirement of the rule.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The value should be read from a typed ConfigService property instead of directly from process.env",
+            "kind": "",
+            "reason": "The rule document demonstrates the correct pattern: inject ConfigService and access typed properties (e.g., `this.config.sendgridKey`). The rule explicitly states to 'Add a typed property + validator on ConfigService and inject ConfigService where you need the value.' The code at line 90 violates this by reading directly from process.env instead of using a ConfigService property.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "config-service-only",
+    "drizzle-schema-source-of-truth",
+    "guards-live-in-guards-dir",
+    "no-await-in-loop",
+    "no-empty-catch",
+    "no-mocks-for-the-db",
+    "no-non-null-assertion",
+    "no-throw-literal",
+    "repository-pattern",
+    "thin-controllers"
+  ],
+  "provenance": {
+    "promptVersion": "v3",
+    "model": "claude-haiku-4-5-20251001",
+    "judgeModel": "claude-haiku-4-5-20251001",
+    "judgePromptVersion": "v1",
+    "seedCorpusVersion": "v1",
+    "expectedSetHash": "356e1332859c67b307349123ba17c33d13db4ddf3ea2a6b85d992dfd0f79725f",
+    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117"
+  }
+}

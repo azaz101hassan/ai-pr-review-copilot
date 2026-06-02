@@ -14,7 +14,7 @@
           {
             "claim": "The `send()` method is newly exported.",
             "kind": "",
-            "reason": "The diff shows the `send()` method is a public method of the `NotificationService` class (decorated with `@Injectable()` and exported). However, the diff does not show a change in export status — the method was already part of an exported class. The finding states it is 'newly exported', but the evidence does not clearly support that the export status itself changed; rather, a return type annotation was added to an already-exported method.",
+            "reason": "The diff shows the `send()` method is a public method of the `NotificationService` class (decorated with `@Injectable()` and exported). However, the diff does not show a change in export status \u2014 the method was already part of an exported class. The finding states it is 'newly exported', but the evidence does not clearly support that the export status itself changed; rather, a return type annotation was added to an already-exported method.",
             "verdict": "unclear"
           },
           {
@@ -109,6 +109,6 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "050fd020325f9313f3a4376659aa44e497c236fb"
+    "gitSha": "e7b06aae3a24696372ca2129fc79648c8c870117"
   }
 }

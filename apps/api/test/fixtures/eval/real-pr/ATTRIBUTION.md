@@ -40,6 +40,41 @@ projects, while avoiding any licensing concerns.
   `eqeqeq`).
 - **Expected violations:** `prefer-const`, `eqeqeq`
 
+## In-repo PR samples (verbatim, not synthetic)
+
+The two fixtures below are extracted verbatim from this repository's
+own git history. They exist because the synthetic samples above test
+contrived patterns, while these test the reviewer against actual diffs
+it failed (or would be expected to succeed) on during dogfood smokes.
+
+### real-pr-pr11-voyage-clean.patch
+
+- **Source:** PR #11 (squash commit `e7b06aa`), `apps/api/src/infrastructure/voyage/voyage-embedding.provider.ts`
+- **Description:** Expands the Voyage embedding provider with batching,
+  retry handling, and a `VoyageRequestError` class. Net +92 / -26 lines.
+  Reads its API key via `ConfigService` injection (no `process.env` direct
+  reads anywhere in the changed surface).
+- **Expected violations:** none (`[]`)
+- **What this tests:** **precision on a real clean diff.** During the
+  PR #11 dogfood smoke (2026-06-02), the reviewer hallucinated a
+  `config-service-only` finding on this exact file, claiming it reads
+  `process.env.VOYAGE_API_KEY` directly. It does not. This fixture
+  reproduces the precision failure surface in a tractable size.
+
+### real-pr-day5-queue-process-env.patch
+
+- **Source:** Day-5 PR #9 (squash commit `70b96f2`),
+  `apps/api/src/infrastructure/queue/queue.module.ts`
+- **Description:** Introduces the BullMQ-backed `QueueModule` with a
+  `SKIP_REDIS_PROBE` test escape hatch read directly via
+  `process.env.SKIP_REDIS_PROBE` instead of through `ConfigService`.
+  Net +195 lines (whole file).
+- **Expected violations:** `config-service-only`
+- **What this tests:** **recall on a real violating diff** in this
+  repo's own codebase. The violation is the introduction of a direct
+  `process.env` read where the project's `CLAUDE.md` rule
+  (`config-service-only`) requires the typed gateway.
+
 ## Why synthetic?
 
 The Day-6 plan defers the specific selection of real public PRs to

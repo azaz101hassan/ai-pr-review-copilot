@@ -267,6 +267,77 @@ export function assertNoRuleIdCollisions(chunks: NormalizedChunk[]): void {
   }
 }
 
+/**
+ * Parse the optional `--only` CLI flag from process argv. Accepts both
+ * `--only foo,bar` and `--only=foo,bar`. Returns a list of fixture ids;
+ * empty when the flag is absent. Throws on `--only` with no value, so
+ * a typo (`--only --debug`) fails loudly rather than capturing nothing.
+ *
+ * The flag is for targeted re-capture during iteration — without it,
+ * tuning a single fixture forces a re-record of the entire corpus.
+ */
+export function parseOnlyFlag(argv: readonly string[]): string[] {
+  let raw: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--only') {
+      raw = argv[i + 1];
+      break;
+    }
+    if (arg.startsWith('--only=')) {
+      raw = arg.slice('--only='.length);
+      break;
+    }
+  }
+  // Flag not present at all → silently no-op.
+  if (raw === undefined) {
+    // Distinguish "flag absent" from "flag present with no value": only
+    // the latter is an error. We need to re-scan to know.
+    const present = argv.some((a) => a === '--only' || a.startsWith('--only='));
+    if (!present) return [];
+    throw new Error('--only requires a value (comma-separated fixture ids)');
+  }
+  const tokens = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (tokens.length === 0) {
+    throw new Error('--only requires a value (comma-separated fixture ids)');
+  }
+  return tokens;
+}
+
+/**
+ * Filter manifest entries down to the given fixture ids, preserving the
+ * manifest's source-order. Reports unknown ids back to the caller so
+ * `main()` can fail loudly on a typo'd `--only foo,brvo` rather than
+ * silently capturing only the recognised ids.
+ *
+ * Deduplicates repeated ids; missing-id detection is also deduped.
+ */
+export function filterEntriesByFixtureIds(
+  entries: readonly LoadedManifestEntry[],
+  ids: readonly string[],
+): { filtered: LoadedManifestEntry[]; missing: string[] } {
+  if (ids.length === 0) {
+    return { filtered: [...entries], missing: [] };
+  }
+  const wanted = new Set(ids);
+  const filtered = entries.filter((e) => wanted.has(e.fixtureId));
+  const present = new Set(filtered.map((e) => e.fixtureId));
+  // Iterate `ids` (not the Set) so missing ids are reported in caller's
+  // order, deduped.
+  const missingSeen = new Set<string>();
+  const missing: string[] = [];
+  for (const id of ids) {
+    if (!present.has(id) && !missingSeen.has(id)) {
+      missingSeen.add(id);
+      missing.push(id);
+    }
+  }
+  return { filtered, missing };
+}
+
 // ── Internal helpers ───────────────────────────────────────────────────
 
 function chunksToRules(chunks: NormalizedChunk[]): AnalyzeDiffRule[] {
@@ -375,12 +446,36 @@ async function main(): Promise<void> {
 
     const manifest = loadManifest(manifestPath);
     const gatingEntries = manifest.entries.filter((e) => e.gates);
-    const allEntries = manifest.entries;
     // eslint-disable-next-line no-console
     console.log(
-      `[eval:capture] manifest loaded: ${allEntries.length} entries ` +
-        `(${gatingEntries.length} gating, ${allEntries.length - gatingEntries.length} held-out)`,
+      `[eval:capture] manifest loaded: ${manifest.entries.length} entries ` +
+        `(${gatingEntries.length} gating, ${manifest.entries.length - gatingEntries.length} held-out)`,
     );
+
+    // Optional per-fixture targeting. `--only fixture-a,fixture-b`
+    // restricts the loop so iteration on a single fixture doesn't
+    // require re-recording the entire corpus.
+    const onlyIds = parseOnlyFlag(process.argv);
+    let allEntries = manifest.entries;
+    if (onlyIds.length > 0) {
+      const { filtered, missing } = filterEntriesByFixtureIds(
+        manifest.entries,
+        onlyIds,
+      );
+      if (missing.length > 0) {
+        throw new Error(
+          `--only specified unknown fixture(s): ${missing.join(', ')}. ` +
+            `Known ids: ${manifest.entries.map((e) => e.fixtureId).join(', ')}`,
+        );
+      }
+      allEntries = filtered;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[eval:capture] --only filter applied: capturing ${filtered.length} ` +
+          `of ${manifest.entries.length} fixtures ` +
+          `(${filtered.map((e) => e.fixtureId).join(', ')})`,
+      );
+    }
 
     // ── 4. Rate limit guard ────────────────────────────────────────
 

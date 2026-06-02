@@ -7,6 +7,7 @@ export {
 } from './format-review-body';
 export { parseLocationHint, ParsedAnchor } from './parse-location-hint';
 export { parseDiffHunks, HunkRange } from './parse-diff-hunks';
+export { countChangedLines } from './count-changed-lines';
 export {
   anchorFindingsToDiff,
   AnchorableFinding,
@@ -22,6 +23,10 @@ export {
   formatWalkthroughBody,
   FormatWalkthroughBodyInput,
 } from './format-walkthrough-body';
+export {
+  formatWalkthroughSkippedBody,
+  FormatWalkthroughSkippedBodyInput,
+} from './format-walkthrough-skipped-body';
 export { FindingCounts } from './finding-counts.types';
 export {
   findWalkthroughCommentId,
