@@ -3,11 +3,17 @@
 //
 // Altitude hierarchy (read top-to-bottom at decreasing scale):
 //   Row 1 — Volume + status breakdown (primary: 4xl mono headline, glance-readable)
+//           Skipped, error-code breakdown sit as muted sub-lines (Day-7, Day-8).
 //   Row 2 — Severity rollup + proportional bar (secondary: 2xl headline)
-//   Row 3 — Latency + token cost (tertiary: single muted line)
+//           Hallucinated drops sit as a muted sub-line (Day-8).
+//   Row 3 — Latency + token cost + cache-hit savings (tertiary: single muted line)
+//           Cache-hit total sits inline alongside cost telemetry (Day-8).
 //   Below  — Top-N rules table (supporting detail, preserved as-is)
 //
 // The scale step (4xl → 2xl → sm) does the hierarchy work, not card chrome.
+// Day-8 chips follow the existing muted-text-xs sub-line treatment: each
+// hides at zero (R6) so a zero-state never reads as a problem state.
+import { Fragment } from 'react';
 import {
   Table,
   TableHeader,
@@ -16,7 +22,11 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table';
-import { analyticsVolume, type AnalyticsResponse } from '@/lib/api-types';
+import {
+  analyticsVolume,
+  type AnalyticsResponse,
+  type ErrorCodeEntry,
+} from '@/lib/api-types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,9 +54,17 @@ interface VolumeRowProps {
   failed: number;
   in_progress: number;
   skipped: number;
+  errorCodeBreakdown: ErrorCodeEntry[];
 }
 
-function VolumeRow({ volume, completed, failed, in_progress, skipped }: VolumeRowProps) {
+function VolumeRow({
+  volume,
+  completed,
+  failed,
+  in_progress,
+  skipped,
+  errorCodeBreakdown,
+}: VolumeRowProps) {
   return (
     <div>
       {/* Primary headline: glance-readable volume count, mono 4xl */}
@@ -99,6 +117,28 @@ function VolumeRow({ volume, completed, failed, in_progress, skipped }: VolumeRo
           <span>diff too large</span>
         </p>
       ) : null}
+      {/*
+        Day-8 error-code breakdown. Sits below the skipped line — same
+        muted treatment, same hide-at-zero pattern. Subset to top 3 so
+        the label can stay short; the aggregator returns up to 10 if a
+        future renderer needs deeper coverage. "Top 3" is named so the
+        operator knows the chip is truncated.
+      */}
+      {errorCodeBreakdown.length > 0 ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span>Top {Math.min(3, errorCodeBreakdown.length)} failure modes</span>{' '}
+          {errorCodeBreakdown.slice(0, 3).map((entry, idx) => (
+            <Fragment key={entry.error_code}>
+              <span aria-hidden="true">·</span>{' '}
+              <span className="font-mono text-foreground">{entry.error_code}</span>{' '}
+              <span className="font-mono tabular-nums text-foreground">
+                {entry.count}
+              </span>
+              {idx < Math.min(3, errorCodeBreakdown.length) - 1 ? ' ' : ''}
+            </Fragment>
+          ))}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -111,9 +151,10 @@ interface SeverityRowProps {
   error: number;
   warning: number;
   info: number;
+  hallucinatedDrops: number;
 }
 
-function SeverityRow({ error, warning, info }: SeverityRowProps) {
+function SeverityRow({ error, warning, info, hallucinatedDrops }: SeverityRowProps) {
   const total = error + warning + info;
 
   return (
@@ -235,6 +276,24 @@ function SeverityRow({ error, warning, info }: SeverityRowProps) {
           </dl>
         </div>
       )}
+      {/*
+        Day-8 hallucination chip. Sits below the severity breakdown
+        (and proportional bar when present). These are findings the
+        reviewer's filter dropped before they reached the operator —
+        a model-quality signal sibling to the severity headline.
+        Muted text-xs to match the existing sub-line treatment;
+        hides at zero so a clean window doesn't read as a problem.
+      */}
+      {hallucinatedDrops > 0 ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span className="font-mono tabular-nums text-foreground">
+            {hallucinatedDrops}
+          </span>{' '}
+          <span>
+            finding{hallucinatedDrops === 1 ? '' : 's'} dropped as hallucinated
+          </span>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -247,9 +306,10 @@ interface StatsRowProps {
   p50: number | null;
   p95: number | null;
   tokenTotal: number;
+  cacheHits: number;
 }
 
-function StatsRow({ p50, p95, tokenTotal }: StatsRowProps) {
+function StatsRow({ p50, p95, tokenTotal, cacheHits }: StatsRowProps) {
   return (
     <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-muted-foreground">
       <span>Latency p50</span>
@@ -266,6 +326,22 @@ function StatsRow({ p50, p95, tokenTotal }: StatsRowProps) {
       <span className="font-mono tabular-nums text-foreground">
         {formatTokenCount(tokenTotal)}
       </span>
+      {/*
+        Day-8 cache-hit chip. Inline alongside the cost ledger — it
+        belongs with the other cost telemetry semantically (tool calls
+        the per-review dedup cache short-circuited instead of
+        re-invoking). Hides at zero so reviews without dedup activity
+        don't clutter the row.
+      */}
+      {cacheHits > 0 ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <span>Cache hits</span>
+          <span className="font-mono tabular-nums text-foreground">
+            {cacheHits}
+          </span>
+        </>
+      ) : null}
     </p>
   );
 }
@@ -332,7 +408,7 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
 
   return (
     <div className="space-y-5">
-      {/* Row 1: volume + status breakdown */}
+      {/* Row 1: volume + status breakdown + (Day-8) error-code breakdown */}
       <section aria-label="Review volume and status">
         <VolumeRow
           volume={volume}
@@ -340,24 +416,27 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
           failed={statusBreakdown.failed}
           in_progress={statusBreakdown.in_progress}
           skipped={data.skippedCount ?? 0}
+          errorCodeBreakdown={data.errorCodeBreakdown ?? []}
         />
       </section>
 
-      {/* Row 2: severity rollup + proportional bar */}
+      {/* Row 2: severity rollup + proportional bar + (Day-8) hallucination chip */}
       <section aria-label="Findings by severity">
         <SeverityRow
           error={severityRollup.error}
           warning={severityRollup.warning}
           info={severityRollup.info}
+          hallucinatedDrops={data.hallucinatedTotal ?? 0}
         />
       </section>
 
-      {/* Row 3: latency + token totals */}
+      {/* Row 3: latency + token totals + (Day-8) cache-hit chip (inline) */}
       <section aria-label="Performance metrics">
         <StatsRow
           p50={latency.p50}
           p95={latency.p95}
           tokenTotal={tokenTotal}
+          cacheHits={data.cacheHitTotal ?? 0}
         />
       </section>
 
