@@ -60,6 +60,20 @@ export const reviews = sqliteTable(
     // Day-3 rows have no per-turn data.
     turn_count: integer('turn_count').notNull().default(0),
     tool_calls_json: text('tool_calls_json', { mode: 'json' }),
+    // Day-8 observability counts. Populated by the reviewer when a review
+    // completes; the dashboard aggregator SUMs them across the time-window.
+    //   - hallucinated_finding_count: number of findings the reviewer
+    //     emitted that the filter dropped (unknown rule_id or wrong
+    //     source:rule_id composite).
+    //   - cache_hit_count: number of tool-call invocations the per-review
+    //     dedup cache short-circuited instead of re-invoking the tool.
+    // Both default to 0 so historical rows backfill cleanly without a
+    // separate data migration. Forward-looking signals — no retroactive
+    // recomputation from tool_calls_json.
+    hallucinated_finding_count: integer('hallucinated_finding_count')
+      .notNull()
+      .default(0),
+    cache_hit_count: integer('cache_hit_count').notNull().default(0),
     created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
     completed_at: integer('completed_at', { mode: 'timestamp_ms' }),
   },

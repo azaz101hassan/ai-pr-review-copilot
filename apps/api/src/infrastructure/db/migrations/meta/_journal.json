@@ -43,6 +43,13 @@
       "when": 1780350805665,
       "tag": "0005_add_walkthrough_comment_id_to_pull_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1780441273283,
+      "tag": "0006_add-observability-counts",
+      "breakpoints": true
     }
   ]
 }
