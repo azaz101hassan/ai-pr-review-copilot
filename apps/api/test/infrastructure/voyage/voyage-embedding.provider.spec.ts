@@ -14,6 +14,7 @@ interface MockResponseInit {
   body?: unknown;
   bodyText?: string;
   reject?: Error;
+  headers?: Record<string, string>;
 }
 
 function mockFetch(...responses: MockResponseInit[]): jest.Mock {
@@ -25,12 +26,17 @@ function mockFetch(...responses: MockResponseInit[]): jest.Mock {
     }
     const status = r.status ?? 200;
     const text = r.bodyText ?? JSON.stringify(r.body ?? {});
+    const lowerHeaders: Record<string, string> = {};
+    for (const [k, v] of Object.entries(r.headers ?? {})) {
+      lowerHeaders[k.toLowerCase()] = v;
+    }
     fn.mockResolvedValueOnce({
       ok: status >= 200 && status < 300,
       status,
       text: async () => text,
       json: async () => JSON.parse(text),
-    } as Response);
+      headers: { get: (name: string) => lowerHeaders[name.toLowerCase()] ?? null },
+    } as unknown as Response);
   }
   return fn;
 }
@@ -195,17 +201,87 @@ describe('VoyageEmbeddingProvider', () => {
       expect(caught!.message).toContain('401');
     });
 
-    it('throws on 429 without auto-retry — caller decides', async () => {
-      install({ status: 429, body: { error_code: 'rate_limited' } });
+    it('throws on 429 after exhausting in-provider retries, surfacing retryAfterMs', async () => {
+      // 4 total attempts (1 initial + 3 retries). Default backoff
+      // (35s) applies because no Retry-After header is set.
+      install(
+        { status: 429, body: { error_code: 'rate_limited' } },
+        { status: 429, body: { error_code: 'rate_limited' } },
+        { status: 429, body: { error_code: 'rate_limited' } },
+        { status: 429, body: { error_code: 'rate_limited' } },
+      );
 
-      const provider = new VoyageEmbeddingProvider(makeConfig());
+      jest.useFakeTimers();
+      try {
+        const provider = new VoyageEmbeddingProvider(makeConfig());
+        const promise = provider.embedDocuments(['a']);
+        // Suppress unhandled-rejection warnings while we advance timers.
+        promise.catch(() => undefined);
 
-      await expect(provider.embedDocuments(['a'])).rejects.toMatchObject({
-        name: 'VoyageRequestError',
-        status: 429,
-      });
-      // fetch was called exactly once — no retry inside the provider.
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+        // Three 35s naps between the 4 attempts.
+        await jest.advanceTimersByTimeAsync(35_000);
+        await jest.advanceTimersByTimeAsync(35_000);
+        await jest.advanceTimersByTimeAsync(35_000);
+
+        await expect(promise).rejects.toMatchObject({
+          name: 'VoyageRequestError',
+          status: 429,
+          errorCode: 'rate_limited',
+          retryAfterMs: 35_000,
+        });
+        // 4 total attempts: 1 initial + 3 retries.
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('retries on 429 and succeeds when a later attempt returns 200', async () => {
+      install(
+        { status: 429, body: { error_code: 'rate_limited' } },
+        { body: voyageOkBody([vec(0.5)]) },
+      );
+
+      jest.useFakeTimers();
+      try {
+        const provider = new VoyageEmbeddingProvider(makeConfig());
+        const promise = provider.embedDocuments(['a']);
+        await jest.advanceTimersByTimeAsync(35_000);
+        const result = await promise;
+        expect(result.vectors).toEqual([vec(0.5)]);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('honours the Retry-After header on 429 (numeric seconds)', async () => {
+      install(
+        {
+          status: 429,
+          body: { error_code: 'rate_limited' },
+          headers: { 'Retry-After': '5' },
+        },
+        { body: voyageOkBody([vec(0.7)]) },
+      );
+
+      jest.useFakeTimers();
+      try {
+        const provider = new VoyageEmbeddingProvider(makeConfig());
+        const promise = provider.embedDocuments(['a']);
+
+        // Not yet — should still be waiting after only 4s of the 5s window.
+        await jest.advanceTimersByTimeAsync(4_000);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // The remaining second triggers the retry; the success returns.
+        await jest.advanceTimersByTimeAsync(1_000);
+        const result = await promise;
+        expect(result.vectors).toEqual([vec(0.7)]);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('throws when response data length does not match input length', async () => {
