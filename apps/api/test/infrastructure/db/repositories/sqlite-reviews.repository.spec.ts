@@ -646,6 +646,9 @@ describe('SqliteReviewsRepository', () => {
       });
       expect(agg.latency).toEqual({ p50: null, p95: null });
       expect(agg.skippedCount).toBe(0);
+      expect(agg.hallucinatedTotal).toBe(0);
+      expect(agg.errorCodeBreakdown).toEqual([]);
+      expect(agg.cacheHitTotal).toBe(0);
     });
 
     it('excludes every standalone prompt_version from the main aggregates', () => {
@@ -862,6 +865,231 @@ describe('SqliteReviewsRepository', () => {
       const agg = repo.aggregateByFilter({ repo: 'owner/repo' });
       expect(agg.statusBreakdown.completed).toBe(1);
       expect(agg.tokenTotals.input_tokens).toBe(10);
+    });
+
+    // -----------------------------------------------------------------
+    // Day-8 observability fields
+    // -----------------------------------------------------------------
+
+    it('hallucinatedTotal sums hallucinated_finding_count across non-standalone rows', () => {
+      const t0 = NOW.getTime();
+      repo.insert(makeReview({
+        id: 'h-1',
+        status: 'completed',
+        hallucinated_finding_count: 1,
+        created_at: new Date(t0),
+        completed_at: new Date(t0 + 100),
+      }));
+      repo.insert(makeReview({
+        id: 'h-2',
+        status: 'completed',
+        hallucinated_finding_count: 2,
+        created_at: new Date(t0 + 200),
+        completed_at: new Date(t0 + 300),
+      }));
+      repo.insert(makeReview({
+        id: 'h-3',
+        status: 'completed',
+        hallucinated_finding_count: 0,
+        created_at: new Date(t0 + 400),
+        completed_at: new Date(t0 + 500),
+      }));
+
+      const agg = repo.aggregateByFilter({});
+      expect(agg.hallucinatedTotal).toBe(3);
+    });
+
+    it('hallucinatedTotal honours the time-window filter (sinceMs)', () => {
+      const t0 = NOW.getTime();
+      // Inside the window
+      repo.insert(makeReview({
+        id: 'h-in',
+        status: 'completed',
+        hallucinated_finding_count: 2,
+        created_at: new Date(t0),
+        completed_at: new Date(t0 + 100),
+      }));
+      // Outside the window — created before sinceMs
+      repo.insert(makeReview({
+        id: 'h-out',
+        status: 'completed',
+        hallucinated_finding_count: 5,
+        created_at: new Date(t0 - 10_000),
+        completed_at: new Date(t0 - 9_000),
+      }));
+
+      const agg = repo.aggregateByFilter({ sinceMs: t0 - 5_000 });
+      expect(agg.hallucinatedTotal).toBe(2);
+    });
+
+    it('errorCodeBreakdown returns top-N by count for reviewer-loop failures', () => {
+      const t0 = NOW.getTime();
+      const failed = (id: string, code: string, offsetMs: number) =>
+        repo.insert(makeReview({
+          id,
+          status: 'failed',
+          error_status: 200,
+          error_code: code,
+          created_at: new Date(t0 + offsetMs),
+          completed_at: new Date(t0 + offsetMs + 50),
+        }));
+
+      failed('f-1', 'turn_cap_exceeded', 0);
+      failed('f-2', 'turn_cap_exceeded', 100);
+      failed('f-3', 'turn_cap_exceeded', 200);
+      failed('f-4', 'rate_limit_error', 300);
+      failed('f-5', 'malformed_emit_finding', 400);
+
+      const agg = repo.aggregateByFilter({});
+      expect(agg.errorCodeBreakdown[0]).toEqual({
+        error_code: 'turn_cap_exceeded',
+        count: 3,
+      });
+      // The other two share count=1; order between them is implementation-
+      // defined (SQLite does not stabilise equal-count ties), but both must
+      // appear and neither must be at the head.
+      const tail = agg.errorCodeBreakdown.slice(1).map((e) => e.error_code).sort();
+      expect(tail).toEqual(['malformed_emit_finding', 'rate_limit_error']);
+    });
+
+    it('errorCodeBreakdown returns [] when no failed reviews match the filter', () => {
+      // Only completed rows in the dataset
+      repo.insert(makeReview({
+        id: 'ok-1',
+        status: 'completed',
+      }));
+      const agg = repo.aggregateByFilter({});
+      expect(agg.errorCodeBreakdown).toEqual([]);
+    });
+
+    it('errorCodeBreakdown excludes POST-side error codes', () => {
+      const t0 = NOW.getTime();
+      const failed = (id: string, code: string, offsetMs: number) =>
+        repo.insert(makeReview({
+          id,
+          status: 'failed',
+          error_status: 200,
+          error_code: code,
+          created_at: new Date(t0 + offsetMs),
+          completed_at: new Date(t0 + offsetMs + 50),
+        }));
+
+      // POST-side / orchestration codes — must be excluded
+      failed('p-1', 'comment_post_failed', 0);
+      failed('p-2', 'inline_post_failed', 100);
+      failed('p-3', 'pr_closed_during_review', 200);
+      failed('p-4', 'process_terminated', 300);
+      // One real reviewer-loop failure — must be included
+      failed('r-1', 'turn_cap_exceeded', 400);
+
+      const agg = repo.aggregateByFilter({});
+      expect(agg.errorCodeBreakdown).toEqual([
+        { error_code: 'turn_cap_exceeded', count: 1 },
+      ]);
+    });
+
+    it('errorCodeBreakdown also excludes standalone-failure rows', () => {
+      const t0 = NOW.getTime();
+      // Two standalone-failure rows with the same "synthetic" code — must
+      // be excluded by baseWhere alongside the POST-side exclusion.
+      repo.insert(makeReview({
+        id: 's-1',
+        status: 'failed',
+        prompt_version: 'standalone-failure',
+        pr_node_id: null,
+        error_status: 500,
+        error_code: 'turn_cap_exceeded',
+        created_at: new Date(t0),
+        completed_at: new Date(t0 + 100),
+      }));
+      // One genuine reviewer-loop failure for the same code
+      repo.insert(makeReview({
+        id: 'r-1',
+        status: 'failed',
+        error_status: 200,
+        error_code: 'turn_cap_exceeded',
+        created_at: new Date(t0 + 200),
+        completed_at: new Date(t0 + 300),
+      }));
+
+      const agg = repo.aggregateByFilter({});
+      // Only the non-standalone row contributes
+      expect(agg.errorCodeBreakdown).toEqual([
+        { error_code: 'turn_cap_exceeded', count: 1 },
+      ]);
+    });
+
+    it('cacheHitTotal sums cache_hit_count across matching rows', () => {
+      const t0 = NOW.getTime();
+      repo.insert(makeReview({
+        id: 'c-1',
+        status: 'completed',
+        cache_hit_count: 0,
+        created_at: new Date(t0),
+        completed_at: new Date(t0 + 100),
+      }));
+      repo.insert(makeReview({
+        id: 'c-2',
+        status: 'completed',
+        cache_hit_count: 2,
+        created_at: new Date(t0 + 200),
+        completed_at: new Date(t0 + 300),
+      }));
+      repo.insert(makeReview({
+        id: 'c-3',
+        status: 'completed',
+        cache_hit_count: 3,
+        created_at: new Date(t0 + 400),
+        completed_at: new Date(t0 + 500),
+      }));
+      repo.insert(makeReview({
+        id: 'c-4',
+        status: 'completed',
+        cache_hit_count: 1,
+        created_at: new Date(t0 + 600),
+        completed_at: new Date(t0 + 700),
+      }));
+
+      const agg = repo.aggregateByFilter({});
+      expect(agg.cacheHitTotal).toBe(6);
+    });
+
+    it('new fields honour the repo filter consistently with token totals', () => {
+      prs.save({
+        node_id: 'PR_obs_other',
+        repo_full_name: 'org/other-obs',
+        number: 7,
+        title: 'obs-other',
+        state: 'open',
+        head_sha: 'p'.repeat(40),
+        base_sha: 'q'.repeat(40),
+        author_login: 'alice',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+        walkthrough_comment_id: null,
+      });
+      repo.insert(makeReview({
+        id: 'obs-main',
+        pr_node_id: PR_NODE_ID,
+        status: 'completed',
+        hallucinated_finding_count: 4,
+        cache_hit_count: 7,
+      }));
+      repo.insert(makeReview({
+        id: 'obs-other',
+        pr_node_id: 'PR_obs_other',
+        status: 'completed',
+        hallucinated_finding_count: 99,
+        cache_hit_count: 99,
+      }));
+
+      const main = repo.aggregateByFilter({ repo: 'owner/repo' });
+      const other = repo.aggregateByFilter({ repo: 'org/other-obs' });
+      expect(main.hallucinatedTotal).toBe(4);
+      expect(main.cacheHitTotal).toBe(7);
+      expect(other.hallucinatedTotal).toBe(99);
+      expect(other.cacheHitTotal).toBe(99);
     });
   });
 

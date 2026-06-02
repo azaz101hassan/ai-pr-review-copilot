@@ -35,6 +35,24 @@ const STANDALONE_VERSIONS = [
 
 const SIZE_SKIPPED_VERSION = 'standalone-skipped-too-large' as const;
 
+// Day-8 error-code breakdown. These error_code values come from worker
+// lifecycle / GitHub-post paths (reviews.processor.ts and reviews.service.ts'
+// startup sweep), not the reviewer loop itself. Excluding them keeps the
+// dashboard chip's signal scoped to reviewer behavior — "what's the most
+// common way the reviewer fails?" — rather than mixing in orchestration
+// failures the operator already sees on the failure walkthrough on the PR.
+// Reviewer-loop codes (turn_cap_exceeded, malformed_emit_finding,
+// rate_limit_error, unexpected_response_shape, internal_error, etc.) and
+// any future codes added inside the reviewer auto-appear in the chip
+// without a code change here — that's the deny-list trade-off vs. an
+// allow-list.
+const POST_SIDE_ERROR_CODES = [
+  'comment_post_failed',
+  'inline_post_failed',
+  'pr_closed_during_review',
+  'process_terminated',
+] as const;
+
 @Injectable()
 export class SqliteReviewsRepository implements IReviewRepository {
   constructor(private readonly db: DatabaseService) {}
@@ -263,11 +281,13 @@ export class SqliteReviewsRepository implements IReviewRepository {
     return { review, findings };
   }
 
-  // Runs six queries inside a single read transaction and returns
-  // aggregated analytics. The five "main" queries exclude every
-  // standalone row (`prompt_version NOT IN (...)`); a sixth query
-  // counts the size-gate skips on its own so the dashboard can surface
-  // them without inflating the completed/severity/latency tallies.
+  // Runs nine queries inside a single read transaction and returns
+  // aggregated analytics. The five "main" queries (1-5) exclude every
+  // standalone row (`prompt_version NOT IN (...)`); a sixth query counts
+  // the size-gate skips on its own so the dashboard can surface them
+  // without inflating the completed/severity/latency tallies; queries
+  // 7-9 add Day-8 observability signals (hallucination total, top
+  // reviewer-loop error codes, cache-hit total).
   aggregateByFilter(spec: ReviewFilterSpec): AnalyticsAggregate {
     return this.db.transaction(() => {
       const filterCond = buildFilterCondition(spec);
@@ -382,6 +402,54 @@ export class SqliteReviewsRepository implements IReviewRepository {
         .get();
       const skippedCount = skipRow?.cnt ?? 0;
 
+      // 7. Hallucination total: SUM(hallucinated_finding_count) over
+      //    non-standalone rows respecting the filter. Standalone rows
+      //    carry 0 anyway (no reviewer ran), but baseWhere keeps the
+      //    semantics consistent with the rest of the aggregator.
+      const hallucinationRow = this.db.drizzle
+        .select({ total: sum(reviews.hallucinated_finding_count) })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .where(baseWhere)
+        .get();
+      const hallucinatedTotal = Number(hallucinationRow?.total ?? 0);
+
+      // 8. Error-code breakdown: top-10 by count, failed reviews only,
+      //    excluding POST-side / orchestration codes so the chip
+      //    surfaces reviewer-loop failure modes only. Renderers may
+      //    subset further (the dashboard chip shows top 3).
+      const errorRows = this.db.drizzle
+        .select({ error_code: reviews.error_code, cnt: count() })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .where(
+          and(
+            baseWhere,
+            eq(reviews.status, 'failed'),
+            isNotNull(reviews.error_code),
+            notInArray(reviews.error_code, [...POST_SIDE_ERROR_CODES]),
+          ),
+        )
+        .groupBy(reviews.error_code)
+        .orderBy(desc(count()))
+        .limit(10)
+        .all();
+
+      const errorCodeBreakdown = errorRows
+        .filter((r): r is { error_code: string; cnt: number } => r.error_code !== null)
+        .map((r) => ({ error_code: r.error_code, count: r.cnt }));
+
+      // 9. Cache-hit total: SUM(cache_hit_count) over non-standalone rows
+      //    respecting the filter. Validates the per-review dedup cache's
+      //    impact — operator sees how many tool calls were short-circuited.
+      const cacheHitRow = this.db.drizzle
+        .select({ total: sum(reviews.cache_hit_count) })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .where(baseWhere)
+        .get();
+      const cacheHitTotal = Number(cacheHitRow?.total ?? 0);
+
       return {
         statusBreakdown,
         severityRollup,
@@ -389,6 +457,9 @@ export class SqliteReviewsRepository implements IReviewRepository {
         tokenTotals,
         latency,
         skippedCount,
+        hallucinatedTotal,
+        errorCodeBreakdown,
+        cacheHitTotal,
       };
     });
   }

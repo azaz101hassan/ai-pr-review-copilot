@@ -75,6 +75,17 @@ export interface TopRuleEntry {
   count: number;
 }
 
+// Top-N error-code breakdown entry. Surfaced by the dashboard so the
+// operator can see which reviewer-loop failure modes dominate the
+// time-window slice. Excludes POST-side / orchestration codes (see
+// `aggregateByFilter` for the deny-list) so the chip's meaning stays
+// scoped to reviewer behavior, not GitHub-post or worker-lifecycle
+// failures.
+export interface ErrorCodeEntry {
+  error_code: string;
+  count: number;
+}
+
 // Token totals summed over matched reviews.
 export interface TokenTotals {
   input_tokens: number;
@@ -108,6 +119,30 @@ export interface AnalyticsAggregate {
   latency: LatencyPercentiles;
   /** Count of size-gate skips matching the filter (separate from statusBreakdown). */
   skippedCount: number;
+  /**
+   * Sum of `hallucinated_finding_count` across matching non-standalone
+   * reviews. Surfaces how often the reviewer emits findings that the
+   * hallucination filter has to drop (unknown rule_id or wrong
+   * `source:rule_id` composite). Standalone synthetic rows carry 0
+   * so the `baseWhere` exclusion has no effect on the sum.
+   */
+  hallucinatedTotal: number;
+  /**
+   * Top-N error-code breakdown for failed reviews. Scoped to
+   * reviewer-loop failure modes only — POST-side and orchestration
+   * codes (comment_post_failed, inline_post_failed, pr_closed_during_review,
+   * process_terminated) are excluded so the chip's signal stays scoped to
+   * reviewer behavior rather than worker/GitHub-post lifecycle. Top-10
+   * by count from the aggregator; renderers may subset further.
+   */
+  errorCodeBreakdown: ErrorCodeEntry[];
+  /**
+   * Sum of `cache_hit_count` across matching non-standalone reviews —
+   * the number of tool-call invocations the per-review dedup cache
+   * short-circuited instead of re-invoking the tool. Useful for
+   * confirming the dedup work is actually saving turns.
+   */
+  cacheHitTotal: number;
 }
 
 export const REVIEW_REPOSITORY = Symbol('ReviewRepository');
@@ -186,10 +221,12 @@ export interface IReviewRepository {
   // does not exist. Findings are ordered by created_at ASC.
   findByIdWithFindings(id: string): { review: ReviewRecord; findings: ReviewFindingRecord[] } | null;
 
-  // Runs five queries inside a single read transaction and returns
-  // the aggregated analytics for the matched filter window.
-  // All five queries exclude standalone rows:
-  //   WHERE prompt_version NOT IN ('standalone-failure', 'standalone-empty-diff')
+  // Runs nine queries inside a single read transaction and returns
+  // the aggregated analytics for the matched filter window. The five
+  // "main" queries and the three Day-8 observability queries exclude
+  // standalone rows via baseWhere; the sixth (size-gate skip count)
+  // and the error-code breakdown narrow further by additional
+  // predicates. See the implementation for the per-query details.
   aggregateByFilter(spec: ReviewFilterSpec): AnalyticsAggregate;
 
   // Returns sorted distinct repo_full_name values from the joined
