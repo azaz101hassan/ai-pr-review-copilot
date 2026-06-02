@@ -90,15 +90,24 @@ export interface LatencyPercentiles {
 }
 
 // Aggregate return shape from aggregateByFilter.
-// All five aggregate queries run inside one read transaction.
+// All six aggregate queries run inside one read transaction.
+//
 // Standalone rows (prompt_version IN ('standalone-failure',
-// 'standalone-empty-diff')) are excluded from every aggregate query.
+// 'standalone-empty-diff', 'standalone-skipped-too-large')) are
+// excluded from every "main" aggregate query because they have no
+// findings, zero or null token fields, and would distort metrics.
+//
+// `skippedCount` is the one exception — a dedicated count of
+// `standalone-skipped-too-large` rows so the dashboard can surface
+// how often the size gate is firing.
 export interface AnalyticsAggregate {
   statusBreakdown: StatusBreakdown;
   severityRollup: SeverityRollup;
   topRules: TopRuleEntry[];
   tokenTotals: TokenTotals;
   latency: LatencyPercentiles;
+  /** Count of size-gate skips matching the filter (separate from statusBreakdown). */
+  skippedCount: number;
 }
 
 export const REVIEW_REPOSITORY = Symbol('ReviewRepository');

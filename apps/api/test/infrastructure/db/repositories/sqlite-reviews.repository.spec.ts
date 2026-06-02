@@ -645,12 +645,14 @@ describe('SqliteReviewsRepository', () => {
         cache_read_input_tokens: 0,
       });
       expect(agg.latency).toEqual({ p50: null, p95: null });
+      expect(agg.skippedCount).toBe(0);
     });
 
-    it('excludes standalone rows from every aggregate', () => {
-      // Standalone row — must be excluded from aggregates
+    it('excludes every standalone prompt_version from the main aggregates', () => {
+      // One row per standalone variant: empty-diff, failure, size-skipped.
+      // None should contribute to statusBreakdown, severity, tokens, or latency.
       repo.insert(makeReview({
-        id: 'standalone',
+        id: 'standalone-empty',
         prompt_version: 'standalone-empty-diff',
         status: 'completed',
         pr_node_id: null,
@@ -661,11 +663,103 @@ describe('SqliteReviewsRepository', () => {
         created_at: new Date(NOW.getTime() - 5_000),
         completed_at: new Date(NOW.getTime()),
       }));
+      repo.insert(makeReview({
+        id: 'standalone-fail',
+        prompt_version: 'standalone-failure',
+        status: 'failed',
+        pr_node_id: null,
+        created_at: new Date(NOW.getTime() - 4_000),
+        completed_at: new Date(NOW.getTime() - 1_000),
+      }));
+      repo.insert(makeReview({
+        id: 'standalone-skipped',
+        prompt_version: 'standalone-skipped-too-large',
+        status: 'completed',
+        pr_node_id: null,
+        created_at: new Date(NOW.getTime() - 3_000),
+        completed_at: new Date(NOW.getTime() - 2_500),
+      }));
 
       const agg = repo.aggregateByFilter({});
-      expect(agg.statusBreakdown.completed).toBe(0);
+      expect(agg.statusBreakdown).toEqual({ completed: 0, failed: 0, in_progress: 0 });
       expect(agg.tokenTotals.input_tokens).toBe(0);
       expect(agg.latency).toEqual({ p50: null, p95: null });
+      // size-skipped is the one standalone variant that gets its own count
+      expect(agg.skippedCount).toBe(1);
+    });
+
+    it('skippedCount counts only standalone-skipped-too-large rows', () => {
+      const t0 = NOW.getTime();
+      // Two size-skipped rows
+      repo.insert(makeReview({
+        id: 'sk-1',
+        prompt_version: 'standalone-skipped-too-large',
+        status: 'completed',
+        created_at: new Date(t0 - 1000),
+        completed_at: new Date(t0 - 800),
+      }));
+      repo.insert(makeReview({
+        id: 'sk-2',
+        prompt_version: 'standalone-skipped-too-large',
+        status: 'completed',
+        created_at: new Date(t0 - 500),
+        completed_at: new Date(t0 - 400),
+      }));
+      // A non-skipped row — must NOT count
+      repo.insert(makeReview({
+        id: 'reg-1',
+        status: 'completed',
+        created_at: new Date(t0),
+        completed_at: new Date(t0 + 100),
+      }));
+      // Another standalone variant — must NOT count toward skippedCount
+      repo.insert(makeReview({
+        id: 'empty-1',
+        prompt_version: 'standalone-empty-diff',
+        status: 'completed',
+        pr_node_id: null,
+        created_at: new Date(t0 + 200),
+        completed_at: new Date(t0 + 300),
+      }));
+
+      const agg = repo.aggregateByFilter({});
+      expect(agg.skippedCount).toBe(2);
+      // Sanity: the regular row still hits statusBreakdown.completed
+      expect(agg.statusBreakdown.completed).toBe(1);
+    });
+
+    it('skippedCount honours the filter spec (repo)', () => {
+      prs.save({
+        node_id: 'PR_skip_other',
+        repo_full_name: 'org/other',
+        number: 99,
+        title: 'PR-other',
+        state: 'open',
+        head_sha: 'x'.repeat(40),
+        base_sha: 'y'.repeat(40),
+        author_login: 'alice',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+        walkthrough_comment_id: null,
+      });
+      repo.insert(makeReview({
+        id: 'sk-main',
+        pr_node_id: PR_NODE_ID,
+        prompt_version: 'standalone-skipped-too-large',
+        status: 'completed',
+      }));
+      repo.insert(makeReview({
+        id: 'sk-other',
+        pr_node_id: 'PR_skip_other',
+        prompt_version: 'standalone-skipped-too-large',
+        status: 'completed',
+      }));
+
+      const main = repo.aggregateByFilter({ repo: 'owner/repo' });
+      const other = repo.aggregateByFilter({ repo: 'org/other' });
+      expect(main.skippedCount).toBe(1);
+      expect(other.skippedCount).toBe(1);
     });
 
     it('mixed rows: 3 completed, 1 failed, 1 standalone — volume=4, severity from 3 completed', () => {

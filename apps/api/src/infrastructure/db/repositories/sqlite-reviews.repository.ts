@@ -17,12 +17,23 @@ import {
 import { ReviewFindingRecord } from '@/modules/reviews/types/review-finding.types';
 import { computeLatencyPercentiles } from '@/modules/dashboard/helpers/latency-percentile';
 
-// Prompt version values that indicate a standalone (pre-LLM) failure or
-// empty-diff case. These rows are excluded from all analytics aggregates
-// because they have no findings, zero or null token fields, and would
-// distort every metric. The list page (findFiltered / countFiltered) still
-// shows them so the displayed row count matches the actual DB count.
-const STANDALONE_VERSIONS = ['standalone-failure', 'standalone-empty-diff'] as const;
+// Prompt version values that indicate a standalone (pre-LLM) outcome:
+// a hard failure, an empty diff, or a size-gate skip. These rows are
+// excluded from the main analytics aggregates because they have no
+// findings, zero or null token fields, and would distort every metric.
+// The list page (findFiltered / countFiltered) still shows them so the
+// displayed row count matches the actual DB count.
+//
+// The `standalone-skipped-too-large` value gets its own dedicated count
+// on the aggregate (skippedCount) so the dashboard can show how often
+// the size gate is firing — a useful pivot-validation signal.
+const STANDALONE_VERSIONS = [
+  'standalone-failure',
+  'standalone-empty-diff',
+  'standalone-skipped-too-large',
+] as const;
+
+const SIZE_SKIPPED_VERSION = 'standalone-skipped-too-large' as const;
 
 @Injectable()
 export class SqliteReviewsRepository implements IReviewRepository {
@@ -252,9 +263,11 @@ export class SqliteReviewsRepository implements IReviewRepository {
     return { review, findings };
   }
 
-  // Runs five queries inside a single read transaction and returns
-  // aggregated analytics. All five queries exclude standalone rows:
-  //   WHERE prompt_version NOT IN ('standalone-failure', 'standalone-empty-diff')
+  // Runs six queries inside a single read transaction and returns
+  // aggregated analytics. The five "main" queries exclude every
+  // standalone row (`prompt_version NOT IN (...)`); a sixth query
+  // counts the size-gate skips on its own so the dashboard can surface
+  // them without inflating the completed/severity/latency tallies.
   aggregateByFilter(spec: ReviewFilterSpec): AnalyticsAggregate {
     return this.db.transaction(() => {
       const filterCond = buildFilterCondition(spec);
@@ -354,12 +367,28 @@ export class SqliteReviewsRepository implements IReviewRepository {
 
       const latency = computeLatencyPercentiles(durations);
 
+      // 6. Size-gate skip count — explicitly INCLUDES the standalone
+      //    skip rows that the main queries exclude. Honours the same
+      //    filter (repo/author/date) so the count moves with whatever
+      //    slice the operator is looking at.
+      const skipWhere = filterCond
+        ? and(filterCond, eq(reviews.prompt_version, SIZE_SKIPPED_VERSION))
+        : eq(reviews.prompt_version, SIZE_SKIPPED_VERSION);
+      const skipRow = this.db.drizzle
+        .select({ cnt: count() })
+        .from(reviews)
+        .leftJoin(pullRequests, eq(reviews.pr_node_id, pullRequests.node_id))
+        .where(skipWhere)
+        .get();
+      const skippedCount = skipRow?.cnt ?? 0;
+
       return {
         statusBreakdown,
         severityRollup,
         topRules,
         tokenTotals,
         latency,
+        skippedCount,
       };
     });
   }

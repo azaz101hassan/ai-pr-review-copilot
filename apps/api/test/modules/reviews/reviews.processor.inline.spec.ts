@@ -159,6 +159,7 @@ function setup(opts: SetupOpts = {}) {
       topRules: [],
       tokenTotals: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       latency: { p50: null, p95: null },
+      skippedCount: 0,
     }),
     distinctRepos: jest.fn().mockReturnValue([]),
     distinctAuthors: jest.fn().mockReturnValue([]),
