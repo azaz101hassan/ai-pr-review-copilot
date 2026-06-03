@@ -98,7 +98,7 @@ The webhook-only setup doesn't use the private key immediately, but you'll need 
 ## 6. Configure apps/api with the same secret
 
 ```bash
-cp .env.example apps/api/.env
+cp apps/api/.env.example apps/api/.env
 ```
 
 Open `apps/api/.env` and paste the hex string from step 1 into `GITHUB_WEBHOOK_SECRET=`. The two values **must match exactly**; a mismatch shows up as 401 in GitHub's "Recent Deliveries" tab.
