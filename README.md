@@ -1,5 +1,7 @@
 # AI PR Review Copilot
 
+[![CI](https://github.com/azaz101hassan/ai-pr-review-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/azaz101hassan/ai-pr-review-copilot/actions/workflows/ci.yml)
+
 A focused-scope GitHub PR reviewer for your team's own conventions. Retrieves the relevant rules from a per-team knowledge base, runs an agentic Claude review against the diff, and posts inline comments + a walkthrough summary back to the PR.
 
 ## Scope: small-PR copilot
@@ -27,9 +29,9 @@ The reviewer's quality is reliable on focused single-purpose diffs (the eval har
 ai-pr-review-copilot/
 ├── apps/
 │   ├── api/        # NestJS — webhook receiver, SQLite storage, future RAG + agents
-│   └── web/        # Next.js — dashboard placeholder (Day 7)
+│   └── web/        # Next.js — operator dashboard
 ├── docs/
-│   ├── plans/      # 10-day sprint plan + per-day implementation plans
+│   ├── plans/      # implementation plans
 │   └── setup/      # GitHub App + ngrok walkthrough
 └── .github/
     └── workflows/  # CI (tests + next build)
@@ -59,8 +61,8 @@ The API exposes:
 
 - `GET /health` → `{ status: 'ok', uptime, timestamp }` — smoke test target.
 - `POST /webhooks/github` → guarded by HMAC-SHA256 signature verification; routes `pull_request` events with action `opened` or `synchronize` into SQLite (`pull_requests` + `webhook_events` tables).
-- `POST /embeddings/search` (Day 2) → body `{ diff: string, k?: number }`; returns the top-K matching rules from the seeded corpus. See [`docs/setup/embeddings.md`](docs/setup/embeddings.md) for the full retrieval-loop bring-up (Chroma + Voyage + seed).
-- `POST /reviews/dry-run` (Day 3) → body `{ diff: string, k?: number, pr_node_id?: string }`; runs the full review pipeline (retrieve → Claude analyze → persist) and returns `{ review_id, findings, usage, model, prompt_version }`. Rate-limited globally at 30 req/min/IP via `@nestjs/throttler`; only registers when `ENABLE_DRY_RUN=true` (dev default). Also available as `npm run review:dry-run --workspace apps/api -- <diff-path>`. See [`docs/setup/claude.md`](docs/setup/claude.md) for the full Anthropic bring-up (API key + spend cap + model selection).
+- `POST /embeddings/search` → body `{ diff: string, k?: number }`; returns the top-K matching rules from the seeded corpus. See [`docs/setup/embeddings.md`](docs/setup/embeddings.md) for the full retrieval-loop bring-up (Chroma + Voyage + seed).
+- `POST /reviews/dry-run` → body `{ diff: string, k?: number, pr_node_id?: string }`; runs the full review pipeline (retrieve → Claude analyze → persist) and returns `{ review_id, findings, usage, model, prompt_version }`. Rate-limited globally at 30 req/min/IP via `@nestjs/throttler`; only registers when `ENABLE_DRY_RUN=true` (dev default). Also available as `npm run review:dry-run --workspace apps/api -- <diff-path>`. See [`docs/setup/claude.md`](docs/setup/claude.md) for the full Anthropic bring-up (API key + spend cap + model selection).
 
 ---
 
@@ -105,16 +107,7 @@ npm test --workspace apps/api
 cd apps/api && npx jest --watch
 ```
 
-Day 2 ships with **128 tests** across 17 suites in `apps/api`. New on Day 2 (vs Day 1's 49 across 8 suites):
-
-- `ConfigService` — 10 cases covering the four new env vars (Voyage required, Chroma URL/collection/embedding-model with defaults + validators).
-- `SqliteKnowledgeSourcesRepository` and `SqliteKnowledgeChunksRepository` — 14 cases for upsert, `findByIds` order discipline, FK enforcement, `deleteBySourceId`.
-- `VoyageEmbeddingProvider` — 10 cases against a mocked `fetch` for batching, asymmetric `input_type`, `VoyageRequestError` scrubbing the response body.
-- `ChromaVectorStore` — 15 cases for lazy init, cosine-space collection config, distance→score conversion, URL parsing across http/https/trailing-slash.
-- `CorpusLoader`, `EmbeddingsService`, `EmbeddingsController` — 19 cases for chunk normalization, indexing batching, ordering invariant (SQLite first, then Chroma), search enrichment, drift tolerance.
-- `Embeddings (e2e)` — 11 cases booting the full `AppModule` against deterministic in-memory stubs for `EMBEDDING_PROVIDER` and `VECTOR_STORE`, seeding the corpus, and asserting top-K orchestration plus DTO validation (including the 50 000-character `diff` cap).
-
-Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseline-implementation.md`](docs/plans/02-day1-baseline-implementation.md).
+The `apps/api` suite covers config validation, repositories, the embedding pipeline, the reviewer agent loop, and end-to-end webhook→review specs. Tests run against a real on-disk SQLite database in a temporary directory; no driver mocks.
 
 ---
 
@@ -123,7 +116,7 @@ Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseli
 | Layer | Choice |
 |---|---|
 | Backend | NestJS 10 (TypeScript) |
-| Frontend | Next.js 14 App Router (placeholder until Day 7) |
+| Frontend | Next.js 14 App Router (operator dashboard) |
 | Storage (relational) | SQLite via `better-sqlite3` + Drizzle ORM |
 | Storage (vectors) | Chroma 1.5 via Docker Compose |
 | Embeddings | Voyage AI `voyage-code-3` (1024-dim, code-tuned) |
@@ -134,7 +127,7 @@ Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseli
 
 ---
 
-## Day 1 troubleshooting
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -148,4 +141,4 @@ Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseli
 
 ## License
 
-UNLICENSED. Personal project.
+MIT — see [LICENSE](LICENSE).
