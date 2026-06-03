@@ -105,7 +105,7 @@ describeIf('AnthropicLlmReviewer — real-Anthropic smoke (RUN_ANTHROPIC_INTEGRA
     expect(second.usage.cache_read_input_tokens ?? 0).toBeGreaterThan(0);
   });
 
-  // Day-4: proves the multi-turn loop actually fires against the real
+  // Proves the multi-turn loop actually fires against the real
   // Anthropic API. The `silent-signature-change.patch` fixture is
   // designed so the violation is only visible after fetching
   // surrounding context (chargeCard's definition + the unchanged

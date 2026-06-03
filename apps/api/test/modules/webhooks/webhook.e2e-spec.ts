@@ -19,10 +19,10 @@ function sign(body: string): string {
   return 'sha256=' + createHmac('sha256', SECRET).update(body).digest('hex');
 }
 
-// Day-5: e2e must include the repo in DOGFOOD_REPOS (set in beforeAll
+// The e2e must include the repo in DOGFOOD_REPOS (set in beforeAll
 // below) and supply installation.id so the enqueue path runs. The
 // 'processed' assertions further down would otherwise become
-// 'ignored-repo' / 'ignored-event' after the gates land.
+// 'ignored-repo' / 'ignored-event'.
 const E2E_REPO = 'octocat/hello-world';
 
 function prPayload(action: string) {
@@ -58,17 +58,17 @@ describe('POST /webhooks/github (e2e)', () => {
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webhook-e2e-'));
     process.env.GITHUB_WEBHOOK_SECRET = SECRET;
-    // Day 2 added VOYAGE_API_KEY to ConfigService as required.
-    // AppModule construction now fails fast without it, even for tests
-    // that never touch the embeddings code path.
+    // VOYAGE_API_KEY is required by ConfigService — AppModule
+    // construction fails fast without it, even for tests that never
+    // touch the embeddings code path.
     process.env.VOYAGE_API_KEY = 'voyage-test-key-0123456789abcdef';
-    // Day 3 added ANTHROPIC_API_KEY to ConfigService as required.
+    // Same for ANTHROPIC_API_KEY.
     process.env.ANTHROPIC_API_KEY = 'anthropic-test-key-0123456789abcdef';
     process.env.DATABASE_PATH = path.join(tmpDir, 'e2e.sqlite');
-    // Day 5 — allowlist the e2e repo so the enqueue path runs end-to-
-    // end. The queue itself stubs out as a no-op since SKIP_REDIS_PROBE
-    // is true (jest.setup.ts) and the bullmq Queue is constructed but
-    // never actually contacts Redis in the e2e happy paths.
+    // Allowlist the e2e repo so the enqueue path runs end-to-end.
+    // The queue itself stubs out as a no-op since SKIP_REDIS_PROBE
+    // is true (jest.setup.ts) and the BullMQ Queue is constructed
+    // but never actually contacts Redis in the e2e happy paths.
     process.env.DOGFOOD_REPOS = E2E_REPO;
 
     const moduleRef = await Test.createTestingModule({

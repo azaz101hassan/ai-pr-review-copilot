@@ -26,7 +26,7 @@ interface FakeJob {
   state: JobState;
   updateData: jest.Mock;
   getState: jest.Mock;
-  // F18 closure: coalesce sweeps stale waiting jobs via job.remove().
+  // Coalesce sweeps stale waiting jobs via job.remove().
   remove: jest.Mock;
 }
 
@@ -74,7 +74,7 @@ function makeFakeQueue() {
         }
       },
     ),
-    // F18 closure: the fake queue mirrors BullMQ's getJobs([types]),
+    // The fake queue mirrors BullMQ's getJobs([types]),
     // returning every fake job whose state matches one of `types`.
     getJobs: jest.fn(async (types: JobState[]) => {
       const wanted = new Set(types);
@@ -113,7 +113,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     });
   });
 
-  it('updates payload in-place when a waiting job exists (R2 / AE2)', async () => {
+  it('updates payload in-place when a waiting job exists', async () => {
     const { queue, state, setJob } = makeFakeQueue();
     const adapter = new BullMQReviewQueue(queue);
 
@@ -145,7 +145,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     expect(job.updateData).toHaveBeenCalledWith(updated);
   });
 
-  it('queues a fresh job behind an active one (R3 / AE-Q)', async () => {
+  it('queues a fresh job behind an active one', async () => {
     const { queue, state, setJob } = makeFakeQueue();
     const adapter = new BullMQReviewQueue(queue);
 
@@ -217,7 +217,7 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     expect(behind.updateData).toHaveBeenCalledTimes(1);
   });
 
-  it('propagates queue.add errors (R4 / AE4 — webhook returns 5xx)', async () => {
+  it('propagates queue.add errors so the webhook returns 5xx', async () => {
     const { queue } = makeFakeQueue();
     const adapter = new BullMQReviewQueue(queue);
     (queue.add as jest.Mock).mockRejectedValueOnce(
@@ -267,10 +267,10 @@ describe('BullMQReviewQueue.enqueueReview', () => {
     expect(state.addCalls).toHaveLength(1);
   });
 
-  // F18 closure. Rebase-fixup spam: an active job + several stale
-  // waiting jobs (different head_shas) get pruned to just one
-  // waiting job → one extra review, not N.
-  describe('F18 head_sha coalescing', () => {
+  // Rebase-fixup spam: an active job + several stale waiting jobs
+  // (different head_shas) get pruned to just one waiting job → one
+  // extra review, not N.
+  describe('head_sha coalescing', () => {
     it('removes stale waiting behind-active jobs from prior head_shas', async () => {
       const { queue, state, setJob } = makeFakeQueue();
       const adapter = new BullMQReviewQueue(queue);
@@ -313,12 +313,12 @@ describe('BullMQReviewQueue.enqueueReview', () => {
       const { queue, setJob } = makeFakeQueue();
       const adapter = new BullMQReviewQueue(queue);
 
-      // No active job; just a waiting base job (the normal R2 path).
+      // No active job; just a waiting base job (the in-place-update path).
       const base = setJob(baseData.pr_node_id, baseData, 'waiting');
 
       await adapter.enqueueReview({ ...baseData, head_sha: 'sha-NEW' });
 
-      // R2 path → updateData on the base waiting job, no coalesce.
+      // In-place-update path → updateData on the base waiting job, no coalesce.
       expect(base.remove).not.toHaveBeenCalled();
     });
 

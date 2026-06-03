@@ -22,7 +22,7 @@ describe('apps/api bootstrap', () => {
     return listen;
   }
 
-  it('binds the HTTP server to 127.0.0.1 (R15 loopback)', async () => {
+  it('binds the HTTP server to 127.0.0.1 (loopback only)', async () => {
     const listen = stubApp();
     await bootstrap();
     expect(listen).toHaveBeenCalledTimes(1);

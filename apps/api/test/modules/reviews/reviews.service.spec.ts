@@ -41,10 +41,10 @@ import { PullRequestRecord } from '@/modules/webhooks/types/pull-request.types';
 //   - onModuleInit startup sweep finalises stale in_progress rows.
 //   - failure path persists 'failed' status atomically.
 //
-// Day-7 additions: ReviewEventsService emit assertions. All existing
-// pure-mock cases pass a no-op ReviewEventsService stub; the new
-// emit-specific cases use a real ReviewEventsService instance to
-// verify the Subject broadcast contract.
+// ReviewEventsService emit assertions. Pure-mock cases pass a no-op
+// ReviewEventsService stub; the emit-specific cases use a real
+// ReviewEventsService instance to verify the Subject broadcast
+// contract.
 
 const REAL_DIFF = 'diff --git a/x.js b/x.js\n@@ -1 +1 @@\n-let x = 1\n+var x = 1\n';
 
@@ -182,11 +182,11 @@ function happyAnalyzeResult(
     },
     model: 'claude-haiku-4-5-20251001',
     promptVersion: PROMPT_AND_TOOL_VERSION,
-    // Day-4 widened shape — degenerate single-turn case represented
-    // as turnCount=1 + one synthetic emit_finding tool call so this
-    // helper satisfies the new return type. The service-level
-    // persistence + flow tests don't inspect these fields; U7
-    // expands coverage with scripted multi-turn behaviour.
+    // Degenerate single-turn case represented as turnCount=1 + one
+    // synthetic emit_finding tool call so this helper satisfies the
+    // return type. The service-level persistence + flow tests don't
+    // inspect these fields; the e2e spec covers scripted multi-turn
+    // behaviour.
     turnCount: 1,
     toolCalls: [
       {
@@ -694,7 +694,7 @@ describe('ReviewsService (pure-mock cases)', () => {
     });
   });
 
-  describe('runDryRun — Day-4 repoContext + aggregates', () => {
+  describe('runDryRun — repoContext + agent-loop aggregates', () => {
     it('forwards input.repoContext to llm.analyzeDiff (CLI path)', async () => {
       const embeddings = makeEmbeddings([makeSearchHit()]);
       const llm = makeLlm(happyAnalyzeResult());
@@ -789,7 +789,7 @@ describe('ReviewsService (pure-mock cases)', () => {
     });
   });
 
-  describe('PF1 invariant — review_id timing', () => {
+  describe('review_id timing invariant', () => {
     it('review_id passed to insert/markCompleted/insertMany is the same id and is generated after embeddings.search', async () => {
       const hit = makeSearchHit();
       const embeddings = makeEmbeddings([hit]);
@@ -828,7 +828,7 @@ describe('ReviewsService (pure-mock cases)', () => {
     });
   });
 
-  describe('PF2 guard — db.transaction callback is synchronous', () => {
+  describe('db.transaction callback synchronicity guard', () => {
     it('source code never calls db.transaction with an `async` callback (grep-style guard)', () => {
       const source = fs.readFileSync(
         path.resolve(__dirname, '../../../src/modules/reviews/reviews.service.ts'),
@@ -939,10 +939,10 @@ describe('ReviewsService — real SQLite cases', () => {
   });
 
   it('onModuleInit: finalises stale in_progress rows older than the cutoff, leaves fresh ones alone', () => {
-    // Day-5 bumped STALE_IN_PROGRESS_CUTOFF_MS from 5 → 10 minutes
-    // (so the sweep doesn't race a healthy long agent loop). The
-    // stale row sits comfortably past the cutoff at 15 min to keep
-    // the assertion timing-stable regardless of suite-order drift.
+    // STALE_IN_PROGRESS_CUTOFF_MS is 10 minutes so the sweep doesn't
+    // race a healthy long agent loop. The stale row sits comfortably
+    // past the cutoff at 15 min to keep the assertion timing-stable
+    // regardless of suite-order drift.
     const fifteenMinAgo = new Date(Date.now() - 15 * 60_000);
     const oneMinAgo = new Date(Date.now() - 60_000);
 
@@ -1009,10 +1009,9 @@ describe('ReviewsService — real SQLite cases', () => {
     expect(fresh.completed_at).toBeNull();
   });
 
-  // Day-5 U7 — runRealReview is a thin sibling of runDryRun on the
-  // service. Its job is to delegate to the same lifecycle with the
-  // extra Day-5 inputs (prNodeId required, headSha captured for
-  // future use).
+  // runRealReview is a thin sibling of runDryRun on the service. Its
+  // job is to delegate to the same lifecycle with the extra real-PR
+  // inputs (prNodeId required, headSha captured for future use).
   it('runRealReview persists the row with pr_node_id and goes through the same lifecycle as runDryRun', async () => {
     // pr_node_id is an FK to pull_requests.node_id — seed the parent
     // row directly via raw SQL (the test's scope is the service, not
@@ -1067,8 +1066,8 @@ describe('ReviewsService — real SQLite cases', () => {
     expect(row.status).toBe('completed');
   });
 
-  // Day-5 U8 — markRowsFailedByIdSet wraps a markFailed loop in a
-  // single transaction. Drives the shutdown drain's failed-row flip.
+  // markRowsFailedByIdSet wraps a markFailed loop in a single
+  // transaction. Drives the shutdown drain's failed-row flip.
   describe('markRowsFailedByIdSet', () => {
     function seedInProgress(id: string): void {
       reviewsRepo.insert({
@@ -1140,8 +1139,8 @@ describe('ReviewsService — real SQLite cases', () => {
       );
     });
 
-    // F2 closure: a row that completed milliseconds before the drain
-    // inspected the in-flight Set must NOT be flipped to failed —
+    // A row that completed milliseconds before the drain inspected
+    // the in-flight Set must NOT be flipped to failed —
     // markFailedIfInProgress gates on status='in_progress'.
     it('does not flip rows that are already completed (drain race guard)', () => {
       seedInProgress('drain-completed');
@@ -1207,11 +1206,11 @@ describe('ReviewsService — real SQLite cases', () => {
   });
 });
 
-// Day-7 U2 — emit assertions. These tests use a real ReviewEventsService
-// to verify the Subject broadcast contract is wired at the two terminal
-// sites in runDryRun (after the success-path transaction, and inside the
-// catch block after markFailedSafely).
-describe('ReviewsService — SSE terminal-state emit (Day-7 U2)', () => {
+// SSE emit assertions. These tests use a real ReviewEventsService to
+// verify the Subject broadcast contract is wired at the two terminal
+// sites in runDryRun (after the success-path transaction, and inside
+// the catch block after markFailedSafely).
+describe('ReviewsService — SSE terminal-state emit', () => {
   let tmpDir: string;
   let db: DatabaseService;
   let reviewsRepo: SqliteReviewsRepository;
@@ -1231,7 +1230,7 @@ describe('ReviewsService — SSE terminal-state emit (Day-7 U2)', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('success path emits exactly one event with status: completed and correct review_id (AE1)', async () => {
+  it('success path emits exactly one event with status: completed and correct review_id', async () => {
     const events = new ReviewEventsService();
     const received: TerminalReviewEvent[] = [];
     const sub = events.stream().subscribe((ev) => received.push(ev));

@@ -44,8 +44,8 @@ describe('ReviewsModule.forRoot — gating', () => {
         ReviewsModule.forRoot(),
       );
       expect(def.controllers).toEqual([]);
-      // ReviewsService is still provided and exported — internal callers
-      // (Day 4 / Day 5 modules) keep working; only the HTTP surface is gated.
+      // ReviewsService is still provided and exported — internal
+      // callers keep working; only the HTTP surface is gated.
       expect(def.providers).toContain(ReviewsService);
       expect(def.exports).toContain(ReviewsService);
     });

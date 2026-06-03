@@ -209,8 +209,8 @@ describe('SqliteReviewsRepository', () => {
       expect(row.tool_calls_json).toEqual(calls);
     });
 
-    // Day-8 observability persistence — confirm both new columns
-    // round-trip through markCompleted + findById.
+    // Observability persistence — confirm both new columns round-trip
+    // through markCompleted + findById.
     it('persists hallucinated_finding_count and cache_hit_count when provided', () => {
       repo.insert(makeReview({ id: 'rc-obs' }));
       repo.markCompleted('rc-obs', {
@@ -319,8 +319,8 @@ describe('SqliteReviewsRepository', () => {
       // serialize null as the four-character string "null" depending
       // on the SET path. Repository now skips the SET on both null
       // AND undefined so the column stays at its schema default.
-      // Day-6 eval queries like `WHERE tool_calls_json IS NULL`
-      // depend on this distinction.
+      // Eval queries like `WHERE tool_calls_json IS NULL` depend on
+      // this distinction.
       repo.insert(makeReview({ id: 'rf-null-tc' }));
       repo.markFailed('rf-null-tc', {
         completed_at: new Date('2026-05-27T10:00:12Z'),
@@ -504,9 +504,7 @@ describe('SqliteReviewsRepository', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Dashboard read-side methods (Day 7, R3, R4, R6, R7, R10)
-  // ---------------------------------------------------------------------------
+  // Dashboard read-side methods.
 
   function makeFinding(reviewId: string, overrides: Partial<ReviewFindingInsert> = {}): ReviewFindingInsert {
     return {
@@ -534,7 +532,7 @@ describe('SqliteReviewsRepository', () => {
       expect(rows[1].id).toBe('r-old');
     });
 
-    it('filters by repo via LEFT JOIN pull_requests — AE2', () => {
+    it('filters by repo via LEFT JOIN pull_requests', () => {
       // Seed a second PR in a different repo
       prs.save({
         node_id: 'PR_other_repo',
@@ -559,7 +557,7 @@ describe('SqliteReviewsRepository', () => {
       expect(rows[0].repo_full_name).toBe('owner/repo');
     });
 
-    it('returns reviews with null pr_node_id with null PR metadata — AE3', () => {
+    it('returns reviews with null pr_node_id with null PR metadata', () => {
       repo.insert(makeReview({ id: 'r-null-pr', pr_node_id: null }));
 
       const rows = repo.findFiltered({}, { limit: 50 });
@@ -902,9 +900,7 @@ describe('SqliteReviewsRepository', () => {
       expect(agg.tokenTotals.input_tokens).toBe(10);
     });
 
-    // -----------------------------------------------------------------
-    // Day-8 observability fields
-    // -----------------------------------------------------------------
+    // Observability fields.
 
     it('hallucinatedTotal sums hallucinated_finding_count across non-standalone rows', () => {
       const t0 = NOW.getTime();

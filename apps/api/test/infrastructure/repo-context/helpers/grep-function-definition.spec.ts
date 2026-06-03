@@ -118,9 +118,9 @@ describe('grepFunctionDefinition', () => {
   describe('documented limitations', () => {
     it('class-method pattern returns the FIRST match when two classes define the same method name', () => {
       // Documented limitation: with two classes defining a method of
-      // the same name, the heuristic returns the first hit. Users get
-      // truthful "this is what we found" content; full AST upgrade is
-      // post-sprint polish.
+      // the same name, the heuristic returns the first hit. Users
+      // get truthful "this is what we found" content; a full AST
+      // upgrade is out of scope for the heuristic.
       const src = [
         'class A {',
         '  process() {',

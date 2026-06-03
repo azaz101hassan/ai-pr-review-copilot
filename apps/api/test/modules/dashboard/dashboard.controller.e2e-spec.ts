@@ -344,9 +344,7 @@ describe('Dashboard REST endpoints (e2e)', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // GET /dashboard/settings — AE4 secret-leak check (CRITICAL)
-  // ---------------------------------------------------------------------------
+  // GET /dashboard/settings — secret-leak check (CRITICAL).
 
   describe('GET /dashboard/settings', () => {
     it('returns the positive allowlist (model, embeddingModel, chromaCollection, knowledgeSources, severityGate)', async () => {
@@ -366,10 +364,10 @@ describe('Dashboard REST endpoints (e2e)', () => {
       });
     });
 
-    // AE4: the response body must NOT contain the runtime values of any secret field.
+    // The response body must NOT contain the runtime values of any secret field.
     // This test uses the real ConfigService (via the full test module) so value
     // mis-wiring (e.g. model: this.config.anthropicApiKey) fails this assertion.
-    it('AE4: response body contains none of the secret field values', async () => {
+    it('response body contains none of the secret field values', async () => {
       const res = await request(app.getHttpServer())
         .get('/dashboard/settings')
         .expect(200);
@@ -410,11 +408,9 @@ describe('Dashboard REST endpoints (e2e)', () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // FilterSpecDto validation via real ValidationPipe
-  // ---------------------------------------------------------------------------
+  // FilterSpecDto validation via real ValidationPipe.
 
-  describe('ValidationPipe enforcement (AE5)', () => {
+  describe('ValidationPipe enforcement', () => {
     it('rejects invalid repo with SQL-injection-like chars with 400', async () => {
       // The %3B is a semicolon which is not in [a-zA-Z0-9_\-./@]
       await request(app.getHttpServer())

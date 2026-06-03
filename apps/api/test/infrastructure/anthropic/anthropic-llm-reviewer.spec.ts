@@ -24,7 +24,7 @@ import { IRepoContextProvider } from '@/modules/reviews/types/repo-context-provi
 //   - loop control (turn cap, terminal vs non-terminal, mixed same-turn)
 //   - tool dispatch (repoContext invocation, validation, is_error flow)
 //   - response parsing (emit_finding payload validation, hallucination filter)
-//   - error wrapping (carried forward from Day-3)
+//   - error wrapping (carried forward from the single-turn version)
 //   - cache invariant (request args byte-identical across calls)
 
 const REAL_DIFF = 'diff --git a/x.js b/x.js\n@@ -1 +1 @@\n-let x = 1\n+var x = 1\n';
@@ -540,7 +540,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
       expect(repoContext.fetchFile).toHaveBeenCalledTimes(2);
     });
 
-    // Day-8 observability counter — verifies the cache-hit count is
+    // Observability counter — verifies the cache-hit count is
     // threaded into the AnalyzeDiffResult so the analytics aggregator
     // can SUM it across reviews.
     it('cacheHitCount counts the dedup-cache short-circuits in the loop', async () => {
@@ -752,7 +752,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
       warnSpy.mockRestore();
     });
 
-    // Day-8 observability counter — verifies the drop count is threaded
+    // Observability counter — verifies the drop count is threaded
     // into the AnalyzeDiffResult so the analytics aggregator can SUM it.
     it('hallucinatedFindingCount reflects the number of dropped findings', async () => {
       jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
@@ -1222,7 +1222,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
     });
   });
 
-  describe('SDK error wrapping (carried forward from Day-3)', () => {
+  describe('SDK error wrapping', () => {
     it('wraps APIError(401, authentication_error) and scrubs the API key', async () => {
       const client = makeMockClient();
       const headers = new Headers({ 'request-id': 'req_xyz' });

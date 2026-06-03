@@ -60,9 +60,9 @@ function makeStubQueue(
   return q;
 }
 
-// F12 closure: the WebhookService injects IGithubAuthProvider so it
-// can evict cached Octokits on installation lifecycle events. Tests
-// stub the seam and observe invalidateInstallation calls.
+// The WebhookService injects IGithubAuthProvider so it can evict
+// cached Octokits on installation lifecycle events. Tests stub the
+// seam and observe invalidateInstallation calls.
 interface StubGithubAuth {
   forInstallation: jest.Mock;
   invalidateInstallation: jest.Mock;
@@ -317,9 +317,9 @@ describe('WebhookService', () => {
     });
   });
 
-  // Day-5 gates: draft filter (R1 / AE-D), DOGFOOD_REPOS allowlist
-  // (R13 / AE6), enqueue failure → 5xx (R4 / AE4).
-  describe('Day-5 gates', () => {
+  // Pre-enqueue gates: draft filter, DOGFOOD_REPOS allowlist,
+  // enqueue-failure → 5xx contract.
+  describe('pre-enqueue gates', () => {
     describe('draft filter', () => {
       it('opens-as-draft → persists audit row but does NOT enqueue → ignored-draft', async () => {
         const payload = makePrPayload('opened', { draft: true });
@@ -374,7 +374,7 @@ describe('WebhookService', () => {
       });
     });
 
-    describe('DOGFOOD_REPOS allowlist (R13 / AE6)', () => {
+    describe('DOGFOOD_REPOS allowlist', () => {
       it('non-allowlisted repo → ignored-repo, audit row persists, no enqueue', async () => {
         service = new WebhookService(
           db,
@@ -425,8 +425,8 @@ describe('WebhookService', () => {
       });
     });
 
-    describe('enqueue failure (R4 / AE4 + F19 saga ordering)', () => {
-      it('propagates queue errors so controller returns 5xx; audit row NOT persisted (F19 — redelivery re-enters)', async () => {
+    describe('enqueue failure + saga ordering', () => {
+      it('propagates queue errors so controller returns 5xx; audit row NOT persisted so redelivery re-enters', async () => {
         const failingQueue = makeStubQueue(async () => {
           throw new Error('ECONNREFUSED: Redis dropped');
         });
@@ -450,11 +450,11 @@ describe('WebhookService', () => {
           }),
         ).rejects.toThrow(/ECONNREFUSED/);
 
-        // F19 closure: the PR row IS upserted (idempotent — safe
-        // to redo on redelivery), but the audit row is NOT written
-        // because the enqueue threw before its insert. The next
-        // GitHub redelivery sees no audit row → re-enters the
-        // pipeline rather than short-circuiting as 'duplicate'.
+        // The PR row IS upserted (idempotent — safe to redo on
+        // redelivery), but the audit row is NOT written because the
+        // enqueue threw before its insert. The next GitHub
+        // redelivery sees no audit row → re-enters the pipeline
+        // rather than short-circuiting as 'duplicate'.
         expect(prs.findByNodeId('PR_kwDOTEST')).toBeDefined();
         expect(events.findByDeliveryId('d-redis-down')).toBeUndefined();
       });
@@ -476,9 +476,9 @@ describe('WebhookService', () => {
     });
   });
 
-  // F12 closure: installation-lifecycle webhook events evict the
-  // cached Octokit so we don't keep retrying with a dead token.
-  describe('installation lifecycle (F12)', () => {
+  // Installation-lifecycle webhook events evict the cached Octokit
+  // so we don't keep retrying with a dead token.
+  describe('installation lifecycle', () => {
     it('invalidates the cached Octokit on installation.deleted', async () => {
       const res = await service.handleDelivery({
         event: 'installation',

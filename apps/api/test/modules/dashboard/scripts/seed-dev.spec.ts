@@ -152,7 +152,7 @@ describe('seed-dev script internals', () => {
       expect(standalone).toBeDefined();
     });
 
-    it('seeded reviews include a review with NULL pr_node_id (AE3)', () => {
+    it('seeded reviews include a review with NULL pr_node_id', () => {
       insertFixtures(db, buildFixtures());
       const nullPr = db
         .prepare("SELECT * FROM reviews WHERE pr_node_id IS NULL AND id LIKE ?")

@@ -64,7 +64,7 @@ describe('formatReviewBody (slim shape)', () => {
       });
       const lines = body.split('\n');
       expect(lines[0]).toBe(
-        '**🤖 AI PR Review Copilot** — automated review (Day 5)',
+        '**AI PR Review Copilot** — automated review',
       );
       expect(lines[1]).toBe(
         `<!-- ai-pr-review-copilot:v1:review-id=${VALID_UUID} -->`,

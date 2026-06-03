@@ -1,12 +1,12 @@
 // Test-only CommonJS stub for the ESM-only `octokit` package.
 //
-// Day 5 jest still runs in CommonJS mode and can't import the real
+// Jest still runs in CommonJS mode and can't import the real
 // `octokit` package (ESM-only). Production runtime is unaffected —
 // Node 22.12's `require(ESM)` covers it. This stub only needs to
 // export the names test code references at IMPORT time; every spec
 // either overrides `createClient`/`createProbeClient` (so the stub
 // Octokit constructor is never invoked) or provides a mock at the
-// call site. The Vitest migration deletes this stub.
+// call site. A future Vitest migration can drop this stub.
 
 class Octokit {
   constructor(_options) {
