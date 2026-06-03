@@ -1,6 +1,6 @@
 // Settings page — Server Component.
-// Fetches /api/dashboard/settings and renders the positive-allowlist fields.
-// Read-only: no edit affordances. No eval baseline section (Day-8 territory).
+// Fetches /api/dashboard/settings and renders the positive-allowlist
+// fields. Read-only: no edit affordances. No eval baseline section.
 import { fetchDashboard } from '@/lib/api';
 import { SettingsCard, SettingsRow } from '@/components/settings-card';
 import { EmptyState } from '@/components/empty-state';
