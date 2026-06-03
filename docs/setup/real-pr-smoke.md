@@ -1,14 +1,14 @@
-# Day 5 — Real-PR integration setup
+# Real-PR integration setup
 
-This walks you through wiring the Day-5 real-PR loop end-to-end: Redis comes up via docker-compose, the GitHub App from Day 1 starts authenticating Octokit clients per installation, an allowlist gates which repos the bot actually reviews, and a single body-only Review posts back to each PR after the agent loop runs. Target: a real PR triggering a posted Review in **about 20 minutes** on top of an already-working Day 1-4 install.
+This walks you through wiring the real-PR loop end-to-end: Redis comes up via docker-compose, the GitHub App starts authenticating Octokit clients per installation, an allowlist gates which repos the bot actually reviews, and a single body-only Review posts back to each PR after the agent loop runs. Target: a real PR triggering a posted Review in **about 20 minutes** on top of an already-working baseline install.
 
-> **Prerequisites:** Day 1 (webhook receiver + GitHub App), Day 2 (Chroma + seeded corpus), Day 3 (Anthropic key + spend cap), and Day 4 (agent loop) are all shipped. If `npm run review:dry-run` and the webhook delivery flow both work, you're in the right place.
+> **Prerequisites:** The webhook receiver + GitHub App, Chroma + seeded corpus, Anthropic key + spend cap, and the multi-turn agent loop are all configured. If `npm run review:dry-run` and the webhook delivery flow both work, you're in the right place.
 
 ---
 
 ## 1. Bring Redis up locally
 
-The Day-5 queue is BullMQ on top of Redis. We run it via docker-compose.
+The review queue is BullMQ on top of Redis. We run it via docker-compose.
 
 ### 1.1 Set REDIS_PASSWORD in your host environment
 
@@ -41,12 +41,12 @@ The container binds to `127.0.0.1:6379` only — not all interfaces. If you need
 
 ---
 
-## 2. Fill in the Day-5 environment variables
+## 2. Fill in the environment variables
 
-Open `apps/api/.env` and add the new vars below the Day-1/2/3 block. Every one is **required at boot** — the API will refuse to start otherwise.
+Open `apps/api/.env` and add the new vars below the existing block. Every one is **required at boot** — the API will refuse to start otherwise.
 
 ```bash
-# ── Day 5 — Real-PR integration ──────────────────────────────────────────
+# ── Real-PR integration ───────────────────────────────────────────────────
 
 # GitHub App ID — numeric, from your App's Settings → "General".
 APP_ID=123456
@@ -78,10 +78,10 @@ A copy with placeholder values lives in `apps/api/.env.example`. The `ConfigServ
 
 ## 3. Install the App on the demo target
 
-Day-5 needs the App installed on **two** kinds of target:
+The App needs to be installed on **two** kinds of target:
 
 1. **An OSS fork you control** — for the recorded demo. Pick a small JS/TS repo with clear coding standards (a CLI utility, a TodoMVC clone, a docs example) and fork it into your personal account. Push 1-2 branches with planted violations matching the seeded rules in [`docs/setup/embeddings.md`](embeddings.md). This is the path the on-camera demo records.
-2. **The `ai-pr-review-copilot` repo itself** — for the ongoing dogfood install. Real PRs that the team opens on this repo get reviewed automatically.
+2. **The `ai-pr-review-copilot` repo itself** — for ongoing self-review. Real PRs that the team opens on this repo get reviewed automatically.
 
 For each:
 
@@ -91,7 +91,7 @@ For each:
 
 ### Minimum App permissions
 
-Re-check your App's permissions (Settings → **Permissions & events**). Day 5 needs:
+Re-check your App's permissions (Settings → **Permissions & events**). The real-PR integration requires:
 
 | Permission | Access |
 |---|---|
@@ -101,7 +101,7 @@ Re-check your App's permissions (Settings → **Permissions & events**). Day 5 n
 
 Subscribed events: `Pull request`. (No `Push`, no `Issues`, no `Workflow run` — keep the surface narrow.)
 
-If the permission set was wider during Day 1 setup, narrow it now. GitHub will email installers asking them to re-accept the new permissions; for personal/test installs you can re-accept immediately.
+If the permission set was wider during initial setup, narrow it now. GitHub will email installers asking them to re-accept the new permissions; for personal/test installs you can re-accept immediately.
 
 ---
 
@@ -115,7 +115,7 @@ The PEM is the single secret that lets your App authenticate. If you suspect it'
 4. Restart `apps/api`. The startup log should show `GitHubAppService] GitHub App probe OK — installed as "<your-app-slug>"`. **Any other line means the key didn't authenticate** — don't proceed.
 5. Once you've confirmed the new key works, go back to App Settings → **Private keys** → click the **Delete** button on the OLD key. Both keys work simultaneously between steps 2 and 5; the window is intentionally narrow.
 
-> The in-process Octokit cache holds one client per installation for the process lifetime. After a rotation, the API restart in step 4 invalidates the whole cache. There is no separate cache-eviction call — Day-5 doesn't currently handle a hot rotation without a restart.
+> The in-process Octokit cache holds one client per installation for the process lifetime. After a rotation, the API restart in step 4 invalidates the whole cache. There is no separate cache-eviction call — a hot rotation without a restart is not currently supported.
 
 ---
 
@@ -144,7 +144,7 @@ The boot log records the parsed allowlist as part of `ReviewsModule`'s init.
 
 ## 6. ANTHROPIC_USE_ZERO_RETENTION
 
-Day-3 introduced the Anthropic spend cap as the dollar backstop. Day-5 adds an opt-in to Anthropic's **zero-data-retention** mode — when `true`, Anthropic doesn't retain prompt/response data after the API call completes.
+This is an opt-in to Anthropic's **zero-data-retention** mode — when `true`, Anthropic doesn't retain prompt/response data after the API call completes.
 
 Recommendation: **`true` for production / dogfood paths**. The diff being reviewed is your code, plus team rules from your knowledge base; you almost certainly don't want it sitting in another vendor's data lake.
 
@@ -162,26 +162,26 @@ The flag is read at boot. Re-deploying after a flip requires a process restart. 
 | Webhook returns 200 / `ignored-repo` for every PR | Repo is not in `DOGFOOD_REPOS` | Add `owner/repo` to the env var and restart. |
 | Webhook returns 200 / `ignored-draft` | The PR is marked as draft on GitHub | Convert to "Ready for review" on the PR — the next `synchronize` triggers the review. |
 | Webhook returns 5xx | The enqueue path failed (Redis dropped, BullMQ Lua error) | Check the API log for the underlying error. GitHub will redeliver automatically. |
-| PR triggered the worker but no Review appeared, and the row is `failed/diff_too_large` | The PR's diff exceeds `MAX_DIFF_BYTES` (default 256 KB) | Raise the cap in `.env` and restart, or split the PR. The Day-5 plan flags 256 KB as conservative — see Open Questions there for the trade-off. |
+| PR triggered the worker but no Review appeared, and the row is `failed/diff_too_large` | The PR's diff exceeds `MAX_DIFF_BYTES` (default 256 KB) | Raise the cap in `.env` and restart, or split the PR. 256 KB is intentionally conservative — see the implementation plan's Open Questions for the trade-off. |
 | Row is `failed/pr_closed_during_review` | The PR was closed or merged between the webhook delivery and the worker picking up the job | Expected behaviour. Re-open the PR if you want it re-reviewed. |
-| Row is `failed/github_api_error` with status 401 | The PEM rotated mid-process and the cached Octokit holds an expired token | Restart the API to invalidate the cache. Day 8 will add proactive token-rotation handling. |
-| Row is `failed/comment_post_failed` | The PR Review POST failed (5xx from GitHub, timeout). Findings are still in the DB. | Push an empty commit (`git commit --allow-empty -m 'retry review' && git push`) — the `synchronize` event triggers a fresh run. The Day-5 plan documents this as the intentional fail-fast-no-retry trade-off. |
+| Row is `failed/github_api_error` with status 401 | The PEM rotated mid-process and the cached Octokit holds an expired token | Restart the API to invalidate the cache. Proactive token-rotation handling is planned for a future release. |
+| Row is `failed/comment_post_failed` | The PR Review POST failed (5xx from GitHub, timeout). Findings are still in the DB. | Push an empty commit (`git commit --allow-empty -m 'retry review' && git push`) — the `synchronize` event triggers a fresh run. This is the intentional fail-fast-no-retry trade-off. |
 | Row is `failed/process_terminated` | The API was SIGKILL'd or the bounded drain timed out while this row was in-flight | The boot sweep marked it failed. Re-trigger via a `synchronize` if you want a fresh attempt. |
 | Worker logs show `worker.shutdown.drain_timeout` on every SIGTERM | The shutdown drain (default 25 s) isn't long enough for the in-flight review to complete | Raise `SHUTDOWN_DRAIN_TIMEOUT_MS` in `.env`. Don't go above your deployment's SIGTERM grace window (Docker default 10 min, k8s `terminationGracePeriodSeconds` default 30 s). |
-| `npm run dev:api` and Redis both start, but the Review never posts | Check `worker.job.dequeued` / `worker.review.started` / `worker.review.posted` log lines — find the missing one | Each log line corresponds to a step in the processor lifecycle (U7 of [`docs/plans/06-day5-real-pr-integration.md`](../plans/06-day5-real-pr-integration.md)). Whichever line is missing tells you which step failed. |
+| `npm run dev:api` and Redis both start, but the Review never posts | Check `worker.job.dequeued` / `worker.review.started` / `worker.review.posted` log lines — find the missing one | Each log line corresponds to a step in the processor lifecycle. Whichever line is missing tells you which step failed. |
 
 ---
 
-## 8. What Day 5 does *not* yet do
+## 8. Current limitations
 
-- **Inline comments on specific lines of the diff.** Day 5 ships body-only Reviews — one Review per completed run, all findings under a single self-identifying header. Inline comments with `(path, line)` locations are Day 10's Hybrid format.
-- **PAT auth mode.** Day 5 is App-installation only. The `IGithubAuthProvider` seam stays interface-stable so a `PersonalAccessTokenAuthProvider` impl can land in Day 8 or 10 without renegotiating consumers.
-- **Visible failure signals on the PR.** When a review fails (any `failed` error_code), nothing surfaces on the PR itself. Operators watch the worker log and the `reviews` table. Day 8 observability adds a "review failed" PR body / Check failure / error reaction.
+- **Inline comments on specific lines of the diff.** This integration ships body-only Reviews — one Review per completed run, all findings under a single self-identifying header. Inline comments with `(path, line)` locations are a planned future format.
+- **PAT auth mode.** Only App-installation auth is supported. The `IGithubAuthProvider` seam stays interface-stable so a `PersonalAccessTokenAuthProvider` impl can land without renegotiating consumers.
+- **Visible failure signals on the PR.** When a review fails (any `failed` error_code), nothing surfaces on the PR itself. Operators watch the worker log and the `reviews` table.
 - **`@bot` slash commands.** No `/pause`, `/re-review`, `/dismiss`. Manual control is via App install/uninstall or the `DOGFOOD_REPOS` env flip.
 - **Cross-PR or cross-repo dedup.** The bot doesn't notice that two different PRs touch the same file with the same violation.
-- **Operator notification on `credit_balance_too_low`.** Day-4's classifier emits this error code; Day-5 changes nothing. Day-8 observability surfaces it.
+- **Operator notification on `credit_balance_too_low`.** The classifier emits this error code but does not surface it proactively — operators must check the `reviews` table.
 
-See [`docs/plans/06-day5-real-pr-integration.md`](../plans/06-day5-real-pr-integration.md) → "Deferred to Follow-Up Work" for the full list and which day each item is scoped to.
+See [`docs/plans/06-day5-real-pr-integration.md`](../plans/06-day5-real-pr-integration.md) → "Deferred to Follow-Up Work" for the full deferred-work list.
 
 ---
 
@@ -198,7 +198,7 @@ When a webhook delivery comes in for an allowlisted, non-draft PR, you'll see th
 [ReviewsProcessor] [job=42 pr=PR_xyz...] worker.review.posted url=https://github.com/.../pull/42#pullrequestreview-...
 ```
 
-Then open the PR in your browser. The Review shows up with the self-identifying header `**🤖 AI PR Review Copilot** — automated review (Day 5)` plus the listed findings.
+Then open the PR in your browser. The Review shows up with the self-identifying header `**🤖 AI PR Review Copilot** — automated review` plus the listed findings.
 
 Inspect the persisted row:
 
@@ -207,4 +207,4 @@ sqlite3 apps/api/data/app.sqlite \
   'SELECT id, status, error_code, turn_count, input_tokens, output_tokens FROM reviews ORDER BY created_at DESC LIMIT 5;'
 ```
 
-For the dogfood install on `ai-pr-review-copilot` itself, this is how you keep tabs on the bot's behavior between PRs. If `error_code` distribution skews away from `NULL` (success), or `turn_count` clusters at 6 (the cap), that's a signal to tune.
+For the self-review install on `ai-pr-review-copilot` itself, this is how you keep tabs on the bot's behavior between PRs. If `error_code` distribution skews away from `NULL` (success), or `turn_count` clusters at the cap (6), that's a signal to tune.

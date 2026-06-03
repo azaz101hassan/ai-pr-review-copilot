@@ -2,7 +2,7 @@
 
 This walks you through registering a GitHub App so it can deliver pull-request webhooks to `apps/api` running locally. Target: working webhook delivery in **about 15 minutes**.
 
-> **Why a GitHub App rather than a repo webhook?** Day 5 of the sprint will post review comments back to the PR. That requires an authentication identity GitHub trusts — a GitHub App with `pull_requests: write` permission. We register the App on Day 1 so the auth surface is in place when Day 5 starts.
+> **Why a GitHub App rather than a repo webhook?** Posting review comments back to the PR requires an authentication identity GitHub trusts — a GitHub App with `pull_requests: write` permission. Registering the App upfront means the auth surface is ready when the real-PR integration is wired.
 
 ---
 
@@ -10,7 +10,7 @@ This walks you through registering a GitHub App so it can deliver pull-request w
 
 - A GitHub account.
 - A test repository (public or private) you can open a PR against. A fork of any small public repo works.
-- [ngrok](https://ngrok.com/download) installed locally and authenticated (`ngrok config add-authtoken <your token>` — the free tier is enough for Day 1).
+- [ngrok](https://ngrok.com/download) installed locally and authenticated (`ngrok config add-authtoken <your token>` — the free tier is sufficient).
 - This repo cloned and `npm install`'d.
 
 ---
@@ -52,7 +52,7 @@ Go to [github.com/settings/apps/new](https://github.com/settings/apps/new) (this
 | **Webhook → Active** | ✓ checked |
 | **Webhook URL** | `<your ngrok HTTPS URL>/webhooks/github` |
 | **Webhook secret** | The hex string from step 1. Paste it exactly. |
-| **Callback URL** | Leave blank for Day 1 (no OAuth flow yet). |
+| **Callback URL** | Leave blank (no OAuth flow needed for webhook-only mode). |
 | **Setup URL** | Leave blank. |
 
 ### Repository permissions
@@ -65,7 +65,7 @@ Set:
 | **Contents** | Read-only |
 | **Metadata** | Read-only (this one is mandatory and auto-checked) |
 
-Pull-requests "write" is required for Day 5 (posting review comments). Contents "read" will be required when Day 2 fetches the diff via Octokit.
+Pull-requests "write" is required for posting review comments. Contents "read" is required when the worker fetches the diff via Octokit.
 
 ### Subscribe to events
 
@@ -73,25 +73,25 @@ Check:
 
 - ✓ **Pull request**
 
-That's the only event Day 1 cares about. You can add more later (e.g., `Pull request review` if you want to react to human reviews).
+That's the only event the webhook receiver handles. You can add more later (e.g., `Pull request review` if you want to react to human reviews).
 
 ### Where can this GitHub App be installed?
 
-- ✓ **Only on this account** for Day 1. Flip to "Any account" later if you want others to install it.
+- ✓ **Only on this account** to start. Flip to "Any account" later if you want others to install it.
 
 Click **Create GitHub App** at the bottom.
 
 ---
 
-## 5. Save the App's identity (for Day 2)
+## 5. Save the App's identity
 
-After creation, GitHub takes you to the App's settings page. Note these — you'll need them on Day 2:
+After creation, GitHub takes you to the App's settings page. Note these — you'll need them for subsequent setup steps:
 
 - **App ID** — at the top of the page.
 - **Client ID** — in "About" section.
 - **Private key** — scroll to "Private keys" → "Generate a private key" → save the downloaded `.pem` file somewhere safe (e.g., `~/.config/ai-pr-review-copilot/app.pem`). **Never commit this file.**
 
-Day 1 doesn't use the private key, but you'll thank yourself for grabbing it now.
+The webhook-only setup doesn't use the private key immediately, but you'll need it for the real-PR integration step.
 
 ---
 
@@ -157,11 +157,11 @@ You should see your recent deliveries.
 
 ## What's next
 
-Day 1 ends here. Subsequent days build on this App install:
+This completes the GitHub App registration and webhook receiver setup. The remaining setup steps build on this App install:
 
-1. **Day 2** stood up Chroma + the Voyage embedding pipeline so diffs can be matched against the seeded rule corpus. See [`docs/setup/embeddings.md`](embeddings.md).
-2. **Day 3** wired the Anthropic SDK so retrieved rules drive Claude's review. See [`docs/setup/claude.md`](claude.md).
-3. **Day 4** added the multi-turn agent loop (fetched repo context across multiple turns before emitting findings).
-4. **Day 5** activates this App's webhook delivery: the private key from step 5 now mints installation-scoped Octokit clients, the worker fetches the unified diff for each `pull_request.opened` / `synchronize` event, runs the agent loop, and POSTs a body-only Review back to the PR. Full setup: [`docs/setup/day5-real-pr.md`](day5-real-pr.md).
+1. **Embeddings pipeline** — Chroma + Voyage so diffs can be matched against the seeded rule corpus. See [`docs/setup/embeddings.md`](embeddings.md).
+2. **Claude integration** — the Anthropic SDK so retrieved rules drive the review. See [`docs/setup/claude.md`](claude.md).
+3. **Multi-turn agent loop** — fetches repo context across multiple turns before emitting findings (covered in the Claude integration setup).
+4. **Real-PR integration** — activates this App's webhook delivery: the private key from step 5 now mints installation-scoped Octokit clients, the worker fetches the unified diff for each `pull_request.opened` / `synchronize` event, runs the agent loop, and POSTs a body-only Review back to the PR. Full setup: [`docs/setup/real-pr-smoke.md`](real-pr-smoke.md).
 
-See [`docs/plans/01-baseline.md`](../plans/01-baseline.md) for the full sprint.
+See [`docs/plans/01-baseline.md`](../plans/01-baseline.md) for the overall project plan.

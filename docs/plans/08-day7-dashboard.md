@@ -1569,7 +1569,7 @@ unit the four-page app is end-to-end.
 ## Documentation / Operational Notes
 
 - No external docs change for Day 7. The Day-5 setup guide
-  (`docs/setup/day5-real-pr.md`) gets a one-line note that the API
+  (`docs/setup/real-pr-smoke.md`) gets a one-line note that the API
   now binds to 127.0.0.1 (ngrok continues to work; this just
   documents intent).
 - `apps/web/README.md` does not exist today and is not introduced —
