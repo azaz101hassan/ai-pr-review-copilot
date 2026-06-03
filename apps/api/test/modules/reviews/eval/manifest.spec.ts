@@ -200,13 +200,18 @@ describe('manifest loader', () => {
       expect(manifest.entries).toHaveLength(18);
       expect(manifest.manifestVersion).toMatch(/^[0-9a-f]{64}$/);
 
-      // Verify the in-repo verbatim external-validity fixtures are present
-      // (added alongside the synthetic real-pr-* set to anchor the eval
-      // against actual diffs from this repo's own git history).
-      const inRepoIds = manifest.entries
-        .map((e) => e.fixtureId)
-        .filter((id) => id === 'voyage-batching-clean' || id === 'queue-process-env-violation');
-      expect(inRepoIds).toEqual(
+      // Verify the in-repo verbatim external-validity fixtures are present.
+      // All real-PR fixtures (synthetic + verbatim) share the path prefix
+      // "test/fixtures/eval/real-pr/". Filter on that prefix so the
+      // assertion keeps working when additional real-PR fixtures are added
+      // without requiring a spec edit. The two in-repo verbatim fixtures
+      // that anchor the eval against actual diffs from this repo's own git
+      // history are asserted via arrayContaining — present among the set,
+      // not exclusive.
+      const realPrIds = manifest.entries
+        .filter((e) => e.path.startsWith('test/fixtures/eval/real-pr/'))
+        .map((e) => e.fixtureId);
+      expect(realPrIds).toEqual(
         expect.arrayContaining([
           'voyage-batching-clean',
           'queue-process-env-violation',
