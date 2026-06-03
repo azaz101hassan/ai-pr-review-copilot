@@ -32,10 +32,10 @@ const MAX_WALK_DEPTH = 12;
 // are resolved against that root and rejected if they escape it
 // (path traversal → `invalid_input`).
 //
-// Day-4 invariant: only emits `not_found`, `invalid_input`, or
+// Invariant: only emits `not_found`, `invalid_input`, or
 // `parse_error`. The wider error vocabulary
-// (`forbidden | rate_limited | network`) is reserved for Day-5's
-// GitHub sibling. A unit test enforces this contract.
+// (`forbidden | rate_limited | network`) is reserved for the
+// GitHub-backed sibling. A unit test enforces this contract.
 export class FilesystemRepoContextProvider implements IRepoContextProvider {
   private readonly repoRoot: string;
 
@@ -86,7 +86,8 @@ export class FilesystemRepoContextProvider implements IRepoContextProvider {
       }
       // Anything else (permission errors on the local fs, etc.) maps
       // to `not_found` from Claude's perspective — the filesystem
-      // provider doesn't surface `forbidden`, which is Day-5 territory.
+      // provider doesn't surface `forbidden`, which is reserved for
+      // the GitHub-backed sibling.
       return {
         ok: false,
         reason: 'not_found',
@@ -172,7 +173,7 @@ export class FilesystemRepoContextProvider implements IRepoContextProvider {
     const filtered = entries.filter((entry) => {
       if (query.file_path && entry.file_path !== query.file_path) return false;
       if (query.rule_id && entry.rule_id !== query.rule_id) return false;
-      // `pr_node_id` is not stored on entries (Day-4 fixtures
+      // `pr_node_id` is not stored on entries (the JSON fixtures
       // pre-scope to the PR being reviewed); accept it as a no-op
       // filter so callers can pass it through harmlessly.
       return true;

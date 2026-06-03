@@ -49,9 +49,10 @@ export class SqlitePullRequestsRepository implements IPullRequestRepository {
       .get();
   }
 
-  // Day-7 dashboard filter picker. Returns a trimmed PR summary matching
-  // the filter spec (repo and/or author), ordered by created_at DESC,
-  // bounded by limit. Used to populate the single-PR selection dropdown.
+  // Dashboard filter picker. Returns a trimmed PR summary matching
+  // the filter spec (repo and/or author), ordered by created_at
+  // DESC, bounded by limit. Used to populate the single-PR
+  // selection dropdown.
   findRecentMatching(spec: ReviewFilterSpec, limit: number): PullRequestSummary[] {
     const conditions = [];
 

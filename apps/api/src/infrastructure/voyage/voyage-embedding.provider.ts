@@ -48,8 +48,8 @@ export class VoyageRequestError extends Error {
   readonly status: number;
   readonly errorCode?: string;
   // Surfaces to the BullMQ-level reviewBackoffStrategy when the
-  // provider gives up after exhausting its own retries. Honoured by
-  // the F4 closure with a 60s ceiling.
+  // provider gives up after exhausting its own retries. The custom
+  // backoff honours this hint with a 60s ceiling.
   readonly retryAfterMs?: number;
   override readonly cause?: unknown;
 

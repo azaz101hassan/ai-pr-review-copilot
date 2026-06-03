@@ -21,15 +21,16 @@ import { formatBriefError } from '@/types';
 import { BullMQReviewQueue } from './bullmq-review-queue';
 import { NoopReviewQueue } from './noop-review-queue';
 
-// Day-5 BullMQ queue boot probe. Calls `queue.client` (the underlying
+// BullMQ queue boot probe. Calls `queue.client` (the underlying
 // IORedis client) and pings; throws on failure so a misconfigured
 // REDIS_URL or stopped Redis container fails the process at startup
-// rather than at first webhook arrival. Paired with U2's GET /app
-// probe so both upstream dependencies surface as fail-fast at boot.
-// F31 closure. Exported + the boot logic split into a public
-// runProbe() method so Day-8 health surfaces (and operator-triggered
-// re-probes after a Redis restart) can re-run it without booting a
-// fresh module. Mirrors GitHubAppService.runProbe()'s shape.
+// rather than at first webhook arrival. Paired with the GitHub App
+// GET /app probe so both upstream dependencies surface as fail-fast
+// at boot. Exported with the boot logic split into a public
+// runProbe() method so a future health surface (or an
+// operator-triggered re-probe after a Redis restart) can re-run it
+// without booting a fresh module. Mirrors
+// GitHubAppService.runProbe()'s shape.
 @Injectable()
 export class QueueBootProbe implements OnModuleInit {
   private readonly logger = new Logger(QueueBootProbe.name);
@@ -125,8 +126,8 @@ export class QueueModule {
           inject: [ConfigService],
           useFactory: (_config: ConfigService) => ({
             // BullMQ's default job options. Each retry inserts a fresh
-            // `reviews` row (per-attempt contract from Day-5 plan); the
-            // worker emits a terminal failure on the third try.
+            // `reviews` row (per-attempt contract); the worker emits a
+            // terminal failure on the third try.
             //
             // Backoff is `type: 'custom'`. The actual delay function
             // lives on the @Processor decorator (see
@@ -134,7 +135,6 @@ export class QueueModule {
             // access to the thrown error and can honour
             // AnthropicRequestError.retryAfterMs. Falls back to a
             // 1s/2s/4s exponential for errors without a retry-after.
-            // F4 closure.
             defaultJobOptions: {
               attempts: 3,
               backoff: {
@@ -167,8 +167,7 @@ export class QueueModule {
 // connection-options shape BullMQ accepts. BullMQ accepts a URL too
 // in many versions, but the option-object form is forward-compat
 // across minor versions and lets us pass extra fields (tls, family)
-// later without API churn. Documented in the Day-5 Open Questions
-// — IORedis option shape is pinned against the installed version.
+// later without API churn.
 export function parseRedisUrl(rawUrl: string): {
   host: string;
   port: number;

@@ -63,12 +63,11 @@ export class ChromaRequestError extends Error {
 export class ChromaVectorStore implements IVectorStore {
   private readonly logger = new Logger(ChromaVectorStore.name);
 
-  // `client` and `collection` are both lazy. The constructor only reads
-  // config and computes connection args — it never opens a connection.
-  // This keeps DI bootstrap (and every spec that loads AppModule)
-  // network-free; the first upsert/query call is what actually talks to
-  // Chroma. Decided in the Day-2 plan's P0 doc-review finding (see
-  // docs/plans/03-day2-rag-foundation.md).
+  // `client` and `collection` are both lazy. The constructor only
+  // reads config and computes connection args — it never opens a
+  // connection. This keeps DI bootstrap (and every spec that loads
+  // AppModule) network-free; the first upsert/query call is what
+  // actually talks to Chroma.
   private client: ChromaClientLike | undefined;
   private collection: ChromaCollectionLike | undefined;
   private ensurePromise: Promise<ChromaCollectionLike> | undefined;

@@ -19,40 +19,36 @@ import { formatBriefError } from '@/types';
 // coalesce-sweep prefix MUST use the same value — both read this const.
 const BEHIND_ACTIVE_SHA_SEPARATOR = '.';
 
-// Day-5 BullMQ-backed implementation of IReviewQueue.
+// BullMQ-backed implementation of IReviewQueue.
 //
-// Upsert mechanics — hand-rolled per the brainstorm's
-// "deterministic BullMQ job-id with upsert-on-collision" wording:
+// Upsert mechanics — deterministic job-id with upsert-on-collision:
 //
 //   1. jobId = data.pr_node_id (one BullMQ job per PR ever).
 //   2. const existing = await queue.getJob(jobId).
 //   3. If no existing job → queue.add() with the deterministic jobId
 //      → result: 'added'.
-//   4. existing.getState() → 'waiting' | 'delayed' → existing.updateData(data)
-//      → result: 'updated-in-place'. The waiting job runs with the
-//      fresh payload (R2).
-//   5. existing.getState() → 'active' | 'completed' | 'failed' | 'unknown'
-//      → queue.add() with `${jobId}.${head_sha}` so the new job queues
-//      BEHIND the running one (R3 — never cancel running). result:
-//      'enqueued-behind-active'. (Separator is '.', not ':' — BullMQ
-//      forbids ':' in custom job ids; see BEHIND_ACTIVE_SHA_SEPARATOR.)
+//   4. existing.getState() → 'waiting' | 'delayed' →
+//      existing.updateData(data) → result: 'updated-in-place'. The
+//      waiting job runs with the fresh payload.
+//   5. existing.getState() → 'active' | 'completed' | 'failed' |
+//      'unknown' → queue.add() with `${jobId}.${head_sha}` so the
+//      new job queues BEHIND the running one (never cancel
+//      running). result: 'enqueued-behind-active'. (Separator is
+//      '.', not ':' — BullMQ forbids ':' in custom job ids; see
+//      BEHIND_ACTIVE_SHA_SEPARATOR.)
 //
-// Known race window (documented Day-5 trade-off): between `getState`
-// returning 'waiting' and `updateData` resolving, the worker may
-// dequeue the job and start processing — the new payload is then
-// lost (`updateData` succeeds but the worker reads the prior copy
-// from `job.data` cached at dispatch). The U7 row-in-progress guard
-// is the second line of defense. The Day-8 follow-up is to adopt
-// BullMQ's `deduplication: { keepLastIfActive }` Lua-script primitive
-// once the dedup API shape has stabilised; rejected at Day 5 because
-// the primitives are observable in worker logs (debuggable on demo
-// day) and don't churn across minor versions.
+// Known race window: between `getState` returning 'waiting' and
+// `updateData` resolving, the worker may dequeue the job and start
+// processing — the new payload is then lost (`updateData` succeeds
+// but the worker reads the prior copy from `job.data` cached at
+// dispatch). The processor's per-PR row-in-progress guard is the
+// second line of defense. A future move to BullMQ's
+// `deduplication: { keepLastIfActive }` Lua-script primitive could
+// close the race once that API is stable.
 //
-// Default retry: BullMQ's `attempts: 3` with exponential backoff. The
-// retry budget is tunable via the queue registration in QueueModule;
-// Day-5 ships the default and lets the operator dial it down on the
-// dogfood install if Anthropic burn becomes a concern (see Day-5
-// Open Questions about retry × Anthropic spend).
+// Default retry: BullMQ's `attempts: 3` with exponential backoff.
+// Tunable via the queue registration in QueueModule; the operator
+// dials it down on installs where Anthropic burn is a concern.
 @Injectable()
 export class BullMQReviewQueue implements IReviewQueue {
   private readonly logger = new Logger(BullMQReviewQueue.name);
@@ -93,11 +89,11 @@ export class BullMQReviewQueue implements IReviewQueue {
     // as 'updated-in-place').
     const newJobId = `${jobId}${BEHIND_ACTIVE_SHA_SEPARATOR}${data.head_sha}`;
 
-    // F18 closure. Coalesce rebase-fixup spam: every waiting
-    // behind-active job for this PR with a DIFFERENT head_sha is
-    // stale (the operator just kept pushing). Remove them so only
-    // the most-recent waiting job survives → 10 force-pushes don't
-    // queue 10 reviews + burn 10× Anthropic spend.
+    // Coalesce rebase-fixup spam: every waiting behind-active job
+    // for this PR with a DIFFERENT head_sha is stale (the author
+    // just kept pushing). Remove them so only the most-recent
+    // waiting job survives → 10 force-pushes don't queue 10 reviews
+    // and burn 10× Anthropic spend.
     await this.coalesceWaitingBehindActive(jobId, newJobId);
 
     const existingByNewId = await this.queue.getJob(newJobId);
@@ -123,12 +119,11 @@ export class BullMQReviewQueue implements IReviewQueue {
     return { jobId: newJobId, result: 'enqueued-behind-active' };
   }
 
-  // F18 closure. Sweep waiting / delayed jobs whose jobId starts
-  // with `${baseJobId}.` (the behind-active suffix pattern) and
-  // remove all of them EXCEPT `keepJobId`. The base waiting job
+  // Sweep waiting / delayed jobs whose jobId starts with
+  // `${baseJobId}.` (the behind-active suffix pattern) and remove
+  // all of them EXCEPT `keepJobId`. The base waiting job
   // (jobId === baseJobId) is left alone — its updateData path is
-  // the primary R2 short-circuit and never duplicates Anthropic
-  // spend.
+  // the primary short-circuit and never duplicates Anthropic spend.
   //
   // We use Queue.getJobs with the 'waiting' + 'delayed' filters
   // and walk the result. Iteration cost is O(waiting jobs in

@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { ChromaVectorStore } from './chroma-vector-store';
 import { VECTOR_STORE } from '@/modules/embeddings/types/vector-store';
 
-// Chroma is the Day 2 vector store — bound to VECTOR_STORE so consumers
-// inject the interface (IVectorStore), not the concrete class. Swapping
-// to Qdrant/Pinecone is a one-line change here.
+// Chroma vector store — bound to VECTOR_STORE so consumers inject
+// the interface (IVectorStore), not the concrete class. Swapping to
+// Qdrant/Pinecone is a one-line change here.
 @Module({
   providers: [
     {

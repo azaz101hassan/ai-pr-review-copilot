@@ -35,16 +35,17 @@ const STANDALONE_VERSIONS = [
 
 const SIZE_SKIPPED_VERSION = 'standalone-skipped-too-large' as const;
 
-// Day-8 error-code breakdown. These error_code values come from worker
-// lifecycle / GitHub-post paths (reviews.processor.ts and reviews.service.ts'
-// startup sweep), not the reviewer loop itself. Excluding them keeps the
-// dashboard chip's signal scoped to reviewer behavior — "what's the most
-// common way the reviewer fails?" — rather than mixing in orchestration
-// failures the operator already sees on the failure walkthrough on the PR.
-// Reviewer-loop codes (turn_cap_exceeded, malformed_emit_finding,
-// rate_limit_error, unexpected_response_shape, internal_error, etc.) and
-// any future codes added inside the reviewer auto-appear in the chip
-// without a code change here — that's the deny-list trade-off vs. an
+// Error-code breakdown. These error_code values come from worker
+// lifecycle / GitHub-post paths (reviews.processor.ts and the
+// startup sweep in reviews.service.ts), not the reviewer loop itself.
+// Excluding them keeps the dashboard chip's signal scoped to reviewer
+// behavior — "what's the most common way the reviewer fails?" —
+// rather than mixing in orchestration failures the operator already
+// sees on the failure walkthrough on the PR. Reviewer-loop codes
+// (turn_cap_exceeded, malformed_emit_finding, rate_limit_error,
+// unexpected_response_shape, internal_error, etc.) and any future
+// codes added inside the reviewer auto-appear in the chip without
+// a code change here — that's the deny-list trade-off vs. an
 // allow-list.
 const POST_SIDE_ERROR_CODES = [
   'comment_post_failed',
@@ -87,21 +88,20 @@ export class SqliteReviewsRepository implements IReviewRepository {
         // Drizzle's `json` mode handles serialization. Skip the SET
         // for both undefined AND null — otherwise drizzle-orm may
         // serialize `null` as the literal JSON string "null" in a
-        // `mode: 'json'` text column, which breaks `WHERE
-        // tool_calls_json IS NULL` queries in Day-6 eval. Skipping
-        // leaves the column at its schema default (turn_count = 0,
-        // tool_calls_json = SQL NULL).
+        // `mode: 'json'` text column, which breaks
+        // `WHERE tool_calls_json IS NULL` queries used by eval.
+        // Skipping leaves the column at its schema default
+        // (turn_count = 0, tool_calls_json = SQL NULL).
         ...(patch.turn_count !== undefined && patch.turn_count !== null
           ? { turn_count: patch.turn_count }
           : {}),
         ...(patch.tool_calls !== undefined && patch.tool_calls !== null
           ? { tool_calls_json: patch.tool_calls }
           : {}),
-        // Day-8 observability counters. Omit the SET when undefined so
-        // the column's schema default (0) applies — same shape as the
-        // turn_count handling above. A caller that explicitly passes 0
-        // still writes 0, which matches the default; no behavioral
-        // difference but keeps the SET deterministic for that case.
+        // Observability counters. Omit the SET when undefined so the
+        // column's schema default (0) applies — same shape as the
+        // turn_count handling above. A caller that explicitly passes
+        // 0 still writes 0, which matches the default.
         ...(patch.hallucinated_finding_count !== undefined
           ? { hallucinated_finding_count: patch.hallucinated_finding_count }
           : {}),
@@ -132,14 +132,13 @@ export class SqliteReviewsRepository implements IReviewRepository {
       .run();
   }
 
-  // Day-5 F2 closure. Identical to markFailed BUT gated on
-  // status='in_progress'. Used by the SIGTERM drain so a row that
-  // finished completing in the last millisecond doesn't get flipped
-  // from 'completed' to 'failed'. The regular markFailed path stays
-  // unguarded because comment_post_failed legitimately flips
-  // 'completed' → 'failed' (the agent loop succeeded; only the POST
-  // didn't land). Returns the number of rows updated so the drain
-  // can log accurately.
+  // Identical to markFailed BUT gated on status='in_progress'. Used
+  // by the SIGTERM drain so a row that finished completing in the
+  // last millisecond doesn't get flipped from 'completed' to
+  // 'failed'. The regular markFailed path stays unguarded because
+  // comment_post_failed legitimately flips 'completed' → 'failed'
+  // (the agent loop succeeded; only the POST didn't land). Returns
+  // the number of rows updated so the drain can log accurately.
   markFailedIfInProgress(id: string, patch: ReviewFailurePatch): number {
     const result = this.db.drizzle
       .update(reviews)
@@ -202,9 +201,7 @@ export class SqliteReviewsRepository implements IReviewRepository {
     return Number(result.changes);
   }
 
-  // ---------------------------------------------------------------------------
-  // Dashboard read-side methods (Day 7, R3, R4, R6, R7, R10)
-  // ---------------------------------------------------------------------------
+  // Dashboard read-side methods.
 
   // LEFT JOIN reviews → pull_requests to expose PR metadata. NULL when
   // pr_node_id is null (dry-run reviews). Does NOT exclude standalone rows
@@ -294,11 +291,11 @@ export class SqliteReviewsRepository implements IReviewRepository {
 
   // Runs nine queries inside a single read transaction and returns
   // aggregated analytics. The five "main" queries (1-5) exclude every
-  // standalone row (`prompt_version NOT IN (...)`); a sixth query counts
-  // the size-gate skips on its own so the dashboard can surface them
-  // without inflating the completed/severity/latency tallies; queries
-  // 7-9 add Day-8 observability signals (hallucination total, top
-  // reviewer-loop error codes, cache-hit total).
+  // standalone row (`prompt_version NOT IN (...)`); a sixth query
+  // counts the size-gate skips on its own so the dashboard can
+  // surface them without inflating the completed/severity/latency
+  // tallies; queries 7-9 add observability signals (hallucination
+  // total, top reviewer-loop error codes, cache-hit total).
   aggregateByFilter(spec: ReviewFilterSpec): AnalyticsAggregate {
     return this.db.transaction(() => {
       const filterCond = buildFilterCondition(spec);
@@ -510,10 +507,8 @@ export class SqliteReviewsRepository implements IReviewRepository {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Shared WHERE-clause builder for the filter spec
-// ---------------------------------------------------------------------------
-
+// Shared WHERE-clause builder for the filter spec.
+//
 // Translates a ReviewFilterSpec into a Drizzle condition. Returns undefined
 // when the spec is empty (so callers can skip the .where() call entirely).
 // Time bounds are inclusive: sinceMs <= created_at <= untilMs.

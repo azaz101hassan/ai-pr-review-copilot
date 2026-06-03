@@ -4,13 +4,12 @@ import { createAppAuth } from '@octokit/auth-app';
 import { ConfigService } from '@/config';
 import type { IGithubAuthProvider } from '@/modules/reviews/types';
 
-// Day-5 GitHub authentication: App-installation auth via
-// @octokit/auth-app. The provider holds one Octokit per
-// installationId in an in-process Map so @octokit/auth-app's
-// installation-token cache (in-memory, lazy-refresh at the 59-minute
-// mark) compounds across job invocations. Constructing a fresh
-// Octokit per job forfeits the cache and forces a token-mint
-// round-trip per call.
+// GitHub App-installation auth via @octokit/auth-app. The provider
+// holds one Octokit per installationId in an in-process Map so
+// @octokit/auth-app's installation-token cache (in-memory,
+// lazy-refresh at the 59-minute mark) compounds across job
+// invocations. Constructing a fresh Octokit per job forfeits the
+// cache and forces a token-mint round-trip per call.
 //
 // Throttling / retry: the `octokit` umbrella package bakes in
 // `@octokit/plugin-throttling` and `@octokit/plugin-retry` with
@@ -19,14 +18,14 @@ import type { IGithubAuthProvider } from '@/modules/reviews/types';
 // the caller as a typed `RequestError` — BullMQ then schedules a
 // retry with delay rather than blocking inside Octokit. The retry
 // plugin still handles 5xx on idempotent GETs with its defaults;
-// the Review POST disables retries per-call (see U7).
+// the Review POST disables retries per-call (see ReviewsProcessor).
 //
 // Per-request timeout: 30 seconds. Without this an upstream GitHub
-// API hang stalls the worker indefinitely — with `WORKER_CONCURRENCY=1`
-// (the Day-5 default), the whole system stalls. The cap is high
+// API hang stalls the worker indefinitely — with the default
+// `WORKER_CONCURRENCY=1`, the whole system stalls. The cap is high
 // enough to absorb a slow-but-real response on a large diff fetch
 // and low enough to surface a real outage before the agent loop's
-// own budget exhausts. F9 closure.
+// own budget exhausts.
 const OCTOKIT_REQUEST_TIMEOUT_MS = 30_000;
 
 @Injectable()
@@ -52,9 +51,7 @@ export class AppInstallationAuthProvider implements IGithubAuthProvider {
 
   // Reset the cached Octokit for a given installation. Useful when a
   // 401 surfaces and the operator has rotated the PEM or uninstalled
-  // the App — see the Day-5 Open Question about cache invalidation.
-  // Not part of the public IGithubAuthProvider interface today; the
-  // Day-8 observability work decides whether to promote this.
+  // the App.
   invalidateInstallation(installationId: number): void {
     this.cache.delete(installationId);
   }
@@ -71,12 +68,11 @@ export class AppInstallationAuthProvider implements IGithubAuthProvider {
         privateKey: this.config.appPrivateKey,
         installationId,
       },
-      // F9 closure: per-request timeout. Cuts a hung GitHub API
-      // off at the network boundary so the worker isn't pinned
-      // waiting for a TCP timeout (which can be 2+ minutes on
-      // Linux defaults). 30s is comfortably above a healthy diff
-      // fetch on a large PR and well below the agent loop's
-      // overall budget.
+      // Per-request timeout. Cuts a hung GitHub API off at the
+      // network boundary so the worker isn't pinned waiting for a
+      // TCP timeout (which can be 2+ minutes on Linux defaults).
+      // 30s is comfortably above a healthy diff fetch on a large PR
+      // and well below the agent loop's overall budget.
       request: {
         timeout: OCTOKIT_REQUEST_TIMEOUT_MS,
       },
