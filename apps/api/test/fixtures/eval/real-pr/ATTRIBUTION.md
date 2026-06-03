@@ -47,7 +47,7 @@ own git history. They exist because the synthetic samples above test
 contrived patterns, while these test the reviewer against actual diffs
 it failed (or would be expected to succeed) on during self-review smokes.
 
-### real-pr-pr11-voyage-clean.patch
+### voyage-batching-clean.patch
 
 - **Source:** PR #11 (squash commit `e7b06aa`), `apps/api/src/infrastructure/voyage/voyage-embedding.provider.ts`
 - **Description:** Expands the Voyage embedding provider with batching,
@@ -61,7 +61,7 @@ it failed (or would be expected to succeed) on during self-review smokes.
   `process.env.VOYAGE_API_KEY` directly. It does not. This fixture
   reproduces the precision failure surface in a tractable size.
 
-### real-pr-day5-queue-process-env.patch
+### queue-process-env-violation.patch
 
 - **Source:** Squash commit `70b96f2`,
   `apps/api/src/infrastructure/queue/queue.module.ts`

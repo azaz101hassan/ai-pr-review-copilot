@@ -132,16 +132,16 @@
     "gates": false
   },
   {
-    "fixtureId": "real-pr-pr11-voyage-clean",
-    "path": "test/fixtures/eval/real-pr/real-pr-pr11-voyage-clean.patch",
+    "fixtureId": "voyage-batching-clean",
+    "path": "test/fixtures/eval/real-pr/voyage-batching-clean.patch",
     "category": "violating",
     "expected": [],
     "needsRepoContext": false,
     "gates": false
   },
   {
-    "fixtureId": "real-pr-day5-queue-process-env",
-    "path": "test/fixtures/eval/real-pr/real-pr-day5-queue-process-env.patch",
+    "fixtureId": "queue-process-env-violation",
+    "path": "test/fixtures/eval/real-pr/queue-process-env-violation.patch",
     "category": "violating",
     "expected": ["config-service-only"],
     "needsRepoContext": false,

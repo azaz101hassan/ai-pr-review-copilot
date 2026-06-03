@@ -205,11 +205,11 @@ describe('manifest loader', () => {
       // against actual diffs from this repo's own git history).
       const inRepoIds = manifest.entries
         .map((e) => e.fixtureId)
-        .filter((id) => id.startsWith('real-pr-pr11-') || id.startsWith('real-pr-day5-'));
+        .filter((id) => id === 'voyage-batching-clean' || id === 'queue-process-env-violation');
       expect(inRepoIds).toEqual(
         expect.arrayContaining([
-          'real-pr-pr11-voyage-clean',
-          'real-pr-day5-queue-process-env',
+          'voyage-batching-clean',
+          'queue-process-env-violation',
         ]),
       );
 
