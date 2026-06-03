@@ -126,15 +126,22 @@ function VolumeRow({
       */}
       {errorCodeBreakdown.length > 0 ? (
         <p className="mt-1 text-xs text-muted-foreground">
-          <span>Top {Math.min(3, errorCodeBreakdown.length)} failure modes</span>{' '}
-          {errorCodeBreakdown.slice(0, 3).map((entry, idx) => (
+          <span>
+            {errorCodeBreakdown.length >= 3
+              ? 'Top 3 failure modes'
+              : 'Failure modes'}
+          </span>{' '}
+          {errorCodeBreakdown.slice(0, 3).map((entry) => (
             <Fragment key={entry.error_code}>
               <span aria-hidden="true">·</span>{' '}
-              <span className="font-mono text-foreground">{entry.error_code}</span>{' '}
-              <span className="font-mono tabular-nums text-foreground">
-                {entry.count}
-              </span>
-              {idx < Math.min(3, errorCodeBreakdown.length) - 1 ? ' ' : ''}
+              <span className="inline-flex items-baseline gap-x-1">
+                <span className="font-mono text-foreground">
+                  {entry.error_code}
+                </span>
+                <span className="font-mono tabular-nums text-foreground">
+                  {entry.count}
+                </span>
+              </span>{' '}
             </Fragment>
           ))}
         </p>
@@ -290,7 +297,7 @@ function SeverityRow({ error, warning, info, hallucinatedDrops }: SeverityRowPro
             {hallucinatedDrops}
           </span>{' '}
           <span>
-            finding{hallucinatedDrops === 1 ? '' : 's'} dropped as hallucinated
+            hallucinated finding{hallucinatedDrops === 1 ? '' : 's'} dropped
           </span>
         </p>
       ) : null}
@@ -336,7 +343,7 @@ function StatsRow({ p50, p95, tokenTotal, cacheHits }: StatsRowProps) {
       {cacheHits > 0 ? (
         <>
           <span aria-hidden="true">·</span>
-          <span>Cache hits</span>
+          <span>Cached calls</span>
           <span className="font-mono tabular-nums text-foreground">
             {cacheHits}
           </span>
