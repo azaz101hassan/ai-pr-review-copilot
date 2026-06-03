@@ -261,6 +261,8 @@ class StubLlmReviewer implements ILlmReviewer {
           stop_reason: 'tool_use',
         },
       ],
+      hallucinatedFindingCount: 0,
+      cacheHitCount: 0,
     };
   }
 
@@ -315,6 +317,8 @@ class StubLlmReviewer implements ILlmReviewer {
       promptVersion: PROMPT_AND_TOOL_VERSION,
       turnCount: turn,
       toolCalls,
+      hallucinatedFindingCount: 0,
+      cacheHitCount: 0,
     };
   }
 

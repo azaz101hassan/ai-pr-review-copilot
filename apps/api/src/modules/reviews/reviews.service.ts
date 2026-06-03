@@ -360,6 +360,8 @@ export class ReviewsService implements OnModuleInit {
         cache_read_input_tokens: result.usage.cache_read_input_tokens ?? null,
         turn_count: result.turnCount,
         tool_calls: result.toolCalls,
+        hallucinated_finding_count: result.hallucinatedFindingCount,
+        cache_hit_count: result.cacheHitCount,
       });
       this.findings.insertMany(findingInserts);
     });

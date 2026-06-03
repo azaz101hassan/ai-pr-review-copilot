@@ -3,25 +3,31 @@
   "fixtureId": "clean-extract-helper__top10",
   "findings": [
     {
-      "rule_id": "explicit-function-return-type",
-      "title": "Declare return types on exported functions",
-      "message": "The exported function `computeLineTotal` is missing an explicit return type. Add a return type annotation (`: InvoiceLine`) to ensure type safety and prevent silent type changes during refactoring.",
-      "location_hint": "src/billing/helpers/compute-line-total.ts:5",
-      "citation": "export function computeLineTotal(item: LineItem): InvoiceLine {",
+      "rule_id": "import-order",
+      "title": "Order imports: builtin > external > internal > relative",
+      "message": "The import statement for `computeLineTotal` should be placed after other internal imports from the same module path. Currently, imports are not properly grouped. The helper import should be grouped with other relative/internal imports from `@/modules/billing/`, but separated from other import types with blank lines.",
+      "location_hint": "src/billing/invoice.service.ts:1-4",
+      "citation": "import { InvoiceRepository } from '@/modules/billing/types/invoice.repository';\nimport { computeLineTotal } from '@/modules/billing/helpers/compute-line-total';",
       "faithfulness": {
-        "score": 0,
+        "score": 0.3333333333333333,
         "claims": [
           {
-            "claim": "The exported function `computeLineTotal` is missing an explicit return type.",
+            "claim": "The import statement for `computeLineTotal` should be placed after other internal imports from the same module path.",
             "kind": "",
-            "reason": "The diff shows the function definition at line 5 of src/billing/helpers/compute-line-total.ts as: `export function computeLineTotal(item: LineItem): InvoiceLine {`. This function has an explicit return type annotation (`: InvoiceLine`), so it is not missing a return type.",
+            "reason": "The rule document specifies the order: 'builtin > external > internal > relative' with blank lines between groups. The diff shows that both `InvoiceRepository` and `computeLineTotal` are internal imports from `@/modules/billing/` (one from `types/invoice.repository` and one from `helpers/compute-line-total`). The rule document's good example shows imports from the same category grouped together. However, the diff shows these two imports are placed consecutively without a blank line between them, which violates the grouping principle. The claim states `computeLineTotal` should be 'after other internal imports from the same module path' — but both imports are from the same module path (`@/modules/billing/`), so this phrasing is ambiguous. The rule does not specify a sub-ordering within the same import category.",
+            "verdict": "unclear"
+          },
+          {
+            "claim": "Currently, imports are not properly grouped.",
+            "kind": "",
+            "reason": "The diff shows two consecutive imports from `@/modules/billing/` (lines 3-4) with no blank line between them. According to the rule, imports should be 'Group by category; blank line between groups.' However, both imports belong to the same category (internal imports from `@/modules/billing/`), so they should be grouped together without a blank line between them. The current arrangement appears to follow the rule correctly for same-category imports. The claim that imports are 'not properly grouped' is not clearly supported by the rule when both imports are from the same category.",
             "verdict": "not_supported"
           },
           {
-            "claim": "A return type annotation (`: InvoiceLine`) should be added to the `computeLineTotal` function to ensure type safety and prevent silent type changes during refactoring.",
+            "claim": "The helper import should be grouped with other relative/internal imports from `@/modules/billing/`, but separated from other import types with blank lines.",
             "kind": "",
-            "reason": "The rule document states that explicit return types prevent internal refactors from silently widening the public type, and the good example shows a function with an explicit return type annotation. However, the diff shows that the `computeLineTotal` function already has the return type annotation (`: InvoiceLine`) present in the code. Therefore, the recommended action has already been completed.",
-            "verdict": "not_supported"
+            "reason": "The rule document specifies grouping by category with blank lines between groups. The diff shows the `computeLineTotal` import is already grouped with the `InvoiceRepository` import (both from `@/modules/billing/`), and there is a blank line before them (after the `@nestjs/common` import on line 2). This arrangement correctly separates external imports (`@nestjs/common`) from internal imports (`@/modules/billing/`), which aligns with the rule's requirement. The claim is supported by the current diff structure.",
+            "verdict": "supported"
           }
         ]
       }
@@ -46,7 +52,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
-    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
+    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
+    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
   }
 }

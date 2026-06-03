@@ -5,124 +5,58 @@
     {
       "rule_id": "thin-controllers",
       "title": "Keep controllers thin — validation in DTOs, logic in services",
-      "message": "The `create` method contains ~55 lines of business logic including order calculation, discount logic, database CRUD, and third-party API calls. This violates the thin-controller pattern. Move all business logic to a service layer: calculations (subtotal, tax, discount), database operations via repositories, and Stripe integration should live in OrdersService, leaving the controller to only parse the DTO and delegate.",
-      "location_hint": "src/modules/orders/orders.controller.ts:18-68",
-      "citation": "async create(@Body() dto: CreateOrderDto) {\n    // ... 50+ lines of validation, calculation, database insert, Stripe API call, and response formatting",
+      "message": "The controller now contains 56 lines of business logic including order total calculation, discount logic, tax computation, and Stripe payment processing. This logic belongs in a service layer. Controllers should only parse HTTP shapes and delegate to services — refactor all branching business logic and external API calls into an OrdersService.",
+      "location_hint": "src/modules/orders/orders.controller.ts:17-68",
+      "citation": "    // Inline business logic — was in OrdersService, now lives in the\n    // controller for \"fewer indirections\".\n    if (!dto.items || dto.items.length === 0) {\n      throw new BadRequestException('order must have at least one item');\n    }\n\n    let subtotal = 0;\n    for (const item of dto.items) {\n      subtotal += item.price * item.quantity;\n    }\n    // ... and 40+ more lines of calculation and external API calls",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The `create` method in src/modules/orders/orders.controller.ts contains approximately 55 lines of business logic.",
+            "claim": "The controller contains 56 lines of business logic.",
             "kind": "",
-            "reason": "The diff shows the `create` method spans from line 18 to line 68 (as indicated by the location hint). Counting the lines in the new code block, the method body contains approximately 50 lines of actual code (including validation, calculations, database operations, Stripe API calls, and response formatting). This aligns with the '~55 lines' claim in the finding.",
+            "reason": "The diff shows the controller's create method expanded from a single delegating line to approximately 56 lines (lines 17-68 as cited). The added code includes validation, subtotal calculation, discount logic, tax computation, database insertion, and Stripe payment processing.",
             "verdict": "supported"
           },
           {
-            "claim": "The `create` method contains order calculation logic.",
+            "claim": "The controller contains order total calculation logic.",
             "kind": "",
-            "reason": "The diff explicitly shows subtotal calculation (lines 24-26), discount calculation (lines 28-33), and tax calculation (line 35) within the controller method.",
+            "reason": "The diff explicitly shows lines calculating subtotal (summing item.price * item.quantity), applying discount logic based on coupon type, calculating tax (subtotal * 0.08), and computing total (subtotal - discount + tax).",
             "verdict": "supported"
           },
           {
-            "claim": "The `create` method contains discount logic.",
+            "claim": "The controller contains discount logic.",
             "kind": "",
-            "reason": "The diff shows conditional discount logic based on coupon type (percent vs. fixed) at lines 28-33.",
+            "reason": "The diff shows conditional discount calculation: if coupon type is 'percent', discount = subtotal * (coupon.value / 100); if 'fixed', discount = coupon.value.",
             "verdict": "supported"
           },
           {
-            "claim": "The `create` method contains database CRUD operations.",
+            "claim": "The controller contains tax computation.",
             "kind": "",
-            "reason": "The diff shows direct database insert operations using `this.db.drizzle.insert()` at lines 38-49.",
+            "reason": "The diff shows the line 'const tax = subtotal * 0.08;' directly in the controller method.",
             "verdict": "supported"
           },
           {
-            "claim": "The `create` method contains third-party API calls.",
+            "claim": "The controller contains Stripe payment processing.",
             "kind": "",
-            "reason": "The diff shows direct Stripe API calls via `stripe.paymentIntents.create()` at lines 54-59.",
+            "reason": "The diff shows direct Stripe API calls in the controller: instantiation of Stripe client with config.stripeKey and calling stripe.paymentIntents.create() with order details.",
             "verdict": "supported"
           },
           {
-            "claim": "This pattern violates the thin-controller principle.",
+            "claim": "This logic belongs in a service layer.",
             "kind": "",
-            "reason": "The rule document explicitly states: 'Controllers parse the HTTP shape (via class-validator DTOs) and delegate to a service. They should not contain branching business logic, database access, or external service calls. If a controller method runs more than ~5 lines, the logic belongs in a service.' The `create` method contains all of these prohibited elements (branching logic, database access, external service calls) and far exceeds 5 lines, directly violating the rule.",
+            "reason": "The rule document explicitly states: 'Controllers parse the HTTP shape (via class-validator DTOs) and delegate to a service. They should not contain branching business logic, database access, or external service calls. If a controller method runs more than ~5 lines, the logic belongs in a service.' The controller now contains far more than 5 lines of branching business logic, database access, and external API calls, all of which violate this rule.",
             "verdict": "supported"
           },
           {
-            "claim": "All business logic should be moved to OrdersService.",
+            "claim": "Controllers should only parse HTTP shapes and delegate to services.",
             "kind": "",
-            "reason": "The rule document states that controllers should 'delegate to a service' and that business logic, database operations, and external service calls should not be in the controller. The finding recommends moving logic to OrdersService, which aligns with the rule's guidance to use a service layer. The diff shows OrdersService was removed from the controller, which is the opposite of what the rule prescribes.",
+            "reason": "This is a direct restatement of the rule document: 'Controllers parse the HTTP shape (via class-validator DTOs) and delegate to a service.'",
             "verdict": "supported"
           },
           {
-            "claim": "Calculations (subtotal, tax, discount) should live in OrdersService.",
+            "claim": "All branching business logic and external API calls should be refactored into an OrdersService.",
             "kind": "",
-            "reason": "The rule document states that controllers should not contain 'branching business logic' and that logic exceeding ~5 lines belongs in a service. The calculations present in the controller (subtotal, tax, discount) are business logic that should be in a service layer per the rule.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Database operations via repositories should live in OrdersService.",
-            "kind": "",
-            "reason": "The rule document explicitly states controllers should not contain 'database access.' The diff shows direct database operations in the controller, which violates this principle. The rule implies database operations should be abstracted through a service layer.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Stripe integration should live in OrdersService.",
-            "kind": "",
-            "reason": "The rule document explicitly states controllers should not contain 'external service calls.' The diff shows direct Stripe API calls in the controller, which violates this principle. The rule implies external service integrations should be abstracted through a service layer.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The controller should only parse the DTO and delegate.",
-            "kind": "",
-            "reason": "The rule document states: 'Controllers parse the HTTP shape (via class-validator DTOs) and delegate to a service.' The current implementation does far more than parse and delegate; it contains extensive business logic. The finding's recommendation aligns with the rule's guidance.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    },
-    {
-      "rule_id": "repository-pattern",
-      "title": "Repository interfaces in modules/<owner>/types/, implementations in infrastructure/db/repositories/",
-      "message": "The controller directly calls `this.db.drizzle.insert(...)` and accesses the schema. This bypasses the repository pattern. Create an IOrderRepository interface in modules/orders/types/ and inject it, then implement it in infrastructure/db/repositories/SqliteOrdersRepository. This allows swapping the database engine without touching the controller.",
-      "location_hint": "src/modules/orders/orders.controller.ts:40-50",
-      "citation": "this.db.drizzle\n      .insert(this.db.drizzle._.schema.orders)\n      .values({...})\n      .run();",
-      "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "The controller directly calls `this.db.drizzle.insert(...)` and accesses the schema.",
-            "kind": "",
-            "reason": "The diff shows lines 40-50 contain `this.db.drizzle.insert(this.db.drizzle._.schema.orders).values({...}).run();`, which directly demonstrates the controller calling drizzle insert and accessing the schema object.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "This direct database call in the controller bypasses the repository pattern.",
-            "kind": "",
-            "reason": "The rule document explicitly states that consumers should inject a repository interface, not the DatabaseService, and that direct calls to `this.db.drizzle.insert(...)` are the 'Bad' pattern. The diff shows the controller doing exactly this bad pattern, confirming it bypasses the repository pattern.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "An IOrderRepository interface should be created in modules/orders/types/.",
-            "kind": "",
-            "reason": "The rule document states 'Every persistent entity gets a repository interface + Symbol token in modules/<owner>/types/'. The finding recommends creating this interface following the rule's prescribed location and naming convention.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "An IOrderRepository implementation should be created in infrastructure/db/repositories/SqliteOrdersRepository.",
-            "kind": "",
-            "reason": "The rule document states implementations should be in 'infrastructure/db/repositories/' and be 'Drizzle-backed'. The finding recommends SqliteOrdersRepository as the implementation name, which aligns with the rule's pattern.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The controller should inject the IOrderRepository interface instead of the DatabaseService.",
-            "kind": "",
-            "reason": "The rule document explicitly states 'Consumers inject the interface, not the class' and shows the good pattern where the service injects the repository interface via @Inject(REVIEW_REPOSITORY). The finding recommends injecting the repository interface, which aligns with this rule.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Using the repository pattern allows swapping the database engine without touching the controller.",
-            "kind": "",
-            "reason": "The rule document states 'Swapping engines (SQLite → libsql → Postgres) means writing a new implementation and flipping one useClass binding.' This directly supports the claim that the repository pattern enables engine swapping without modifying the controller.",
+            "reason": "The rule document states that controllers 'should not contain branching business logic, database access, or external service calls' and that logic beyond ~5 lines 'belongs in a service.' The finding recommends refactoring this into OrdersService, which aligns with the rule's guidance to delegate such logic to services.",
             "verdict": "supported"
           }
         ]
@@ -131,40 +65,82 @@
     {
       "rule_id": "no-crud-on-database-service",
       "title": "DatabaseService is lifecycle-only — no CRUD methods",
-      "message": "The controller uses `this.db.drizzle` to call insert. DatabaseService should only provide lifecycle methods (open, close, transaction, getDb) and not expose the drizzle client for direct CRUD. Move CRUD to a repository class.",
-      "location_hint": "src/modules/orders/orders.controller.ts:40-50",
-      "citation": "this.db.drizzle\n      .insert(this.db.drizzle._.schema.orders)\n      .values({...})\n      .run();",
+      "message": "The controller directly calls `this.db.drizzle.insert()` to perform CRUD operations. DatabaseService is only for lifecycle management; CRUD belongs in a repository under infrastructure/db/repositories/. Create an IOrderRepository interface and SqliteOrdersRepository implementation, then inject the repository into the service.",
+      "location_hint": "src/modules/orders/orders.controller.ts:38-50",
+      "citation": "    this.db.drizzle\n      .insert(this.db.drizzle._.schema.orders)\n      .values({\n        user_id: dto.userId,\n        subtotal,\n        discount,\n        tax,\n        total,\n        status: 'pending',\n        created_at: new Date(),\n      })\n      .run();",
+      "faithfulness": {
+        "score": 0.5,
+        "claims": [
+          {
+            "claim": "The controller directly calls `this.db.drizzle.insert()` to perform CRUD operations.",
+            "kind": "",
+            "reason": "The diff shows lines 38-50 contain `this.db.drizzle.insert(this.db.drizzle._.schema.orders).values({...}).run();` which is a direct CRUD insert operation called from the controller.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "DatabaseService is only for lifecycle management.",
+            "kind": "",
+            "reason": "The rule document explicitly states: 'DatabaseService owns connection lifecycle (open, close, transaction, getDb, hasTable) and nothing else.' This is a direct restatement of the rule.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "CRUD operations belong in a repository under infrastructure/db/repositories/.",
+            "kind": "",
+            "reason": "The rule document states: 'Per-table CRUD goes in repositories under infrastructure/db/repositories/.' This is a direct restatement of the rule.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "An IOrderRepository interface should be created.",
+            "kind": "",
+            "reason": "The finding recommends creating an IOrderRepository interface. However, the diff does not show any such interface being created, and the rule document does not explicitly mandate the creation of an interface (it only describes the pattern). The recommendation is prescriptive advice about what should be done, not a description of what is currently in the code.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "A SqliteOrdersRepository implementation should be created.",
+            "kind": "",
+            "reason": "The finding recommends creating a SqliteOrdersRepository implementation. However, the diff does not show any such implementation being created, and the rule document does not explicitly mandate this specific class name. The recommendation is prescriptive advice about what should be done, not a description of what is currently in the code.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "The repository should be injected into the service.",
+            "kind": "",
+            "reason": "The finding recommends injecting the repository into the service. However, the diff shows no service exists (OrdersService was removed), and no repository is being injected anywhere. This is prescriptive advice about what should be done, not a description of the current state.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "repository-pattern",
+      "title": "Repository interfaces in modules/<owner>/types/, implementations in infrastructure/db/repositories/",
+      "message": "The controller bypasses the repository pattern by directly accessing Drizzle CRUD operations instead of injecting a repository. Create an interface IOrderRepository in modules/orders/types/, implement it as SqliteOrdersRepository in infrastructure/db/repositories/, and inject it through the service (or controller if no service exists).",
+      "location_hint": "src/modules/orders/orders.controller.ts:38-50",
+      "citation": "    this.db.drizzle\n      .insert(this.db.drizzle._.schema.orders)",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The controller uses this.db.drizzle to call insert.",
+            "claim": "The controller directly accesses Drizzle CRUD operations instead of injecting a repository.",
             "kind": "",
-            "reason": "The diff shows lines 40-50 contain `this.db.drizzle.insert(this.db.drizzle._.schema.orders).values({...}).run();` which directly demonstrates the controller calling insert via the drizzle client accessed through DatabaseService.",
+            "reason": "The diff shows the controller at lines 38-50 contains `this.db.drizzle.insert(this.db.drizzle._.schema.orders).values({...}).run()`, which is a direct Drizzle CRUD operation. The controller constructor injects DatabaseService, not a repository interface. This directly matches the citation and violates the rule document's requirement to inject repository interfaces instead of accessing the database directly.",
             "verdict": "supported"
           },
           {
-            "claim": "DatabaseService should only provide lifecycle methods (open, close, transaction, getDb).",
+            "claim": "An interface IOrderRepository should be created in modules/orders/types/.",
             "kind": "",
-            "reason": "The rule document explicitly states 'DatabaseService owns connection lifecycle (open, close, transaction, getDb, hasTable) and nothing else.' This is a direct restatement of the rule.",
+            "reason": "The rule document explicitly states 'Every persistent entity gets a repository interface + Symbol token in modules/<owner>/types/'. The finding recommends creating IOrderRepository in modules/orders/types/, which directly follows the rule's prescribed pattern for repository interfaces.",
             "verdict": "supported"
           },
           {
-            "claim": "DatabaseService should not expose the drizzle client for direct CRUD.",
+            "claim": "SqliteOrdersRepository should be implemented in infrastructure/db/repositories/.",
             "kind": "",
-            "reason": "The rule document states 'DatabaseService is lifecycle-only — no CRUD methods' and 'Per-table CRUD goes in repositories under infrastructure/db/repositories/.' The rule explicitly prohibits exposing the drizzle client for CRUD operations.",
+            "reason": "The rule document states implementations should be in 'infrastructure/db/repositories/'. The finding recommends implementing SqliteOrdersRepository in infrastructure/db/repositories/, which directly follows the rule's prescribed location for Drizzle-backed implementations.",
             "verdict": "supported"
           },
           {
-            "claim": "CRUD operations should be moved to a repository class.",
+            "claim": "The repository should be injected through the service or controller if no service exists.",
             "kind": "",
-            "reason": "The rule document states 'Per-table CRUD goes in repositories under infrastructure/db/repositories/' and the rule title emphasizes that CRUD should not be on DatabaseService. The rule provides examples of good architecture where CRUD lives on SqliteUsersRepository, SqliteReviewsRepository, etc.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The current code violates the repository pattern by allowing direct CRUD access through DatabaseService.",
-            "kind": "",
-            "reason": "The diff shows the controller directly accessing this.db.drizzle for insert operations, which bypasses the repository pattern. The rule document states this 'rebuilds the god-object the repository pattern exists to prevent.' The code behavior in the diff contradicts the architectural rule.",
+            "reason": "The diff shows the OrdersService has been removed (the comment states 'OrdersService removed'). The rule document shows the good pattern of injecting the repository interface into a service. The finding's recommendation to inject through the service or controller if no service exists is consistent with the rule's principle of injecting repository interfaces rather than accessing the database directly.",
             "verdict": "supported"
           }
         ]
@@ -190,7 +166,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "a1e4c2049e5019c9a85b77d5a5063986d407446de64980d32a6284667e7cde28",
-    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
-    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
+    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
+    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
   }
 }

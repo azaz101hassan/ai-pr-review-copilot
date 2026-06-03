@@ -257,6 +257,8 @@ describe('ReviewsProcessor.process — guards', () => {
         cache_read_input_tokens: null,
         turn_count: 0,
         tool_calls_json: null,
+        hallucinated_finding_count: 0,
+        cache_hit_count: 0,
         created_at: new Date(),
         completed_at: null,
       },

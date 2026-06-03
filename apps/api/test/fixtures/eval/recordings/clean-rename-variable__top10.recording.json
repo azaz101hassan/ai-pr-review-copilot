@@ -5,29 +5,23 @@
     {
       "rule_id": "explicit-function-return-type",
       "title": "Declare return types on exported functions",
-      "message": "The exported function `findAvailableWindows` is missing an explicit return type annotation. Add `: TimeSlot[]` to the function signature to make the return type explicit and prevent silent type changes during refactoring.",
-      "location_hint": "src/scheduling/availability.ts:13",
+      "message": "The exported function `findAvailableWindows` is missing an explicit return type annotation. Add `: TimeSlot[]` to ensure the return type is declared as part of the function contract.",
+      "location_hint": "src/scheduling/availability.ts:12",
       "citation": "export function findAvailableWindows(\n  dayStart: Date,\n  dayEnd: Date,\n  bookings: TimeSlot[],\n  windowDurationMs: number,\n): TimeSlot[] {",
       "faithfulness": {
-        "score": 0.3333333333333333,
+        "score": 0,
         "claims": [
           {
             "claim": "The exported function `findAvailableWindows` is missing an explicit return type annotation.",
             "kind": "",
-            "reason": "The citation shows the function signature with `: TimeSlot[]` explicitly declared as the return type. The diff also shows the function with the return type annotation `: TimeSlot[]` present in the code. Therefore, the function does have an explicit return type annotation.",
+            "reason": "The citation shows the function signature with `: TimeSlot[]` explicitly declared as the return type. The diff also confirms that the function in the updated code (line 18 in the new version) includes the return type annotation `: TimeSlot[]`. Therefore, the function does have an explicit return type annotation.",
             "verdict": "not_supported"
           },
           {
-            "claim": "Adding `: TimeSlot[]` to the function signature would make the return type explicit.",
+            "claim": "Adding `: TimeSlot[]` to the function ensures the return type is declared as part of the function contract.",
             "kind": "",
-            "reason": "The citation and diff both show that `: TimeSlot[]` is already present in the function signature. The claim suggests this annotation is missing and needs to be added, but the evidence shows it is already there.",
-            "verdict": "not_supported"
-          },
-          {
-            "claim": "An explicit return type annotation prevents silent type changes during refactoring.",
-            "kind": "",
-            "reason": "This claim aligns with the rule document, which states: 'Explicit return types are a contract — they prevent an internal refactor from silently widening the public type.' This is a direct restatement of the rule's rationale.",
-            "verdict": "supported"
+            "reason": "The rule document states that explicit return types are a contract that prevent internal refactors from silently widening the public type. The citation and diff both show that `: TimeSlot[]` is already present in the function signature. The claim about adding this annotation is accurate in principle (it does ensure the return type is declared), but it is not applicable here since the annotation already exists.",
+            "verdict": "unclear"
           }
         ]
       }
@@ -52,7 +46,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
-    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
+    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
+    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
   }
 }

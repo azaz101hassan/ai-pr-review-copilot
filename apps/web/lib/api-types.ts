@@ -187,6 +187,13 @@ export interface TokenTotals {
   cache_read_input_tokens: number;
 }
 
+// Day-8 error-code breakdown entry. The aggregator returns up to 10
+// entries; the dashboard chip subsets to the top 3.
+export interface ErrorCodeEntry {
+  error_code: string;
+  count: number;
+}
+
 export interface AnalyticsResponse {
   statusBreakdown: StatusBreakdown;
   severityRollup: SeverityRollup;
@@ -202,6 +209,25 @@ export interface AnalyticsResponse {
    * still typecheck; treat missing/undefined as 0 in the UI.
    */
   skippedCount?: number;
+  /**
+   * Day-8 — sum of findings the reviewer's hallucination filter
+   * dropped across matching reviews in the time-window. Optional
+   * for pre-deploy API responses; treat missing/undefined as 0.
+   */
+  hallucinatedTotal?: number;
+  /**
+   * Day-8 — top-N error-code breakdown for failed reviews, scoped
+   * to reviewer-loop failure modes (POST-side / orchestration codes
+   * are excluded on the server). Empty array when no qualifying
+   * failures in the window. Optional for pre-deploy responses.
+   */
+  errorCodeBreakdown?: ErrorCodeEntry[];
+  /**
+   * Day-8 — sum of tool-call invocations the per-review dedup cache
+   * short-circuited across matching reviews. Optional for pre-deploy
+   * responses; treat missing/undefined as 0.
+   */
+  cacheHitTotal?: number;
 }
 
 // Derived totals for tile rendering. Volume is not returned by the API;

@@ -138,6 +138,11 @@ export type ReviewCompletionPatch = {
   cache_read_input_tokens: number | null;
   turn_count?: number;
   tool_calls?: ToolCallRecord[] | null;
+  // Day-8 observability counters. Both are optional so historical /
+  // partial callers default to 0 (matches the column default); typical
+  // path populates them from the reviewer's AnalyzeDiffResult.
+  hallucinated_finding_count?: number;
+  cache_hit_count?: number;
 };
 
 // Patch shape passed to IReviewRepository.markFailed. Token columns stay

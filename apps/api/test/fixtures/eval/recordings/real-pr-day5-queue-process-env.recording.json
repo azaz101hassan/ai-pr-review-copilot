@@ -5,35 +5,41 @@
     {
       "rule_id": "config-service-only",
       "title": "All env access goes through ConfigService",
-      "message": "Direct access to process.env.SKIP_REDIS_PROBE on line 92 violates the config-service-only rule. Add a typed property to ConfigService and inject it instead. ConfigService validates at construction so missing or malformed env vars fail at boot, not at first use.",
-      "location_hint": "apps/api/src/infrastructure/queue/queue.module.ts:92",
+      "message": "The code reads `process.env.SKIP_REDIS_PROBE` directly in the `QueueModule.forRoot()` method (line 98) instead of accessing it through ConfigService. Move the env parsing into ConfigService and inject the validated value. This ensures environment validation happens at boot time for all configuration, not scattered throughout the codebase.",
+      "location_hint": "apps/api/src/infrastructure/queue/queue.module.ts:98",
       "citation": "const skip = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);",
       "faithfulness": {
-        "score": 1,
+        "score": 0.8,
         "claims": [
           {
-            "claim": "Direct access to process.env.SKIP_REDIS_PROBE on line 92 violates the config-service-only rule.",
+            "claim": "The code reads `process.env.SKIP_REDIS_PROBE` directly in the `QueueModule.forRoot()` method at line 98.",
             "kind": "",
-            "reason": "The diff shows line 92 contains `const skip = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);`, which directly accesses process.env. The rule document states 'Feature code must never read process.env directly' and requires using ConfigService instead. This direct access is a clear violation of the stated rule.",
+            "reason": "The diff shows line 98 contains `const skip = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);`, which directly accesses `process.env.SKIP_REDIS_PROBE`. This is explicitly visible in the provided diff.",
             "verdict": "supported"
           },
           {
-            "claim": "A typed property should be added to ConfigService to handle SKIP_REDIS_PROBE.",
+            "claim": "The env parsing should be moved into ConfigService instead of being accessed directly.",
             "kind": "",
-            "reason": "The rule document explicitly states 'Add a typed property + validator on ConfigService and inject ConfigService where you need the value.' This is the prescribed solution pattern shown in the rule's 'Good' example. The finding's recommendation aligns with the rule's guidance.",
+            "reason": "The rule document states: 'Feature code must never read process.env directly. Add a typed property + validator on ConfigService and inject ConfigService where you need the value.' The finding's message aligns with this rule requirement. The rule is clear that env access should go through ConfigService.",
             "verdict": "supported"
           },
           {
-            "claim": "ConfigService should be injected instead of accessing process.env directly.",
+            "claim": "The validated value should be injected into the code that needs it.",
             "kind": "",
-            "reason": "The rule document states 'Feature code must never read process.env directly' and the 'Good' example shows injecting ConfigService and accessing properties through it (e.g., `this.config.sendgridKey`). The finding's recommendation to inject ConfigService aligns with this prescribed pattern.",
+            "reason": "The rule document explicitly states: 'Add a typed property + validator on ConfigService and inject ConfigService where you need the value.' The finding's message recommends injecting the validated value, which directly matches the rule's guidance.",
             "verdict": "supported"
           },
           {
-            "claim": "ConfigService validates at construction so missing or malformed env vars fail at boot, not at first use.",
+            "claim": "Environment validation should happen at boot time for all configuration.",
             "kind": "",
-            "reason": "The rule document explicitly states 'ConfigService validates at construction so missing or malformed env vars fail at boot, not at first use.' This is a direct restatement of the rule document's rationale.",
+            "reason": "The rule document states: 'ConfigService validates at construction so missing or malformed env vars fail at boot, not at first use.' The finding's message recommends this approach to ensure validation happens at boot time. This is directly supported by the rule.",
             "verdict": "supported"
+          },
+          {
+            "claim": "Currently, environment validation is scattered throughout the codebase instead of centralized.",
+            "kind": "",
+            "reason": "The finding claims validation is 'scattered throughout the codebase,' but the diff only shows one file (queue.module.ts) with direct env access. The diff does not provide evidence of other scattered env accesses in the codebase. This claim cannot be verified from the provided evidence.",
+            "verdict": "unclear"
           }
         ]
       }
@@ -58,7 +64,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "356e1332859c67b307349123ba17c33d13db4ddf3ea2a6b85d992dfd0f79725f",
-    "gitSha": "64efa9b532bb147e4a670a5d03e87f497f0fc399",
-    "trackedPathsHash": "26a5fb15b1bbb469db14604ad60e47480db8fe712ee2de1cedc35ef4a17fd411"
+    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
+    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
   }
 }

@@ -539,6 +539,66 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
       // review must NOT inherit the first review's cache.
       expect(repoContext.fetchFile).toHaveBeenCalledTimes(2);
     });
+
+    // Day-8 observability counter — verifies the cache-hit count is
+    // threaded into the AnalyzeDiffResult so the analytics aggregator
+    // can SUM it across reviews.
+    it('cacheHitCount counts the dedup-cache short-circuits in the loop', async () => {
+      const client = makeMockClient();
+      // 5-turn loop: 4 non-terminal tool calls then emit.
+      //   turn 1: fetch src/a.js (miss)
+      //   turn 2: fetch src/a.js again (HIT)
+      //   turn 3: fetch src/b.js (miss)
+      //   turn 4: fetch src/a.js a third time (HIT)
+      //   turn 5: emit_finding
+      // Expected cacheHitCount = 2.
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/a.js' }),
+        )
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/a.js' }),
+        )
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/b.js' }),
+        )
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/a.js' }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(result.turnCount).toBe(5);
+      // Provider was hit twice (one for src/a.js miss, one for src/b.js miss).
+      expect(repoContext.fetchFile).toHaveBeenCalledTimes(2);
+      expect(result.cacheHitCount).toBe(2);
+    });
+
+    it('cacheHitCount = 0 when no dedup short-circuit fires', async () => {
+      const client = makeMockClient();
+      client.messages.create
+        .mockResolvedValueOnce(
+          nonTerminalToolUseResponse(FETCH_FILE_TOOL_NAME, { path: 'src/a.js' }),
+        )
+        .mockResolvedValueOnce(emitFindingResponse([]));
+      const repoContext = makeRepoContextProvider();
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext,
+      });
+
+      expect(result.cacheHitCount).toBe(0);
+    });
   });
 
   describe('loop — same-turn mixed content', () => {
@@ -690,6 +750,65 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
         expect.stringContaining('Dropped hallucinated rule_id="made-up-rule"'),
       );
       warnSpy.mockRestore();
+    });
+
+    // Day-8 observability counter — verifies the drop count is threaded
+    // into the AnalyzeDiffResult so the analytics aggregator can SUM it.
+    it('hallucinatedFindingCount reflects the number of dropped findings', async () => {
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const client = makeMockClient();
+      // 3 emitted; 2 hallucinated drops (made-up-1, made-up-2); 1 kept (no-var).
+      client.messages.create.mockResolvedValueOnce(
+        emitFindingResponse([
+          { rule_id: 'no-var', title: 'real', message: 'real' },
+          { rule_id: 'made-up-1', title: 'fake1', message: 'fake1' },
+          { rule_id: 'made-up-2', title: 'fake2', message: 'fake2' },
+        ]),
+      );
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
+      });
+
+      expect(result.findings).toHaveLength(1);
+      expect(result.hallucinatedFindingCount).toBe(2);
+    });
+
+    it('hallucinatedFindingCount = 0 when all findings pass the filter', async () => {
+      const client = makeMockClient();
+      client.messages.create.mockResolvedValueOnce(
+        emitFindingResponse([
+          { rule_id: 'no-var', title: 'real', message: 'real' },
+        ]),
+      );
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
+      });
+
+      expect(result.findings).toHaveLength(1);
+      expect(result.hallucinatedFindingCount).toBe(0);
+    });
+
+    it('hallucinatedFindingCount = 0 when the model emits zero findings', async () => {
+      const client = makeMockClient();
+      client.messages.create.mockResolvedValueOnce(emitFindingResponse([]));
+      const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
+
+      const result = await reviewer.analyzeDiff({
+        diff: REAL_DIFF,
+        rules: REAL_RULES,
+        repoContext: makeRepoContextProvider(),
+      });
+
+      expect(result.findings).toHaveLength(0);
+      expect(result.hallucinatedFindingCount).toBe(0);
     });
   });
 

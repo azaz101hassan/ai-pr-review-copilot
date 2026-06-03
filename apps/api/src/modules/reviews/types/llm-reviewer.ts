@@ -60,6 +60,19 @@ export interface AnalyzeDiffInput {
 // calls the loop made before it reached `emit_finding`; `toolCalls`
 // records one entry per turn (including the terminal turn). Day-6
 // eval slices on these to measure loop behavior over the corpus.
+//
+// Day-8 added two observability counters reported only on the
+// terminal `emit_finding` path (failure paths throw, so the contract
+// never sees those branches):
+//   - hallucinatedFindingCount: how many findings the model emitted
+//     that the post-emit filter dropped (unknown rule_id or wrong
+//     `source:rule_id` composite). Sum of both filter paths into one
+//     number — the dashboard chip is visibility-only, not alert-
+//     scoped, so a finer split waits until baseline data motivates it.
+//   - cacheHitCount: how many tool_use invocations the per-review
+//     dedup cache short-circuited during the loop (the
+//     `toolResultCache` short-circuit branch). Always 0 for reviews
+//     that terminate on turn 1 with no non-terminal tool calls.
 export interface AnalyzeDiffResult {
   findings: Finding[];
   usage: UsageStats;
@@ -67,6 +80,8 @@ export interface AnalyzeDiffResult {
   promptVersion: string;
   turnCount: number;
   toolCalls: ToolCallRecord[];
+  hallucinatedFindingCount: number;
+  cacheHitCount: number;
 }
 
 // Day-4 contract: multi-turn agent loop. The adapter calls
