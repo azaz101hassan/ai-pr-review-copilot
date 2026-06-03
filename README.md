@@ -53,7 +53,7 @@ cp .env.example apps/api/.env
 # 3. Boot the API on http://localhost:4001.
 npm run dev:api
 
-# 4. (Optional) Boot the dashboard placeholder on http://localhost:4000.
+# 4. (Optional) Boot the operator dashboard on http://localhost:4000.
 npm run dev:web
 ```
 
@@ -116,7 +116,7 @@ The `apps/api` suite covers config validation, repositories, the embedding pipel
 | Layer | Choice |
 |---|---|
 | Backend | NestJS 10 (TypeScript) |
-| Frontend | Next.js 14 App Router (operator dashboard) |
+| Frontend | Next.js 15 App Router (operator dashboard) |
 | Storage (relational) | SQLite via `better-sqlite3` + Drizzle ORM |
 | Storage (vectors) | Chroma 1.5 via Docker Compose |
 | Embeddings | Voyage AI `voyage-code-3` (1024-dim, code-tuned) |
