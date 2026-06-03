@@ -1,26 +1,15 @@
 // Reusable rolling-window rate-limit guard + optional budget cap.
 //
-// Extracted from the inline module-scoped guard in the Anthropic
-// integration spec (anthropic-llm-reviewer.integration.spec.ts). The
-// original guard uses a module-scoped `callTimestamps: number[]` array
-// with a 5 calls / 60s window to stop `jest --watch` runaways. This
-// class provides the same semantics with instance state (so capture can
-// instantiate one per corpus run) and adds a budget cap for corpus-wide
-// call ceilings.
-//
-// Two error classes give callers structured branching:
-//  - `SessionRateLimitExceededError` — rolling window exceeded
-//  - `BudgetExhaustedError`          — lifetime budget exceeded
-
-// ─── Error classes ───────────────────────────────────────────────────
+// Instance state (not a module-scoped global) so multiple guards can
+// coexist — e.g. one per integration-spec file, one per corpus capture
+// run. The window catches `jest --watch` runaways; the budget cap
+// bounds a single corpus run.
 
 /**
  * Thrown when the rolling-window rate limit is exceeded.
  *
- * The error message starts with "SessionRateLimitExceeded:" to stay
- * backward-compatible with the inline guard's plain-Error convention
- * (no existing code matches on the typed class, but the prefix is
- * preserved for log-grep continuity).
+ * The error message starts with "SessionRateLimitExceeded:" so log
+ * greps stay stable across the typed-class refactor.
  */
 export class SessionRateLimitExceededError extends Error {
   readonly name = 'SessionRateLimitExceededError';
@@ -55,8 +44,6 @@ export class BudgetExhaustedError extends Error {
   }
 }
 
-// ─── Guard ───────────────────────────────────────────────────────────
-
 export interface SessionRateLimitGuardOptions {
   /** Rolling window size in milliseconds. */
   windowMs: number;
@@ -69,10 +56,6 @@ export interface SessionRateLimitGuardOptions {
 /**
  * Rolling-window rate-limit guard with an optional lifetime budget cap.
  *
- * Instance state (not module-scoped globals) so multiple guards can
- * coexist — e.g. one per integration-spec file, one per capture run.
- *
- * Usage:
  * ```ts
  * const guard = new SessionRateLimitGuard({ windowMs: 60_000, maxCalls: 5 });
  * guard.acquire(); // throws if window or budget exceeded

@@ -40,25 +40,24 @@ type AnthropicClientLike = {
   };
 };
 
-// Per-turn ceiling on completion tokens. Generous enough for a
+// Per-turn ceiling on completion tokens. Generous enough for an
 // `emit_finding` payload with the full 10 findings (~2k tokens) and
-// modest enough that a runaway turn can't bloat. Day-3 used 4096 for
-// the single-turn forced call; Day-4 dials this to 2048 per the plan
-// since most turns either invoke a context fetcher (small input) or
-// emit_finding (capped at 10 findings).
+// modest enough that a runaway turn can't bloat. Most turns either
+// invoke a context fetcher (small input) or emit_finding (capped at
+// 10 findings), so 2048 fits comfortably.
 const MAX_TOKENS_PER_TURN = 2048;
 
 // Default hard cap on agent-loop turns. Reaching the cap without
 // `emit_finding` throws `AnthropicRequestError({ errorCode:
 // 'turn_cap_exceeded' })` which `ReviewsService` maps to
-// `reviews.status='failed'`. 6 is the brainstorm-chosen ceiling —
-// enough headroom for a real reviewer-like pattern (file → function →
-// prior-review → emit) plus recovery, not enough for runaway
-// oscillation. Operators can override via `ANTHROPIC_AGENT_TURN_CAP`
-// (1–20) when a large dogfood diff genuinely needs more exploration
-// turns. The canonical `SYSTEM_PROMPT` (and the hash the snapshot spec
-// guards) is always built with this default; non-default caps yield a
-// runtime-only prompt with the same shape but a different stated cap.
+// `reviews.status='failed'`. 6 is enough headroom for the common
+// pattern (file → function → prior-review → emit) plus recovery,
+// without leaving room for runaway oscillation. Operators can
+// override via `ANTHROPIC_AGENT_TURN_CAP` (1–20) when a large diff
+// genuinely needs more exploration. The canonical `SYSTEM_PROMPT`
+// (and the hash the snapshot spec guards) is always built with this
+// default; non-default caps yield a runtime-only prompt with the same
+// shape but a different stated cap.
 export const DEFAULT_TURN_CAP = 6;
 
 // SDK auto-retry behavior. Set explicitly so the troubleshooting doc
@@ -70,8 +69,8 @@ const SDK_MAX_RETRIES = 2;
 // minutes — combined with 2 retries and 6 turns that's a 3-hour
 // worst case for a single review. 60s per turn × 6 turns × (1 + 2
 // retries) caps the worst case at ~18 minutes, which is the
-// rate-limit cool-off window anyway. Day-4 reviews complete in
-// 5-30s typically; 60s is generous.
+// rate-limit cool-off window anyway. Typical reviews complete in
+// 5-30s; 60s is generous.
 const PER_REQUEST_TIMEOUT_MS = 60_000;
 
 // Tool name constants — referenced both by the schemas below and by
@@ -83,7 +82,7 @@ export const FETCH_FUNCTION_TOOL_NAME = 'fetch_function_definition';
 export const FETCH_PRIOR_REVIEW_TOOL_NAME = 'fetch_prior_review';
 export const EMIT_FINDING_TOOL_NAME = 'emit_finding';
 
-// SYSTEM PROMPT — Day 4 agentic protocol.
+// SYSTEM PROMPT — agent protocol.
 //
 // Editing this requires bumping `PROMPT_AND_TOOL_VERSION` AND adding
 // the new sha256 to `PROMPT_AND_TOOL_VERSION_HASH_MAP` in the same
@@ -220,9 +219,9 @@ export const FETCH_PRIOR_REVIEW_TOOL = {
   },
 };
 
-// TERMINAL tool. The loop exits as soon as Claude invokes this. `severity`
-// is DELIBERATELY absent — sourced from rule metadata in `ReviewsService`
-// at persistence (D1 invariant carried forward from Day-3).
+// TERMINAL tool. The loop exits as soon as Claude invokes this.
+// `severity` is DELIBERATELY absent — sourced from rule metadata in
+// `ReviewsService` at persistence time.
 export const EMIT_FINDING_TOOL = {
   name: EMIT_FINDING_TOOL_NAME,
   description:
@@ -325,7 +324,7 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
     const toolCalls: ToolCallRecord[] = [];
     let lastModel = model;
     let emittedFindings: Finding[] | null = null;
-    // Day-8 observability counters. Both are reported on the terminal
+    // Observability counters. Both are reported on the terminal
     // emit_finding path (the only path that returns an AnalyzeDiffResult);
     // failure paths throw and the column defaults to 0.
     let cacheHitCount = 0;
@@ -333,12 +332,12 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
 
     // Per-review dedup cache for non-terminal tool calls. The model
     // sometimes asks for the same (tool, input) pair across turns —
-    // observed empirically: a 15-turn PR-#17 run re-fetched the same
-    // file twice. Each redundant call burns one turn against the cap
-    // without adding context. The cache returns the prior content with
-    // a steering note instructing the model to emit instead of fetch.
-    // Successful results only — error results stay uncached so the
-    // model can legitimately retry a transient failure.
+    // observed empirically as the same file being fetched two or three
+    // times in one loop. Each redundant call burns a turn against the
+    // cap without adding context. The cache returns the prior content
+    // with a steering note instructing the model to emit instead of
+    // fetch. Successful results only — error results stay uncached so
+    // the model can legitimately retry a transient failure.
     const toolResultCache = new Map<
       string,
       {
@@ -425,9 +424,9 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
           input.rules,
           inputRuleKeys,
         );
-        // Day-8: the filter drops findings silently; surface the count
-        // so the aggregator and dashboard can show hallucination volume
-        // across the time-window slice.
+        // The filter drops findings silently; surface the count so the
+        // aggregator and dashboard can show hallucination volume across
+        // the time-window slice.
         hallucinatedFindingCount = findings.length - emittedFindings.length;
         const toolInputHash = hashToolInput(emitBlock.input);
         const resultBytes = approximateBytes(emitBlock.input);
@@ -746,10 +745,10 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
   }
 }
 
-// Day-5 F4 closure. Parse the `retry-after` header off an Anthropic
-// APIError so the BullMQ backoffStrategy can honour it. Anthropic
-// returns retry-after as delta seconds; clamp invalid/negative
-// values to undefined so the caller falls back to exponential.
+// Parse the `retry-after` header off an Anthropic APIError so the
+// BullMQ backoffStrategy can honour it. Anthropic returns retry-after
+// as delta seconds; clamp invalid/negative values to undefined so the
+// caller falls back to exponential.
 function parseAnthropicRetryAfterMs(err: APIError): number | undefined {
   const headers = (err as { headers?: unknown }).headers;
   if (!headers) return undefined;
