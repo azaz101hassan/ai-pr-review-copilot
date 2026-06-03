@@ -3,16 +3,17 @@
 //
 // Altitude hierarchy (read top-to-bottom at decreasing scale):
 //   Row 1 — Volume + status breakdown (primary: 4xl mono headline, glance-readable)
-//           Skipped, error-code breakdown sit as muted sub-lines (Day-7, Day-8).
+//           Skipped and error-code breakdowns sit as muted sub-lines.
 //   Row 2 — Severity rollup + proportional bar (secondary: 2xl headline)
-//           Hallucinated drops sit as a muted sub-line (Day-8).
+//           Hallucinated drops sit as a muted sub-line.
 //   Row 3 — Latency + token cost + cache-hit savings (tertiary: single muted line)
-//           Cache-hit total sits inline alongside cost telemetry (Day-8).
-//   Below  — Top-N rules table (supporting detail, preserved as-is)
+//           Cache-hit total sits inline alongside cost telemetry.
+//   Below  — Top-N rules table (supporting detail).
 //
-// The scale step (4xl → 2xl → sm) does the hierarchy work, not card chrome.
-// Day-8 chips follow the existing muted-text-xs sub-line treatment: each
-// hides at zero (R6) so a zero-state never reads as a problem state.
+// The scale step (4xl → 2xl → sm) does the hierarchy work, not card
+// chrome. Observability chips follow the muted-text-xs sub-line
+// treatment: each hides at zero so a zero-state never reads as a
+// problem state.
 import { Fragment } from 'react';
 import {
   Table,
@@ -28,9 +29,7 @@ import {
   type ErrorCodeEntry,
 } from '@/lib/api-types';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// Helpers.
 
 /** Format milliseconds as a human duration string with unit. */
 function formatLatency(ms: number | null): string {
@@ -44,9 +43,7 @@ function formatTokenCount(n: number): string {
   return new Intl.NumberFormat('en').format(n);
 }
 
-// ---------------------------------------------------------------------------
-// Row 1: Volume + status breakdown
-// ---------------------------------------------------------------------------
+// Row 1: Volume + status breakdown.
 
 interface VolumeRowProps {
   volume: number;
@@ -118,9 +115,9 @@ function VolumeRow({
         </p>
       ) : null}
       {/*
-        Day-8 error-code breakdown. Sits below the skipped line — same
-        muted treatment, same hide-at-zero pattern. Subset to top 3 so
-        the label can stay short; the aggregator returns up to 10 if a
+        Error-code breakdown. Sits below the skipped line — same muted
+        treatment, same hide-at-zero pattern. Subset to top 3 so the
+        label can stay short; the aggregator returns up to 10 if a
         future renderer needs deeper coverage. "Top 3" is named so the
         operator knows the chip is truncated.
       */}
@@ -150,9 +147,7 @@ function VolumeRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Row 2: Severity rollup + proportional bar
-// ---------------------------------------------------------------------------
+// Row 2: Severity rollup + proportional bar.
 
 interface SeverityRowProps {
   error: number;
@@ -284,8 +279,8 @@ function SeverityRow({ error, warning, info, hallucinatedDrops }: SeverityRowPro
         </div>
       )}
       {/*
-        Day-8 hallucination chip. Sits below the severity breakdown
-        (and proportional bar when present). These are findings the
+        Hallucination chip. Sits below the severity breakdown (and
+        proportional bar when present). These are findings the
         reviewer's filter dropped before they reached the operator —
         a model-quality signal sibling to the severity headline.
         Muted text-xs to match the existing sub-line treatment;
@@ -305,9 +300,7 @@ function SeverityRow({ error, warning, info, hallucinatedDrops }: SeverityRowPro
   );
 }
 
-// ---------------------------------------------------------------------------
-// Row 3: Latency + token totals
-// ---------------------------------------------------------------------------
+// Row 3: Latency + token totals.
 
 interface StatsRowProps {
   p50: number | null;
@@ -334,11 +327,11 @@ function StatsRow({ p50, p95, tokenTotal, cacheHits }: StatsRowProps) {
         {formatTokenCount(tokenTotal)}
       </span>
       {/*
-        Day-8 cache-hit chip. Inline alongside the cost ledger — it
-        belongs with the other cost telemetry semantically (tool calls
-        the per-review dedup cache short-circuited instead of
-        re-invoking). Hides at zero so reviews without dedup activity
-        don't clutter the row.
+        Cache-hit chip. Inline alongside the cost ledger — it belongs
+        with the other cost telemetry semantically (tool calls the
+        per-review dedup cache short-circuited instead of re-invoking).
+        Hides at zero so reviews without dedup activity don't clutter
+        the row.
       */}
       {cacheHits > 0 ? (
         <>
@@ -353,9 +346,7 @@ function StatsRow({ p50, p95, tokenTotal, cacheHits }: StatsRowProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Top-N rules table (preserved — structure and copy unchanged)
-// ---------------------------------------------------------------------------
+// Top-N rules table.
 
 interface TopRulesProps {
   rules: AnalyticsResponse['topRules'];
@@ -395,9 +386,7 @@ function TopRulesTable({ rules }: TopRulesProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main export
-// ---------------------------------------------------------------------------
+// Main export.
 
 interface AnalyticsTilesProps {
   data: AnalyticsResponse;
@@ -415,7 +404,7 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
 
   return (
     <div className="space-y-5">
-      {/* Row 1: volume + status breakdown + (Day-8) error-code breakdown */}
+      {/* Row 1: volume + status breakdown + error-code breakdown */}
       <section aria-label="Review volume and status">
         <VolumeRow
           volume={volume}
@@ -427,7 +416,7 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
         />
       </section>
 
-      {/* Row 2: severity rollup + proportional bar + (Day-8) hallucination chip */}
+      {/* Row 2: severity rollup + proportional bar + hallucination chip */}
       <section aria-label="Findings by severity">
         <SeverityRow
           error={severityRollup.error}
@@ -437,7 +426,7 @@ export function AnalyticsTiles({ data }: AnalyticsTilesProps) {
         />
       </section>
 
-      {/* Row 3: latency + token totals + (Day-8) cache-hit chip (inline) */}
+      {/* Row 3: latency + token totals + cache-hit chip (inline) */}
       <section aria-label="Performance metrics">
         <StatsRow
           p50={latency.p50}

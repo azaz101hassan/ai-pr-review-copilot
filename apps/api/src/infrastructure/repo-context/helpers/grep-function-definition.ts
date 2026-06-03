@@ -1,4 +1,4 @@
-// Heuristic function-definition finder for the Day-4 agent loop.
+// Heuristic function-definition finder for the agent loop.
 //
 // Three regex patterns are matched in order; the first hit wins:
 //   1. `function <name>(`   (optionally `export` / `export async` /

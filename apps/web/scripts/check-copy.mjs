@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Reject em-dashes anywhere in the rendered surface.
 //
-// Per DESIGN.md §6 "Don't", em-dashes in UI copy are a named slop tell
-// that read as AI-generated to the bar this dashboard targets. The
+// Em-dashes in UI copy are banned: they read as an AI-prose tell to the
+// audience this dashboard targets. The
 // EmptyCell helper was fixed in 92d5ad2; ApiFailureAlert immediately
 // regressed it in 9c70062 inside a JavaScript template literal, which
 // the deterministic detector couldn't catch because the dash sat
@@ -71,7 +71,7 @@ async function main() {
     process.exit(0);
   }
   console.error(`check-copy: ${hits.length} em-dash(es) found in apps/web (non-comment code).`);
-  console.error('Em-dashes in UI copy are banned by DESIGN.md §6 (slop tell).');
+  console.error('Em-dashes in UI copy are banned: they read as an AI-prose tell.');
   console.error('Use middle dot ( · ), en-dash (–), or rewrite.');
   console.error('');
   for (const { file, line, text } of hits) {

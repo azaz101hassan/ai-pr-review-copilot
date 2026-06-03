@@ -9,10 +9,10 @@ import { pullRequests } from './pull-requests';
 
 // One row per Claude review attempt. The row is inserted with
 // status='in_progress' BEFORE the Anthropic call and flipped to a
-// terminal state ('completed' or 'failed') after — the three-state enum
-// closes the "process died mid-call" gap that a 2-state enum would
-// silently leak. ReviewsService.onModuleInit sweeps stale 'in_progress'
-// rows older than 5 minutes (see U5 / U6 of docs/plans/04-day3-...).
+// terminal state ('completed' or 'failed') after — the three-state
+// enum closes the "process died mid-call" gap that a 2-state enum
+// would silently leak. ReviewsService.onModuleInit sweeps stale
+// 'in_progress' rows older than the configured cutoff.
 //
 // Affinity choices:
 //   - `status` uses Drizzle's text-enum mode so the TS surface narrows
@@ -20,16 +20,14 @@ import { pullRequests } from './pull-requests';
 //   - `created_at` / `completed_at` are epoch ms via timestamp_ms mode.
 //   - `pr_node_id` is a nullable FK to pull_requests.node_id with
 //     ON DELETE SET NULL — preserves the audit row when a PR is removed.
-//   - `created_by` is reserved for Day-5 auth handoff. Day 3 always
-//     writes NULL; the column ships nullable so Day 5 can backfill
-//     without a schema migration. Width is unbounded TEXT (SQLite has
-//     no length cap); a MaxLength(200) ceiling is enforced at the
-//     controller layer when Day 5 wires auth in.
+//   - `created_by` is reserved for a future auth handoff. Today we
+//     always write NULL; the column ships nullable so a later backfill
+//     doesn't need a schema migration.
 //   - `retrieved_chunk_ids_hash` is the SHA-256 hex of the sorted
-//     retrieved-chunk composite ids. Day-6/8 telemetry uses collision
-//     rate to decide whether a second prompt-cache breakpoint on the
+//     retrieved-chunk composite ids. Telemetry uses collision rate
+//     to decide whether a second prompt-cache breakpoint on the
 //     retrieved rules is justified.
-//   - No `diff_hash` — deferred to whichever day introduces dedup.
+//   - No `diff_hash` — deferred until a real diff-dedup use case lands.
 export const reviews = sqliteTable(
   'reviews',
   {
@@ -51,17 +49,18 @@ export const reviews = sqliteTable(
     output_tokens: integer('output_tokens'),
     cache_creation_input_tokens: integer('cache_creation_input_tokens'),
     cache_read_input_tokens: integer('cache_read_input_tokens'),
-    // Day-4 multi-turn loop aggregates. `turn_count` defaults to 0 so
+    // Multi-turn loop aggregates. `turn_count` defaults to 0 so
     // failures before the first `messages.create` response are
     // distinguishable from any review that made it past turn 1
-    // (historical Day-3 rows backfill to 1 in the 0003 migration).
-    // `tool_calls_json` stores the per-turn ToolCallRecord array as JSON
-    // text; nullable because Day-4 pre-turn-1 failures and historical
-    // Day-3 rows have no per-turn data.
+    // (historical single-turn rows backfill to 1 in the 0003
+    // migration). `tool_calls_json` stores the per-turn
+    // ToolCallRecord array as JSON text; nullable because pre-turn-1
+    // failures and historical single-turn rows have no per-turn data.
     turn_count: integer('turn_count').notNull().default(0),
     tool_calls_json: text('tool_calls_json', { mode: 'json' }),
-    // Day-8 observability counts. Populated by the reviewer when a review
-    // completes; the dashboard aggregator SUMs them across the time-window.
+    // Observability counts. Populated by the reviewer when a review
+    // completes; the dashboard aggregator SUMs them across the
+    // time-window.
     //   - hallucinated_finding_count: number of findings the reviewer
     //     emitted that the filter dropped (unknown rule_id or wrong
     //     source:rule_id composite).
@@ -86,15 +85,14 @@ export const reviews = sqliteTable(
       table.status,
       table.created_at,
     ),
-    // F17 closure. Powers two hot reads:
+    // Composite for two hot reads:
     //   1. findByPrNodeIdForPriorReview's
     //      `WHERE pr_node_id = ? AND status = 'completed' AND error_code IS NULL`
-    //      → first two filters land directly on the composite.
+    //      — the first two filters land directly on the composite.
     //   2. findRecentInProgressForPr's
     //      `WHERE pr_node_id = ? AND status = 'in_progress' AND created_at > ?`
-    //      → composite covers the first two, created_at picked up
-    //      from idx_reviews_pr_node_id_created_at-equivalent on the
-    //      secondary lookup (DESC limit 1).
+    //      — composite covers the first two; created_at is picked up
+    //      on the secondary lookup (DESC LIMIT 1).
     // Composite order: pr_node_id leads (high cardinality), then status.
     prNodeIdStatusIdx: index('idx_reviews_pr_node_id_status').on(
       table.pr_node_id,

@@ -102,7 +102,7 @@ function makeEntry(overrides: Partial<LoadedManifestEntry> = {}): LoadedManifest
 // ── Per-fixture scoring ────────────────────────────────────────────
 
 describe('scoreFixture', () => {
-  // AE1: clean fixture with 1 emitted finding => FP, lowers precision.
+  // Clean fixture with 1 emitted finding => FP, lowers precision.
   it('clean fixture (expected=[]) with 1 emitted finding => FP, lowers precision', () => {
     const entry = makeEntry({
       fixtureId: 'clean-1',
@@ -175,7 +175,7 @@ describe('scoreFixture', () => {
     expect(score.recall).toBe(1);
   });
 
-  // AE4: zero findings across corpus => F1 0.
+  // Zero findings across corpus => F1 0.
   it('zero findings with non-empty expected => recall 0, F1 0', () => {
     const entry = makeEntry({
       fixtureId: 'zero',
@@ -318,7 +318,7 @@ describe('scoreFixture', () => {
     expect(score.notSupportedRate).toBeCloseTo(0.2);
   });
 
-  // AE2: Suppression three-part check.
+  // Suppression three-part check.
   describe('suppression verification', () => {
     it('zero findings + priorReviewSnapshot with dismissed_at => verified', () => {
       const entry = makeEntry({
@@ -557,7 +557,7 @@ describe('aggregateMetrics', () => {
     expect(agg.micro.f1).toBeNull();
   });
 
-  // AE4: zero findings across corpus => F1 0.
+  // Zero findings across corpus => micro F1 0.
   it('zero findings across corpus with non-empty expected => micro F1 = 0', () => {
     const scores: FixtureScore[] = [
       {

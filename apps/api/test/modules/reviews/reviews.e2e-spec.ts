@@ -194,8 +194,9 @@ class StubLlmReviewer implements ILlmReviewer {
   public delayMs = 0;
   public lastInput?: AnalyzeDiffInput;
   public script: ScriptedTurn[] = [];
-  // Pre-built error used by 'throw-turn-cap-exceeded' so AE3 can
-  // assert against a specific turnCount + toolCalls shape.
+  // Pre-built error used by 'throw-turn-cap-exceeded' so the
+  // turn-cap scenario can assert against a specific
+  // turnCount + toolCalls shape.
   public turnCapToolCalls: ToolCallRecord[] = [];
 
   async analyzeDiff(input: AnalyzeDiffInput): Promise<AnalyzeDiffResult> {
@@ -247,9 +248,8 @@ class StubLlmReviewer implements ILlmReviewer {
       },
       model: 'stub-model',
       promptVersion: PROMPT_AND_TOOL_VERSION,
-      // Day-4 widened shape — degenerate single-turn case. The
-      // 'multi-turn-script' mode below walks a scripted sequence
-      // for the AE1/AE1b/AE2 scenarios.
+      // Degenerate single-turn case. The 'multi-turn-script' mode
+      // below walks a scripted sequence for the multi-turn scenarios.
       turnCount: 1,
       toolCalls: [
         {
@@ -450,19 +450,18 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
   });
 
   // Helper: build a FilesystemRepoContextProvider against a fixture's
-  // co-located `.repo/` directory. The Day-4 plan (U3) put these
-  // under apps/api/test/fixtures/diffs/<name>.repo/.
+  // co-located `.repo/` directory under
+  // apps/api/test/fixtures/diffs/<name>.repo/.
   function repoFixture(name: string): FilesystemRepoContextProvider {
     const dir = path.resolve(__dirname, '..', '..', 'fixtures', 'diffs', name);
     return new FilesystemRepoContextProvider(dir);
   }
 
-  // The HTTP path doesn't accept a repoContext at Day-4 (controller
+  // The HTTP path doesn't accept a repoContext (the controller
   // injects NullRepoContextProvider). To exercise the
   // FilesystemRepoContextProvider end-to-end through ReviewsService
   // we call the service directly. This mirrors how the dry-run CLI
-  // invokes it — and is what the plan's U7 AE describes are meant
-  // to exercise.
+  // invokes it.
   function runWithRepoFixture(
     diff: string,
     repoDirName: string,
@@ -473,7 +472,7 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
     });
   }
 
-  describe('AE1 — silent signature change (multi-turn investigation)', () => {
+  describe('silent signature change (multi-turn investigation)', () => {
     it('agent calls fetch_function_definition + fetch_related_file, then emits a finding citing the unchanged caller', async () => {
       stubLlm.mode = 'multi-turn-script';
       stubLlm.script = [
@@ -527,7 +526,7 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
     });
   });
 
-  describe('AE1b — mid-loop recovery (tool error does not poison the loop)', () => {
+  describe('mid-loop recovery (tool error does not poison the loop)', () => {
     it('fetch_related_file on a missing path returns is_error; agent recovers and emits on turn 3', async () => {
       stubLlm.mode = 'multi-turn-script';
       stubLlm.script = [
@@ -569,7 +568,7 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
     });
   });
 
-  describe('AE2 — dismissed eqeqeq re-run (zero findings via fetch_prior_review)', () => {
+  describe('dismissed eqeqeq re-run (zero findings via fetch_prior_review)', () => {
     it('fetch_prior_review finds a dismissed prior finding; agent emits an empty findings array', async () => {
       stubLlm.mode = 'multi-turn-script';
       stubLlm.script = [
@@ -600,7 +599,7 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
     });
   });
 
-  describe('AE3 — turn cap exceeded', () => {
+  describe('turn cap exceeded', () => {
     it('adapter throws turn_cap_exceeded; persisted row is failed with turn_count=6 and no findings', async () => {
       stubLlm.mode = 'throw-turn-cap-exceeded';
       stubLlm.turnCapToolCalls = Array.from({ length: 6 }, (_, i) => ({
@@ -639,9 +638,9 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
 
       // The partial loop trace (6 tool calls from
       // AnthropicRequestError.toolCalls) must round-trip through
-      // markFailed and land in tool_calls_json — Day-6 eval needs
-      // to see how far the loop got and which tools were called
-      // before the cap.
+      // markFailed and land in tool_calls_json — eval needs to see
+      // how far the loop got and which tools were called before
+      // the cap.
       const persistedToolCalls = failed?.tool_calls_json as unknown as ToolCallRecord[] | null;
       expect(persistedToolCalls).toHaveLength(6);
       expect(persistedToolCalls?.[0].tool_name).toBe('fetch_related_file');
@@ -656,7 +655,7 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
     });
   });
 
-  describe('AE4 — no repoContext provided (legacy single-turn fallback)', () => {
+  describe('no repoContext provided (legacy single-turn fallback)', () => {
     it('the script still walks; tool steps return is_error; emit_finding fires normally', async () => {
       stubLlm.mode = 'multi-turn-script';
       stubLlm.script = [
@@ -750,8 +749,8 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
     // Each fixture is built to fire a *specific* rule. The stub LLM
     // echoes the top-K-retrieved rule(s), so retrieval is the actual
     // signal under test — if a fixture is rewritten and the violated
-    // rule no longer surfaces in the top-K, this gate fails BEFORE
-    // the Day-5/6/9 demo discovers it.
+    // rule no longer surfaces in the top-K, this gate catches it
+    // before a real run does.
     const fixtures = [
       'eqeqeq-violation.patch',
       'no-var-violation.patch',
@@ -955,7 +954,7 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=false)', () => {
       .expect(404);
   });
 
-  it('ReviewsService is still provided — internal callers (Day 4 / 5) keep working', async () => {
+  it('ReviewsService is still provided — internal callers keep working', async () => {
     expect(app.get(ReviewsService)).toBeInstanceOf(ReviewsService);
   });
 });

@@ -4,8 +4,8 @@ const nextConfig = {
 
   // Local-dev CORS avoidance: proxy /api/* to the NestJS API on port 4001.
   // This lets the browser hit same-origin /api/... URLs so EventSource and
-  // fetch calls require no CORS preflight. Day-10 Vercel deployment will
-  // replace this with a real cross-origin setup.
+  // fetch calls require no CORS preflight. A real production deployment
+  // would replace this with a real cross-origin setup.
   async rewrites() {
     return [
       {

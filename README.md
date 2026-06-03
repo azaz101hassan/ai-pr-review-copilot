@@ -1,5 +1,7 @@
 # AI PR Review Copilot
 
+[![CI](https://github.com/azaz101hassan/ai-pr-review-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/azaz101hassan/ai-pr-review-copilot/actions/workflows/ci.yml)
+
 A focused-scope GitHub PR reviewer for your team's own conventions. Retrieves the relevant rules from a per-team knowledge base, runs an agentic Claude review against the diff, and posts inline comments + a walkthrough summary back to the PR.
 
 ## Scope: small-PR copilot
@@ -15,6 +17,8 @@ What this bot does instead:
 
 The wedge: complementary to CodeRabbit, not competitive. CodeRabbit handles "review the whole PR for generic best practices." This bot handles "did you violate the team's specific written conventions on this small change?"
 
+For a detailed description of the operator dashboard, the user model, and the product surface, see [PRODUCT.md](PRODUCT.md).
+
 ### Honest about its limits
 
 The reviewer's quality is reliable on focused single-purpose diffs (the eval harness in `apps/api/src/modules/reviews/eval/` measures this — micro-F1 ≥ 0.70 on synthetic gating fixtures). On large, multi-concern PRs the retrieval averages over too much noise and recall drops; that's why the size gate exists. If the bot can't do a good job, it skips honestly rather than posting a low-confidence review.
@@ -27,9 +31,9 @@ The reviewer's quality is reliable on focused single-purpose diffs (the eval har
 ai-pr-review-copilot/
 ├── apps/
 │   ├── api/        # NestJS — webhook receiver, SQLite storage, future RAG + agents
-│   └── web/        # Next.js — dashboard placeholder (Day 7)
+│   └── web/        # Next.js — operator dashboard
 ├── docs/
-│   ├── plans/      # 10-day sprint plan + per-day implementation plans
+│   ├── plans/      # implementation plans
 │   └── setup/      # GitHub App + ngrok walkthrough
 └── .github/
     └── workflows/  # CI (tests + next build)
@@ -39,28 +43,61 @@ ai-pr-review-copilot/
 
 ## Quickstart
 
+### Before you boot
+
+The bot is a real GitHub App, not a toy webhook receiver. Before running any `npm` command, make sure you have:
+
+- **Node 22** — CI pins 22; Node 24 has known rebuild issues with `better-sqlite3` (see Troubleshooting).
+- **Docker** — Chroma (vector store) and Redis (review queue) run via Docker Compose.
+- **A GitHub App** registered on a test repository — full walkthrough at [`docs/setup/github-app.md`](docs/setup/github-app.md). You need the App ID and a downloaded private-key PEM before you can boot.
+- **An Anthropic API key** — generate at [console.anthropic.com](https://console.anthropic.com) → API Keys. Set a spend cap (~$10–25 covers local development). Full setup at [`docs/setup/claude.md`](docs/setup/claude.md).
+- **A Voyage AI API key** — sign up at [voyageai.com](https://www.voyageai.com/) and attach a payment method to lift the free-tier rate cap. Full setup at [`docs/setup/embeddings.md`](docs/setup/embeddings.md).
+
+### Boot sequence
+
 ```bash
 # 1. Install dependencies (npm workspaces installs both apps).
 npm install
 
-# 2. Copy the env template and fill in GITHUB_WEBHOOK_SECRET.
-#    The webhook secret is what you'll configure in your GitHub App.
-cp .env.example apps/api/.env
-# then edit apps/api/.env and set GITHUB_WEBHOOK_SECRET=<your secret>
+# 2. Copy the API env template and fill in all required secrets.
+#    The complete template with comments is at apps/api/.env.example.
+cp apps/api/.env.example apps/api/.env
+#
+# Required — the API refuses to start without these:
+#   GITHUB_WEBHOOK_SECRET  — generate: openssl rand -hex 32
+#   VOYAGE_API_KEY         — from voyageai.com
+#   ANTHROPIC_API_KEY      — from console.anthropic.com
+#   APP_ID                 — numeric App ID from your GitHub App's settings page
+#   APP_PRIVATE_KEY        — PEM key, newlines escaped as \n (see apps/api/.env.example)
+#   REDIS_URL              — e.g. redis://:yourpassword@localhost:6379
+#   REDIS_PASSWORD         — same password; used by Docker Compose to start redis
 
-# 3. Boot the API on http://localhost:4001.
+# 3. Bring up the vector store and review queue.
+#    --env-file makes Compose read REDIS_PASSWORD from apps/api/.env;
+#    --wait blocks until Chroma's healthcheck passes so step 4 doesn't race it.
+docker compose --env-file apps/api/.env up -d --wait chroma redis
+
+# 4. Seed the knowledge base (indexes your conventions into Chroma via Voyage).
+#    Run once on first boot; re-run whenever you update apps/api/seeds/.
+npm run seed:knowledge --workspace apps/api
+
+# 5. Boot the API on http://localhost:4001.
 npm run dev:api
 
-# 4. (Optional) Boot the dashboard placeholder on http://localhost:4000.
+# 6. (Optional) Boot the operator dashboard on http://localhost:4000.
 npm run dev:web
 ```
 
-The API exposes:
+**Verify it's running:** `curl http://localhost:4001/health` should return `{ "status": "ok", ... }`.
+
+For the full end-to-end bring-up (ngrok tunnel, GitHub App webhook URL, real PR smoke test), see [`docs/setup/real-pr-smoke.md`](docs/setup/real-pr-smoke.md).
+
+### API endpoints
 
 - `GET /health` → `{ status: 'ok', uptime, timestamp }` — smoke test target.
 - `POST /webhooks/github` → guarded by HMAC-SHA256 signature verification; routes `pull_request` events with action `opened` or `synchronize` into SQLite (`pull_requests` + `webhook_events` tables).
-- `POST /embeddings/search` (Day 2) → body `{ diff: string, k?: number }`; returns the top-K matching rules from the seeded corpus. See [`docs/setup/embeddings.md`](docs/setup/embeddings.md) for the full retrieval-loop bring-up (Chroma + Voyage + seed).
-- `POST /reviews/dry-run` (Day 3) → body `{ diff: string, k?: number, pr_node_id?: string }`; runs the full review pipeline (retrieve → Claude analyze → persist) and returns `{ review_id, findings, usage, model, prompt_version }`. Rate-limited globally at 30 req/min/IP via `@nestjs/throttler`; only registers when `ENABLE_DRY_RUN=true` (dev default). Also available as `npm run review:dry-run --workspace apps/api -- <diff-path>`. See [`docs/setup/claude.md`](docs/setup/claude.md) for the full Anthropic bring-up (API key + spend cap + model selection).
+- `POST /embeddings/search` → body `{ diff: string, k?: number }`; returns the top-K matching rules from the seeded corpus. See [`docs/setup/embeddings.md`](docs/setup/embeddings.md) for the full retrieval-loop bring-up (Chroma + Voyage + seed).
+- `POST /reviews/dry-run` → body `{ diff: string, k?: number, pr_node_id?: string }`; runs the full review pipeline (retrieve → Claude analyze → persist) and returns `{ review_id, findings, usage, model, prompt_version }`. Rate-limited globally at 30 req/min/IP via `@nestjs/throttler`; only registers when `ENABLE_DRY_RUN=true` (dev default). Also available as `npm run review:dry-run --workspace apps/api -- <diff-path>`. See [`docs/setup/claude.md`](docs/setup/claude.md) for the full Anthropic bring-up (API key + spend cap + model selection).
 
 ---
 
@@ -105,16 +142,7 @@ npm test --workspace apps/api
 cd apps/api && npx jest --watch
 ```
 
-Day 2 ships with **128 tests** across 17 suites in `apps/api`. New on Day 2 (vs Day 1's 49 across 8 suites):
-
-- `ConfigService` — 10 cases covering the four new env vars (Voyage required, Chroma URL/collection/embedding-model with defaults + validators).
-- `SqliteKnowledgeSourcesRepository` and `SqliteKnowledgeChunksRepository` — 14 cases for upsert, `findByIds` order discipline, FK enforcement, `deleteBySourceId`.
-- `VoyageEmbeddingProvider` — 10 cases against a mocked `fetch` for batching, asymmetric `input_type`, `VoyageRequestError` scrubbing the response body.
-- `ChromaVectorStore` — 15 cases for lazy init, cosine-space collection config, distance→score conversion, URL parsing across http/https/trailing-slash.
-- `CorpusLoader`, `EmbeddingsService`, `EmbeddingsController` — 19 cases for chunk normalization, indexing batching, ordering invariant (SQLite first, then Chroma), search enrichment, drift tolerance.
-- `Embeddings (e2e)` — 11 cases booting the full `AppModule` against deterministic in-memory stubs for `EMBEDDING_PROVIDER` and `VECTOR_STORE`, seeding the corpus, and asserting top-K orchestration plus DTO validation (including the 50 000-character `diff` cap).
-
-Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseline-implementation.md`](docs/plans/02-day1-baseline-implementation.md).
+The `apps/api` suite covers config validation, repositories, the embedding pipeline, the reviewer agent loop, and end-to-end webhook→review specs. Tests run against a real on-disk SQLite database in a temporary directory; no driver mocks.
 
 ---
 
@@ -123,7 +151,7 @@ Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseli
 | Layer | Choice |
 |---|---|
 | Backend | NestJS 10 (TypeScript) |
-| Frontend | Next.js 14 App Router (placeholder until Day 7) |
+| Frontend | Next.js 15 App Router (operator dashboard) |
 | Storage (relational) | SQLite via `better-sqlite3` + Drizzle ORM |
 | Storage (vectors) | Chroma 1.5 via Docker Compose |
 | Embeddings | Voyage AI `voyage-code-3` (1024-dim, code-tuned) |
@@ -134,7 +162,7 @@ Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseli
 
 ---
 
-## Day 1 troubleshooting
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -148,4 +176,4 @@ Day 1's 49 tests still pass — see the unit list in [`docs/plans/02-day1-baseli
 
 ## License
 
-UNLICENSED. Personal project.
+MIT — see [LICENSE](LICENSE).

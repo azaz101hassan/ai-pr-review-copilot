@@ -51,13 +51,13 @@ import {
   ReviewJobData,
 } from './types/review-queue';
 
-// Day-5 BullMQ worker. One Processor instance per app boot — consumes
-// jobs off the `reviews` queue. The class extends WorkerHost (the
-// modern @nestjs/bullmq@11 contract; @Process() decorators were
-// deprecated in this major version).
+// BullMQ worker. One Processor instance per app boot — consumes jobs
+// off the `reviews` queue. The class extends WorkerHost (the modern
+// @nestjs/bullmq@11 contract; @Process() decorators were deprecated
+// in this major version).
 //
 // process() lifecycle (in order):
-//   1. Read job.data once at entry (AE2 — never re-read mid-job).
+//   1. Read job.data once at entry — never re-read mid-job.
 //   2. Per-PR guard via findRecentInProgressForPr — if a recent
 //      in_progress row exists, exit clean. Defends against BullMQ
 //      stalled-job replay racing the deterministic-jobId upsert.
@@ -94,10 +94,10 @@ const GUARD_LOOKBACK_MS = 10 * 60_000;
 // `parseEnableDryRun` / `parseBooleanFlag` use elsewhere. Operator
 // dial: WORKER_CONCURRENCY=<positive int>; default 1.
 //
-// `settings.backoffStrategy` is the F4 closure — pairs with
-// QueueModule's `backoff: { type: 'custom' }` defaultJobOptions.
-// Returns Anthropic's retry-after-ms when present; falls back to
-// 1s/2s/4s exponential otherwise.
+// `settings.backoffStrategy` pairs with QueueModule's
+// `backoff: { type: 'custom' }` defaultJobOptions — returns
+// Anthropic's retry-after-ms when present, otherwise falls back to
+// 1s/2s/4s exponential.
 @Processor(REVIEW_QUEUE_NAME, {
   concurrency: parseWorkerConcurrency(process.env.WORKER_CONCURRENCY, 1),
   settings: {
@@ -174,9 +174,9 @@ export class ReviewsProcessor
       this.logger.warn(
         `${jobLogPrefix} worker.job.failed pulls.get status=${status} error_code=${errorCode}`,
       );
-      // F12 closure: 401 means the cached Octokit's installation
-      // token is now invalid (App uninstalled, PEM rotated). Drop
-      // the cache entry so the next forInstallation call mints fresh.
+      // 401 means the cached Octokit's installation token is now
+      // invalid (App uninstalled, PEM rotated). Drop the cache entry
+      // so the next forInstallation call mints fresh.
       if (status === 401) {
         this.githubAuth.invalidateInstallation(data.installation_id);
       }
@@ -310,11 +310,10 @@ export class ReviewsProcessor
     }
 
     // Step 6b — empty diff. Mark completed cleanly without calling
-    // Anthropic and without POSTing. Day-5 plan: "mark completed
-    // cleanly". A standalone-completion row with zero findings keeps
-    // the audit trail honest (Day-6 eval sees the attempt + zero
-    // findings, rather than the operator wondering why a delivery
-    // vanished). Mirrors writeStandaloneFailure for symmetry.
+    // Anthropic and without POSTing. A standalone-completion row with
+    // zero findings keeps the audit trail honest (eval sees the
+    // attempt + zero findings, rather than the operator wondering why
+    // a delivery vanished). Mirrors writeStandaloneFailure for symmetry.
     if (diff.trim().length === 0) {
       this.writeStandaloneCompletion(data);
       this.logger.log(`${jobLogPrefix} worker.review.empty diff was empty`);
@@ -331,15 +330,14 @@ export class ReviewsProcessor
       priorReviewRepo: this.findingsRepo,
     });
 
-    // F2 closure: pre-allocate the review_id at the worker so the
-    // activeReviewIds tracking Set is consistent with row existence
-    // for the entire lifecycle (add BEFORE runRealReview persists
-    // the row, delete in finally). The previous code added to the
-    // Set AFTER runRealReview returned — a SIGTERM inside the agent
-    // loop would then miss the row entirely from the drain's
-    // perspective. The pre-allocated UUID is passed through
-    // runRealReview into runDryRun's insert (validated as canonical
-    // UUID by the service).
+    // Pre-allocate the review_id at the worker so the activeReviewIds
+    // tracking Set is consistent with row existence for the entire
+    // lifecycle (add BEFORE runRealReview persists the row, delete in
+    // finally). Adding to the Set AFTER runRealReview returned would
+    // let a SIGTERM inside the agent loop miss the row entirely from
+    // the drain's perspective. The pre-allocated UUID is passed
+    // through runRealReview into runDryRun's insert (validated as a
+    // canonical UUID by the service).
     const reviewId = randomUUID();
     this.activeReviewIds.add(reviewId);
 
@@ -378,7 +376,7 @@ export class ReviewsProcessor
         reason,
         jobLogPrefix,
       });
-      // F4 closure: terminal Anthropic errors (credit_balance_too_low,
+      // Terminal Anthropic errors (credit_balance_too_low,
       // invalid_request_error, etc.) must not retry — a retry of the
       // same agent loop would produce the same failure AND burn
       // another $X of Anthropic credit. Wrap in UnrecoverableError so
@@ -511,7 +509,8 @@ export class ReviewsProcessor
             `${jobLogPrefix} worker.review.post_failed status=${status} ${formatBriefError(err)}`,
           );
 
-          // F5 closure preserved: on 422, recheck PR state.
+          // On 422, recheck PR state — the most common cause is that
+          // the PR closed between the diff fetch and the review post.
           let errorCode = 'inline_post_failed';
           if (status === 422) {
             try {
@@ -691,14 +690,14 @@ export class ReviewsProcessor
     }
   }
 
-  // Day-5 bounded shutdown drain (U8). On SIGTERM Nest fires
+  // Bounded shutdown drain. On SIGTERM Nest fires
   // onApplicationShutdown across every provider that implements the
   // hook; the processor pauses the BullMQ worker (no new jobs
-  // dequeued), waits up to SHUTDOWN_DRAIN_TIMEOUT_MS for active
-  // jobs to finish, and on timeout marks any still-in-flight
-  // reviews rows failed/process_terminated. The U7 row-in-progress
-  // guard is the second-line defense on the next boot when BullMQ
-  // re-dispatches stalled jobs — it sees the failed row and exits
+  // dequeued), waits up to SHUTDOWN_DRAIN_TIMEOUT_MS for active jobs
+  // to finish, and on timeout marks any still-in-flight reviews rows
+  // failed/process_terminated. The per-PR row-in-progress guard at
+  // job entry is the second line of defense when BullMQ re-dispatches
+  // stalled jobs on the next boot — it sees the failed row and exits
   // clean. The 10-minute sweep cutoff is the third line of defense
   // if the drain misses a row entirely (e.g., race between row
   // insert and Set.add).
@@ -769,8 +768,8 @@ export class ReviewsProcessor
   // writeStandaloneFailure: inserts a one-shot completed row with
   // zero findings (`top_k=0`, empty retrieved_chunk_ids) so the
   // audit trail records the attempt. No Anthropic call ran; no POST.
-  // Day-6 eval can filter by `prompt_version='standalone-empty-diff'`
-  // to exclude these from quality metrics.
+  // Eval can filter by `prompt_version='standalone-empty-diff'` to
+  // exclude these from quality metrics.
   private writeStandaloneCompletion(data: ReviewJobData): void {
     const id = randomUUID();
     const now = new Date();
@@ -844,9 +843,9 @@ export class ReviewsProcessor
 
   // Standalone failure path — runs when the worker fails BEFORE
   // entering runRealReview (so no review row exists yet). We insert
-  // a one-shot failed row so the Day-6 eval harness sees the
-  // attempt and its error_code, rather than the operator wondering
-  // why a webhook delivery vanished.
+  // a one-shot failed row so the eval harness sees the attempt and
+  // its error_code, rather than the operator wondering why a webhook
+  // delivery vanished.
   private async writeStandaloneFailure(
     data: ReviewJobData,
     errorCode: string,
@@ -900,27 +899,27 @@ function countBySeverity(findings: { severity: 'error' | 'warning' | 'info' }[])
   return { error, warning, info, total: error + warning + info };
 }
 
-// F4 closure. Terminal Anthropic error codes — codes for which a
-// retry would be guaranteed to fail (the same way) or unsafe (cost
-// alert). When the agent loop emits any of these via
-// AnthropicRequestError, the worker wraps it in UnrecoverableError
-// so BullMQ skips the remaining attempts.
+// Terminal Anthropic error codes — codes for which a retry would be
+// guaranteed to fail (the same way) or unsafe (cost alert). When the
+// agent loop emits any of these via AnthropicRequestError, the worker
+// wraps it in UnrecoverableError so BullMQ skips the remaining
+// attempts.
 const TERMINAL_ANTHROPIC_CODES = new Set([
   'credit_balance_too_low',
   'invalid_request_error',
   'authentication_error',
   'permission_error',
   'not_found_error',
-  // Day-4 internal terminal codes — re-emitting the loop would
-  // produce the same outcome.
+  // Internal terminal codes — re-emitting the loop would produce the
+  // same outcome.
   'turn_cap_exceeded',
   'malformed_emit_finding',
   'unexpected_response_shape',
 ]);
 
-// F4 closure. Returns true when the AnthropicRequestError is one we
-// should not retry. Anthropic 429s, 5xx, and transport errors fall
-// through to the BullMQ retry path with the custom backoff (see
+// Returns true when the AnthropicRequestError is one we should not
+// retry. Anthropic 429s, 5xx, and transport errors fall through to
+// the BullMQ retry path with the custom backoff (see
 // reviewBackoffStrategy).
 export function isTerminalAnthropicError(err: unknown): boolean {
   if (!(err instanceof AnthropicRequestError)) return false;
@@ -936,11 +935,11 @@ export function isAnthropicErrorLike(err: unknown): boolean {
   return err instanceof AnthropicRequestError;
 }
 
-// F4 closure — paired with QueueModule's `backoff: { type: 'custom' }`.
-// Honour Anthropic's retry-after when the failure carries it; fall
-// back to 1s/2s/4s exponential. Clamps the upstream hint to a 60s
-// ceiling so a hostile or malformed header can't park a job for an
-// hour. Exported for test visibility.
+// Paired with QueueModule's `backoff: { type: 'custom' }`. Honour
+// Anthropic's retry-after when the failure carries it; fall back to
+// 1s/2s/4s exponential. Clamps the upstream hint to a 60s ceiling so
+// a hostile or malformed header can't park a job for an hour.
+// Exported for test visibility.
 export function reviewBackoffStrategy(
   attemptsMade: number,
   _type: string,

@@ -158,7 +158,7 @@ describe('Embeddings (e2e)', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'embeddings-e2e-'));
     process.env.GITHUB_WEBHOOK_SECRET = 'embeddings-test-secret-123456';
     process.env.VOYAGE_API_KEY = 'voyage-test-key-0123456789abcdef';
-    // Day 3 added ANTHROPIC_API_KEY to ConfigService as required.
+    // ANTHROPIC_API_KEY is required by ConfigService.
     process.env.ANTHROPIC_API_KEY = 'anthropic-test-key-0123456789abcdef';
     process.env.DATABASE_PATH = path.join(tmpDir, 'embeddings.sqlite');
 

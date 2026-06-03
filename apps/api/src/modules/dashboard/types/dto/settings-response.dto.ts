@@ -3,15 +3,16 @@ import { KnowledgeSourceRecord } from '@/modules/embeddings/types/knowledge-sour
 
 // Positive-allowlist response shape for GET /dashboard/settings.
 //
-// Only the fields listed here are ever returned. The controller builds this
-// DTO explicitly from ConfigService properties and repository data — the raw
-// ConfigService instance is never passed to a serializer. This is the
-// enforcement mechanism for R5 (no secrets in the settings response).
+// Only the fields listed here are ever returned. The controller
+// builds this DTO explicitly from ConfigService properties and
+// repository data — the raw ConfigService instance is never passed
+// to a serializer. This is the enforcement mechanism for the
+// no-secrets-in-the-settings-response invariant.
 //
-// Fields NOT included (per the Day-7 plan, Key Technical Decisions):
+// Fields deliberately NOT included:
 // - anthropicApiKey, voyageApiKey, appPrivateKey, githubWebhookSecret
 // - appId, redisUrl, dogfoodRepos, databasePath
-// - evalBaseline (Day-8 territory)
+// - evalBaseline (not yet plumbed)
 export class SettingsResponseDto {
   model!: string;
   embeddingModel!: string;

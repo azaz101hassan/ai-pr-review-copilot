@@ -131,7 +131,7 @@ describe('SqliteReviewFindingsRepository', () => {
     expect(row.citation).toBeNull();
   });
 
-  // Day-5 R8 closure — joined SQL surfacing prior findings for a PR.
+  // Joined SQL surfacing prior findings for a PR.
   describe('findByPrNodeIdForPriorReview', () => {
     const PR_NODE = 'PR_kwDOIVj1A85vRcDe';
     const OTHER_PR_NODE = 'PR_someoneelse';
@@ -149,7 +149,7 @@ describe('SqliteReviewFindingsRepository', () => {
     // pr_node_id on reviews is a FK to pull_requests.node_id. Seed
     // both PR rows we'll reference so the FK constraint is satisfied
     // and we exercise the real-world shape (every review row in
-    // production points at an existing PR audit row, see Day-1 plan).
+    // production points at an existing PR audit row).
     beforeEach(() => {
       const seedPr = (node: string) =>
         db.getDb()
@@ -201,7 +201,7 @@ describe('SqliteReviewFindingsRepository', () => {
       const found = repo.findByPrNodeIdForPriorReview(PR_NODE);
       expect(found).toHaveLength(1);
       expect(found[0].rule_id).toBe('no-console');
-      // F8 closure: file_path is the file portion sliced from
+      // file_path is the file portion sliced from
       // location_hint (everything before the first ':'). The raw
       // hint is preserved on location_hint for callers that want it.
       expect(found[0].file_path).toBe('src/a.ts');

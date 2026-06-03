@@ -248,7 +248,7 @@ describe('runScore', () => {
     if (tmpDir) cleanup(tmpDir);
   });
 
-  it('thresholds unset => report-only, allPassed = true (AE5)', () => {
+  it('thresholds unset => report-only, allPassed = true', () => {
     const expected = ['rule-a'];
     tmpDir = setupEvalDir(
       [

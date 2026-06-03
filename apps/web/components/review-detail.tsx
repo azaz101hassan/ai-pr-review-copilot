@@ -35,7 +35,7 @@ function formatMs(ms: number): string {
 }
 
 // Empty-cell placeholder. En-dash is the visual marker (not em-dash — em
-// dashes in UI copy are a documented slop tell, see DESIGN.md). Screen
+// dashes in UI copy are banned because they read as an AI-prose tell). Screen
 // readers get "No value" so a missing field is announced explicitly.
 function EmptyCell() {
   return (

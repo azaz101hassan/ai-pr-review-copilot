@@ -6,9 +6,7 @@ import { ReviewRecord } from '@/modules/reviews/types/review.types';
 import { ReviewFindingRecord } from '@/modules/reviews/types/review-finding.types';
 import { PullRequestSummary } from '@/modules/webhooks/types/pull-request.repository';
 
-// ---------------------------------------------------------------------------
-// Response envelope types for GET /dashboard/reviews
-// ---------------------------------------------------------------------------
+// Response envelope types for GET /dashboard/reviews.
 
 // Paginated list of reviews with PR metadata. total enables the frontend
 // "showing N–M of TOTAL" affordance and the next-page-disabled state.
@@ -19,9 +17,7 @@ export interface ReviewListResponse {
   limit: number;
 }
 
-// ---------------------------------------------------------------------------
-// Response envelope for GET /dashboard/reviews/:id
-// ---------------------------------------------------------------------------
+// Response envelope for GET /dashboard/reviews/:id.
 
 // A hydrated chunk: either a real KnowledgeChunkRecord subset or a
 // placeholder when the chunk no longer exists in the knowledge_chunks table.
@@ -40,11 +36,12 @@ export type HydratedChunk =
       missing: true;
     };
 
-// PR-side metadata anchored to the detail view. Mirrors PullRequestSummary
-// in shape but ships as a separate sibling rather than flattened onto the
-// review row, so consumers of the detail endpoint can distinguish "the
-// review record" from "the PR it was run against." Null for standalone
-// reviews (no pr_node_id) or when the PR row has since been purged.
+// PR-side metadata for the detail view. Mirrors PullRequestSummary
+// in shape but ships as a separate sibling rather than flattened
+// onto the review row, so consumers of the detail endpoint can
+// distinguish "the review record" from "the PR it was run against."
+// Null for standalone reviews (no pr_node_id) or when the PR row
+// has since been purged.
 export interface ReviewDetailResponse {
   review: ReviewRecord;
   findings: ReviewFindingRecord[];
@@ -52,9 +49,7 @@ export interface ReviewDetailResponse {
   pr: PullRequestSummary | null;
 }
 
-// ---------------------------------------------------------------------------
-// Response envelope for GET /dashboard/analytics
-// ---------------------------------------------------------------------------
+// Response envelope for GET /dashboard/analytics.
 
 // Re-export so consumers only need to import from this module.
 export type { AnalyticsAggregate };
@@ -62,9 +57,7 @@ export type { AnalyticsAggregate };
 // The analytics endpoint returns the aggregate directly.
 export type AnalyticsResponse = AnalyticsAggregate;
 
-// ---------------------------------------------------------------------------
-// Response envelope for GET /dashboard/filters
-// ---------------------------------------------------------------------------
+// Response envelope for GET /dashboard/filters.
 
 export interface FilterOptionsResponse {
   repos: string[];

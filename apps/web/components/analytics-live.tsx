@@ -176,7 +176,7 @@ export function AnalyticsLive({
     } catch {
       return;
     }
-    // AE2: discard events that don't match the current filter.
+    // Discard events that don't match the current filter.
     const filter = parseFilter(filterRef.current);
     if (!eventMatchesFilter(parsed, filter)) return;
     setAggregate((prev) => applyDelta(prev, parsed));

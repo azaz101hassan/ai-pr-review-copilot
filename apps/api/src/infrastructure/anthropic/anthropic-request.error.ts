@@ -21,18 +21,17 @@ export class AnthropicRequestError extends Error {
   // safe to surface in logs. Distinct from `Error.message` which we
   // construct ourselves.
   readonly serverMessage?: string;
-  // Day-4: when the agent loop fails mid-flight (turn_cap_exceeded,
+  // When the agent loop fails mid-flight (turn_cap_exceeded,
   // malformed_emit_finding), the partial turn record is attached so
   // `ReviewsService` can persist it via `markFailed`. Optional —
   // pre-loop failures (auth errors, etc.) don't carry it.
   readonly turnCount?: number;
   readonly toolCalls?: ToolCallRecord[];
-  // Day-5 F4 closure: Anthropic-supplied `retry-after` header in
-  // milliseconds, surfaced so the BullMQ worker's custom
-  // backoffStrategy can honour the upstream's wait hint instead of
-  // burning the next exponential slot. Undefined when the response
-  // didn't carry retry-after (most non-429 paths) or the value
-  // failed to parse.
+  // Anthropic-supplied `retry-after` header in milliseconds, surfaced
+  // so the BullMQ worker's custom backoffStrategy can honour the
+  // upstream's wait hint instead of burning the next exponential slot.
+  // Undefined when the response didn't carry retry-after (most non-429
+  // paths) or the value failed to parse.
   readonly retryAfterMs?: number;
   override readonly cause?: unknown;
 

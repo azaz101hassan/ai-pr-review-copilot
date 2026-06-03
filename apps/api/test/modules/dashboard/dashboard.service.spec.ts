@@ -218,7 +218,7 @@ describe('DashboardService.getReviews', () => {
     }
   });
 
-  it('includes reviews with null pr_node_id with null PR metadata (AE3)', () => {
+  it('includes reviews with null pr_node_id with null PR metadata', () => {
     const { db: db2, tmpDir: tmp2 } = openFreshDb();
     const { service: svc2, reviewRepo: rr2 } = makeDashboardService(db2);
     try {
@@ -319,7 +319,7 @@ describe('DashboardService.getReviewDetail', () => {
     expect(result.retrievedChunks[0]).toEqual({ id: 'ghost-chunk-99', missing: true });
   });
 
-  it('returns review with null PR metadata when pr_node_id is null (AE3)', () => {
+  it('returns review with null PR metadata when pr_node_id is null', () => {
     const review = makeReview({ id: 'null-pr-detail', pr_node_id: null });
     reviewRepo.insert(review);
 

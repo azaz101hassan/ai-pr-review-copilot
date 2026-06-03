@@ -5,7 +5,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeStringify from 'rehype-stringify';
 import type { Schema } from 'hast-util-sanitize';
 
-// Day-5 markdown sanitizer for finding text Claude emits.
+// Markdown sanitizer for finding text Claude emits.
 //
 // SCHEMA (custom, derived from rehype-sanitize's defaultSchema):
 //   - tagNames: a narrow inline + list whitelist — strong/b/em/i,
@@ -59,12 +59,11 @@ const safeSchema: Schema = {
     'ol',
     'li',
   ],
-  // F16 closure: the previous `code: ['className']` accepted ANY
-  // className value despite the source comment claiming a `language-*`
-  // whitelist. Tuple form `[name, ...allowed]` constrains to values
-  // that pattern-match the regex — any other class name (including
-  // `<code class="x" onmouseover=...>` attempts where the schema
-  // author misread the rehype-sanitize API) is dropped.
+  // Tuple form `[name, ...allowed]` constrains the className value to
+  // strings that pattern-match the regex (e.g. `language-ts`); any
+  // other value, including `<code class="x" onmouseover=...>`
+  // attempts, is dropped. The shorter `code: ['className']` form
+  // accepts any string — read carefully when editing.
   attributes: {
     code: [['className', /^language-[\w.-]+$/]],
   },
@@ -77,9 +76,6 @@ const safeSchema: Schema = {
 const processor = unified()
   .use(remarkParse)
   .use(remarkRehype, { allowDangerousHtml: false })
-  // F22 closure: Schema is properly imported from
-  // `hast-util-sanitize`, so the value passes straight through
-  // without `as unknown as` boundary cast.
   .use(rehypeSanitize, safeSchema)
   .use(rehypeStringify);
 
@@ -89,12 +85,12 @@ const processor = unified()
  * Returns sanitized HTML; markdown structure is preserved when the
  * tags are in `safeSchema.tagNames`, stripped otherwise.
  *
- * F15 closure: rehype-stringify wraps simple text in `<p>...</p>`,
- * which breaks `**[error]** ${title}` inline embedding on GitHub
- * (the `<p>` introduces a paragraph break). Strip the wrapping
- * paragraph when it's the only top-level block element so the
- * formatter can use the sanitized text inline. Multi-paragraph
- * content keeps its structure.
+ * rehype-stringify wraps simple text in `<p>...</p>`, which breaks
+ * `**[error]** ${title}` inline embedding on GitHub (the `<p>`
+ * introduces a paragraph break). Strip the wrapping paragraph when
+ * it's the only top-level block element so the formatter can use
+ * the sanitized text inline. Multi-paragraph content keeps its
+ * structure.
  */
 export function sanitizeFindingMarkdown(input: string): string {
   if (!input) return '';

@@ -1,12 +1,12 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { reviews } from '@/infrastructure/db/schema';
 
-// F29 closure. Cataloged from every concrete `error_code:` /
-// `errorCode:` literal currently written to a `reviews` row across
-// the worker, the service, the Anthropic adapter, and the boot
-// probes. Day-6 eval reads this column heavily and benefits from a
-// typed surface so an unknown code is a compile error rather than
-// a silent classifier-miss.
+// Catalog of every concrete `error_code:` / `errorCode:` literal
+// currently written to a `reviews` row across the worker, the
+// service, the Anthropic adapter, and the boot probes. Eval reads
+// this column heavily and benefits from a typed surface so an
+// unknown code is a compile error rather than a silent
+// classifier-miss.
 //
 // `string & {}` keeps the union *open* — the SQLite column is plain
 // TEXT and we accept whatever lands there at runtime (never let
@@ -32,7 +32,7 @@ import type { reviews } from '@/infrastructure/db/schema';
 //     - not_found_error
 //     - credit_balance_too_low
 //     - anthropic_error      (catchall when raw was unknown)
-//   Day-4 agent-loop terminal:
+//   Agent-loop terminal:
 //     - turn_cap_exceeded
 //     - malformed_emit_finding
 //     - unexpected_response_shape
@@ -59,8 +59,8 @@ export type KnownReviewErrorCode =
 
 export type ReviewErrorCode = KnownReviewErrorCode | (string & {});
 
-// Membership check for runtime narrowing (Day-6 eval treats unknown
-// codes as "needs investigation"). Sourced from the same literal
+// Membership check for runtime narrowing — eval treats unknown
+// codes as "needs investigation". Sourced from the same literal
 // list as KnownReviewErrorCode — keep both in sync when adding a
 // new code.
 const KNOWN_REVIEW_ERROR_CODES = new Set<KnownReviewErrorCode>([
@@ -98,13 +98,13 @@ export type ReviewRecord = InferSelectModel<typeof reviews>;
 
 export type ReviewInsert = InferInsertModel<typeof reviews>;
 
-// Per-turn record captured by the Day-4 agent loop. Stored as a JSON
-// array on `reviews.tool_calls_json`. `input_hash` is a SHA-256 prefix
-// of the canonical-JSON serialization of `tool_use.input`; the full
+// Per-turn record captured by the agent loop. Stored as a JSON array
+// on `reviews.tool_calls_json`. `input_hash` is a SHA-256 prefix of
+// the canonical-JSON serialization of `tool_use.input`; the full
 // input is not stored. `result_bytes` is the byte length of the
-// `tool_result` content (helps Day-6 eval budget conversation growth).
-// `stop_reason` is Anthropic's per-call stop_reason; useful to see why
-// a turn ended (`tool_use` vs `end_turn` vs `max_tokens`).
+// `tool_result` content (helps eval budget conversation growth).
+// `stop_reason` is Anthropic's per-call stop_reason; useful to see
+// why a turn ended (`tool_use` vs `end_turn` vs `max_tokens`).
 export type ToolCallRecord = {
   turn_idx: number;
   tool_name: string;
@@ -128,8 +128,8 @@ export type ToolCallRecord = {
 // that get populated on the successful terminal flip from `in_progress`
 // to `completed`. `error_status` / `error_code` stay null on this path;
 // they belong to `markFailed`. `turn_count` and `tool_calls` are
-// optional so historical / dead-code callers stay valid until U5 wires
-// them; once U5 lands, every completion call passes them.
+// optional so historical / partial callers stay valid; the typical
+// path populates them from the reviewer's AnalyzeDiffResult.
 export type ReviewCompletionPatch = {
   completed_at: Date;
   input_tokens: number;
@@ -138,9 +138,9 @@ export type ReviewCompletionPatch = {
   cache_read_input_tokens: number | null;
   turn_count?: number;
   tool_calls?: ToolCallRecord[] | null;
-  // Day-8 observability counters. Both are optional so historical /
-  // partial callers default to 0 (matches the column default); typical
-  // path populates them from the reviewer's AnalyzeDiffResult.
+  // Observability counters. Both are optional so historical / partial
+  // callers default to 0 (matches the column default); typical path
+  // populates them from the reviewer's AnalyzeDiffResult.
   hallucinated_finding_count?: number;
   cache_hit_count?: number;
 };

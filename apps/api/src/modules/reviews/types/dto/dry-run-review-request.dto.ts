@@ -12,7 +12,7 @@ import {
 // Inbound payload for `POST /reviews/dry-run`.
 //
 // `diff` cap mirrors `SearchRequestDto.diff` (50_000 chars). The
-// Day-3 endpoint forwards the text to Anthropic on a per-token billing
+// endpoint forwards the text to Anthropic on a per-token billing
 // relationship, so the same denial-of-wallet ceiling applies.
 //
 // `k` defaults to 10 inside ReviewsService when omitted; bounded

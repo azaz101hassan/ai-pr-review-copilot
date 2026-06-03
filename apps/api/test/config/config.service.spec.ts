@@ -73,7 +73,7 @@ describe('ConfigService', () => {
   });
 
   describe('happy paths', () => {
-    it('exposes all four Day-2 vars when set explicitly', () => {
+    it('exposes all four RAG-stack vars when set explicitly', () => {
       setEnv({
         ...HAPPY_ENV,
         CHROMA_URL: 'http://chroma.internal:9000',
@@ -147,7 +147,7 @@ describe('ConfigService', () => {
     });
   });
 
-  // Day 3 ─ Anthropic + dry-run gate.
+  // Anthropic + dry-run gate.
   describe('Anthropic API key', () => {
     it('exposes anthropicApiKey when set', () => {
       setEnv(HAPPY_ENV);
@@ -270,7 +270,7 @@ describe('ConfigService', () => {
     );
   });
 
-  // Day 5 ─ real-PR integration env surface.
+  // Real-PR integration env surface.
   describe('GitHub App credentials', () => {
     it('exposes appId and appPrivateKey when both are set', () => {
       setEnv(HAPPY_ENV);
@@ -389,8 +389,8 @@ describe('ConfigService', () => {
       setEnv(HAPPY_ENV);
       const cfg = new ConfigService();
       expect(cfg.workerConcurrency).toBe(1);
-      // F14 closure — default lowered to 15s for 15s margin under
-      // k8s default terminationGracePeriodSeconds: 30.
+      // 15s default leaves 15s margin under k8s default
+      // terminationGracePeriodSeconds: 30.
       expect(cfg.shutdownDrainTimeoutMs).toBe(15_000);
       expect(cfg.maxDiffBytes).toBe(256 * 1024);
     });

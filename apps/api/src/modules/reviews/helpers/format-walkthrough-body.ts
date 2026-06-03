@@ -26,7 +26,7 @@ export function formatWalkthroughBody(
 
   const sanitize = input.sanitize ?? sanitizeFindingMarkdown;
   const marker = `<!-- ai-pr-review-copilot:walkthrough:v1:pr=${input.prNodeId} -->`;
-  const header = '**🤖 AI PR Review Copilot** — bot review complete';
+  const header = '**AI PR Review Copilot** — automated review';
   const reviewMarker = `<!-- ai-pr-review-copilot:v1:review-id=${input.reviewId} -->`;
 
   const lines: string[] = [marker, header, reviewMarker, ''];

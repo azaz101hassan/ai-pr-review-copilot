@@ -23,9 +23,10 @@ export interface IPullRequestRepository {
   save(pr: PullRequestRecord): void;
   findByNodeId(nodeId: string): PullRequestRecord | undefined;
 
-  // Day-7 dashboard filter picker. Returns pull requests matching the
-  // filter spec (by repo / author) ordered by created_at DESC, bounded
-  // by limit. Used to populate the single-PR selection dropdown.
+  // Dashboard filter picker. Returns pull requests matching the
+  // filter spec (by repo / author) ordered by created_at DESC,
+  // bounded by limit. Used to populate the single-PR selection
+  // dropdown.
   findRecentMatching(spec: ReviewFilterSpec, limit: number): PullRequestSummary[];
 
   // Walkthrough cache — one Walkthrough issue comment per PR over

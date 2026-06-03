@@ -12,17 +12,16 @@ export interface IReviewFindingRepository {
   // Returns findings for a single review in insertion order.
   findByReviewId(reviewId: string): ReviewFindingRecord[];
 
-  // Day 5 — fetchPriorReview's DB-backed source. Joins reviews INNER
-  // JOIN review_findings filtered to successfully-completed prior
-  // runs on the same PR. Most-recent-first ordering by the parent
-  // review's completed_at. Caller (GitHubRepoContextProvider) applies
+  // DB-backed source for fetchPriorReview. Joins reviews INNER JOIN
+  // review_findings filtered to successfully-completed prior runs on
+  // the same PR. Most-recent-first ordering by the parent review's
+  // completed_at. Caller (GitHubRepoContextProvider) applies
   // file_path / rule_id filters in-memory over the returned list.
-  // Closes the Day-4 R8 residual.
   //
   // Returns the PriorReviewEntry shape rather than a raw row union so
   // the provider doesn't need to know about JOIN columns.
-  // `dismissed_at` is always null until a future column lands; the
+  // `dismissed_at` is always null until a dismiss column lands; the
   // shape carries it for forward compat with the prior-review JSON
-  // fixtures that drive Day-4 tests.
+  // fixtures.
   findByPrNodeIdForPriorReview(prNodeId: string): PriorReviewEntry[];
 }

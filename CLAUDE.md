@@ -5,9 +5,8 @@ agent sessions are expected to follow. Conventions live here, not in the
 code, because the code shows *what* but rarely *why*.
 
 The repo is an AI PR Review Copilot — RAG + agentic LLM that reviews
-GitHub PRs against a team knowledge base. Built across a 10-day sprint
-(`docs/plans/01-baseline.md`). Day 1 (webhook receiver + SQLite + tests)
-is shipped on `main`.
+GitHub PRs against a team knowledge base. Implementation plans live
+under `docs/plans/`; the baseline is `docs/plans/01-baseline.md`.
 
 ---
 
@@ -17,7 +16,7 @@ is shipped on `main`.
 ai-pr-review-copilot/
 ├── apps/
 │   ├── api/                      ← NestJS 10 backend (where the action is)
-│   └── web/                      ← Next.js 14 placeholder (UI lands Day 6+)
+│   └── web/                      ← Next.js 15 — operator dashboard
 ├── docs/
 │   ├── plans/                    ← Sprint plans + per-day implementation plans
 │   └── setup/                    ← GitHub App + ngrok setup, ops guides
@@ -290,10 +289,10 @@ Run the full suite from repo root: `npm test --workspace apps/api`.
 
 ## What lives outside the API tier system
 
-- `apps/web/` — Next.js placeholder. Day 6+ work.
-- `docs/plans/` — sprint plans, per-day implementation plans, deepening
-  artifacts. **Do not delete or move these without explicit user
-  approval** — they are decision artifacts.
+- `apps/web/` — Next.js 15 operator dashboard.
+- `docs/plans/` — implementation plans and deepening artifacts. **Do
+  not delete or move these without explicit user approval** — they are
+  decision artifacts.
 - `docs/setup/` — operator-facing setup guides (GitHub App + ngrok).
 
 ---

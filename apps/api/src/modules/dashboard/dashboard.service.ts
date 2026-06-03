@@ -45,9 +45,7 @@ export class DashboardService {
     private readonly config: ConfigService,
   ) {}
 
-  // ---------------------------------------------------------------------------
-  // Reviews list
-  // ---------------------------------------------------------------------------
+  // Reviews list.
 
   getReviews(dto: FilterSpecDto): ReviewListResponse {
     const spec = dtoToFilterSpec(dto);
@@ -60,9 +58,7 @@ export class DashboardService {
     return { items, total, offset, limit };
   }
 
-  // ---------------------------------------------------------------------------
-  // Review detail
-  // ---------------------------------------------------------------------------
+  // Review detail.
 
   getReviewDetail(id: string): ReviewDetailResponse {
     const result = this.reviewRepo.findByIdWithFindings(id);
@@ -110,18 +106,14 @@ export class DashboardService {
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // Analytics aggregate
-  // ---------------------------------------------------------------------------
+  // Analytics aggregate.
 
   getAnalytics(dto: FilterSpecDto): AnalyticsResponse {
     const spec = dtoToFilterSpec(dto);
     return this.reviewRepo.aggregateByFilter(spec);
   }
 
-  // ---------------------------------------------------------------------------
-  // Filter population
-  // ---------------------------------------------------------------------------
+  // Filter population.
 
   getFilterOptions(dto: FilterSpecDto): FilterOptionsResponse {
     const spec = dtoToFilterSpec(dto);
@@ -133,9 +125,7 @@ export class DashboardService {
     return { repos, authors, recentPrs };
   }
 
-  // ---------------------------------------------------------------------------
-  // Settings (positive allowlist — never return raw ConfigService)
-  // ---------------------------------------------------------------------------
+  // Settings (positive allowlist — never return raw ConfigService).
 
   async getSettings(): Promise<SettingsResponseDto> {
     const sources = this.sourceRepo.listAll();
@@ -156,9 +146,7 @@ export class DashboardService {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
+  // Private helpers.
 
   // Hydrates chunk IDs to their full record or a { id, missing: true }
   // placeholder when the chunk no longer exists in knowledge_chunks.
@@ -185,9 +173,7 @@ export class DashboardService {
   }
 }
 
-// ---------------------------------------------------------------------------
-// DTO → FilterSpec mapper
-// ---------------------------------------------------------------------------
+// DTO → FilterSpec mapper.
 
 function dtoToFilterSpec(dto: FilterSpecDto): ReviewFilterSpec {
   return {

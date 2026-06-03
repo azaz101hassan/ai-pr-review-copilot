@@ -207,7 +207,7 @@ apps/api/
 
 docs/setup/
 ├── github-app.md                                      (+ Day-5 install + permissions + rotation)
-└── day5-real-pr.md                                    (NEW: Redis bring-up, troubleshooting)
+└── real-pr-smoke.md                                    (NEW: Redis bring-up, troubleshooting)
 ```
 
 ---
@@ -231,7 +231,7 @@ Units are dependency-ordered. U-IDs are stable across plan edits. Files listed a
 - `apps/api/src/config/config.service.ts` — new typed properties: `appId: string`, `appPrivateKey: string`, `redisUrl: string` (or `redisHost`/`redisPort`/`redisPassword` triple), `dogfoodRepos: Set<string>`, `anthropicUseZeroRetention: boolean`, `workerConcurrency: number`, `shutdownDrainTimeoutMs: number`, `maxDiffBytes: number`.
 - `apps/api/test/config/config.service.spec.ts` — mirror existing validators.
 - `docker-compose.yml` — add a `redis` service with `image: redis:7-alpine` pinned, healthcheck via `redis-cli ping`, password from `REDIS_PASSWORD`, bound to localhost / Docker bridge network only.
-- `.env.example` — add the new vars with placeholder values plus inline comments pointing at `docs/setup/day5-real-pr.md`.
+- `.env.example` — add the new vars with placeholder values plus inline comments pointing at `docs/setup/real-pr-smoke.md`.
 
 **Approach:**
 
@@ -595,7 +595,7 @@ The 5-min → 10-min sweep cutoff bump originally scoped as a standalone unit is
 
 **Files:**
 
-- `docs/setup/day5-real-pr.md` — NEW. Sections: (1) Redis bring-up (docker-compose snippet, `redis-cli` smoke test, security note on password + bind-to-loopback); (2) `.env` for Day 5 — pointing at every new var; (3) GitHub App install on the demo target (controlled OSS fork) + on `ai-pr-review-copilot` itself; (4) Minimum App permissions (Pull requests: read+write, Contents: read, Metadata: read, Webhook events: pull_request); (5) Key rotation procedure (generate new key in App settings → update `APP_PRIVATE_KEY` → restart → confirm boot log "GitHub App probe OK" → delete old key in App settings); (6) `DOGFOOD_REPOS` allowlist semantics + kill switch usage; (7) Troubleshooting table for new error codes.
+- `docs/setup/real-pr-smoke.md` — NEW. Sections: (1) Redis bring-up (docker-compose snippet, `redis-cli` smoke test, security note on password + bind-to-loopback); (2) `.env` for Day 5 — pointing at every new var; (3) GitHub App install on the demo target (controlled OSS fork) + on `ai-pr-review-copilot` itself; (4) Minimum App permissions (Pull requests: read+write, Contents: read, Metadata: read, Webhook events: pull_request); (5) Key rotation procedure (generate new key in App settings → update `APP_PRIVATE_KEY` → restart → confirm boot log "GitHub App probe OK" → delete old key in App settings); (6) `DOGFOOD_REPOS` allowlist semantics + kill switch usage; (7) Troubleshooting table for new error codes.
 - `docs/setup/github-app.md` — update the "What's next" section: Day 5 done, Day 6+ uses the same install.
 - `apps/api/.env.example` — add the seven new vars with placeholder values and a comment pointing at the Day-5 guide.
 
@@ -660,7 +660,7 @@ The 5-min → 10-min sweep cutoff bump originally scoped as a standalone unit is
 | DI graph | Three new infrastructure modules (`infrastructure/github/`, `infrastructure/queue/`) and three new injection tokens (`GITHUB_AUTH_PROVIDER`, `REVIEW_QUEUE`, plus the swapped `REPO_CONTEXT_PROVIDER` binding). | All new tokens follow the existing Symbol-token pattern; module imports remain explicit. The `RepoContextModule` binding swap is the only existing-token rebinding in this plan. |
 | Schema | No migrations needed. New `error_code` values land in the free-form text column. | None required. |
 | Boot lifecycle | Two new fail-fast probes (`GET /app`, Redis `PING`). Adds ~200ms to startup against healthy dependencies. | Probes block HTTP route binding; an operator with broken creds sees the failure within the first second of startup. |
-| Operational surface | Redis container in `docker-compose.yml`. New env vars in `.env.example`. Worker-shutdown SIGTERM grace window relevant for Docker / k8s deployments. | Documented in `docs/setup/day5-real-pr.md`. |
+| Operational surface | Redis container in `docker-compose.yml`. New env vars in `.env.example`. Worker-shutdown SIGTERM grace window relevant for Docker / k8s deployments. | Documented in `docs/setup/real-pr-smoke.md`. |
 | Anthropic budget | Per-PR jobs run the agent loop with real diffs; dogfood leg adds ongoing budget burn. `MAX_DIFF_BYTES` cap and `WORKER_CONCURRENCY=1` default bound the burn rate. `ANTHROPIC_USE_ZERO_RETENTION=true` removes the data-retention risk. | Day-8 observability adds proactive budget alerting; Day-5 trusts the operator's spend cap from Day-3 setup. |
 | GitHub API rate limits | Worker hits `pulls.get`, `pulls.listFiles`, `repos.getContent` (per-fetch), and `pulls.createReview`. Per-PR with concurrency=1: ~5–15 calls per review against a 5,000/hour installation limit. | `onRateLimit` callback returns `false` (no in-callback retry) and surfaces a typed `RequestError` so BullMQ schedules a retry with delay. Day-8 adds active rate-limit metrics. |
 | Day-6 evaluation harness | Reads `error_code`, `turn_count`, `tool_calls_json` to compute eval signals. New error codes appear in the column. | Day-6 reads the inline-commented union for the canonical list; no schema-coupled change. |
@@ -699,7 +699,7 @@ The 5-min → 10-min sweep cutoff bump originally scoped as a standalone unit is
 
 ## Documentation Plan
 
-- `docs/setup/day5-real-pr.md` — NEW Day-5 bring-up guide (U10).
+- `docs/setup/real-pr-smoke.md` — NEW Day-5 bring-up guide (U10).
 - `docs/setup/github-app.md` — update "What's next" section to flag Day 5 as the day this surface activates (U10).
 - `apps/api/.env.example` — add the seven new vars with placeholder values + comments (U10).
 - Inline comments next to the `error_code` declaration in `reviews.service.ts` listing the full union (Day-3 + Day-4 + Day-5 values) for downstream consumers (Day-6 eval) (U7).
@@ -731,7 +731,7 @@ Demo-critical (must hold to record):
 - The Review's body opens with the self-identifying header line and contains the HTML comment marker.
 - At least three of the planted violations (of distinct severities) surface in the Review with no more than one false positive.
 - Every finding's text passes the sanitization-corpus suite — no raw HTML, no external URLs, no heading-level injection.
-- The whole chain is reproducible on a fresh machine following only `docs/setup/day5-real-pr.md`.
+- The whole chain is reproducible on a fresh machine following only `docs/setup/real-pr-smoke.md`.
 
 Day-6-ready (the eval harness reads these):
 

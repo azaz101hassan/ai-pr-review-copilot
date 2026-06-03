@@ -1,18 +1,18 @@
-// Day-4 seam between the agent loop and "where the code lives". The
-// adapter (`AnthropicLlmReviewer`) consumes this through
+// Seam between the agent loop and "where the code lives". The adapter
+// (`AnthropicLlmReviewer`) consumes this through
 // `AnalyzeDiffInput.repoContext` rather than constructor injection so
 // the same adapter instance can serve CLI runs (filesystem-backed),
-// HTTP smoke runs (null-backed), and eventually Day-5 real PRs
-// (GitHub-API-backed) without per-call mutation.
+// HTTP smoke runs (null-backed), and real PR reviews (GitHub-API-
+// backed) without per-call mutation.
 //
 // All three methods return a discriminated union. Success carries
 // `content`; failure carries a structured `reason` enum so Claude can
-// reason about whether a different tool or input would succeed. Day-4's
-// `FilesystemRepoContextProvider` only ever emits `not_found`,
-// `invalid_input`, and `parse_error` — the wider vocabulary
-// (`forbidden | rate_limited | network`) is contracted up front so
-// Day-5's `GitHubRepoContextProvider` doesn't renegotiate the
-// interface (404 / 403 / 429 / connection errors map cleanly).
+// reason about whether a different tool or input would succeed. The
+// filesystem provider only ever emits `not_found`, `invalid_input`,
+// and `parse_error` — the wider vocabulary (`forbidden |
+// rate_limited | network`) is contracted up front so the GitHub
+// provider doesn't renegotiate the interface (404 / 403 / 429 /
+// connection errors map cleanly).
 
 export const REPO_CONTEXT_PROVIDER = Symbol('RepoContextProvider');
 
@@ -49,8 +49,8 @@ export interface RepoFunctionSuccess {
 
 export type RepoFunctionResult = RepoFunctionSuccess | RepoContextError;
 
-// Prior-review entry shape. Both Day-4's filesystem provider (reads
-// from a JSON file) and Day-5's DB-backed sibling (reads from
+// Prior-review entry shape. Both the filesystem provider (reads from
+// a JSON file) and the DB-backed sibling (reads from
 // `review_findings`) produce this exact shape. `dismissed_at` is
 // epoch ms (CLAUDE.md timestamp_ms convention) so JSON fixtures and
 // SQL rows never drift on representation. `null` means "not
@@ -81,7 +81,7 @@ export type RepoPriorReviewResult = RepoPriorReviewSuccess | RepoContextError;
 export interface IRepoContextProvider {
   // Fetch the full text of a file at the given repo-relative path.
   // Missing path → `not_found`. Path traversal (`..` escapes) →
-  // `invalid_input`. Day-5's GitHub sibling may additionally emit
+  // `invalid_input`. The GitHub provider may additionally emit
   // `forbidden` / `rate_limited` / `network`.
   fetchFile(path: string): Promise<RepoFileResult>;
 
@@ -98,7 +98,7 @@ export interface IRepoContextProvider {
   // data is NOT an error — returns `{ ok: true, content: [] }`. This
   // is a deliberate asymmetry with `fetchFile`: a specific file is
   // expected to exist; prior-review data is optional context that may
-  // simply not exist yet (Day-4 cold-start). Only structural failures
+  // simply not exist yet (cold-start). Only structural failures
   // (malformed JSON) emit `parse_error`.
   fetchPriorReview(query: PriorReviewQuery): Promise<RepoPriorReviewResult>;
 }

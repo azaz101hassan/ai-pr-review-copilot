@@ -1,9 +1,5 @@
 # Product
 
-## Register
-
-product
-
 ## Users
 
 The developer who installed the AI PR Review Copilot on their organisation,
@@ -36,8 +32,8 @@ reading source. The dashboard's job is to make the pipeline legible.
 
 It is **not** a pitch for the bot; the bot's competence is taken as
 given. It is **not** an admin console; mutation lives in source and
-config files until later sprints. It is **not** a public marketing
-surface; auth, deployment, and a public URL are out of Day-7 scope.
+config files until later iterations. It is **not** a public marketing
+surface; auth, deployment, and a public URL are out of the initial dashboard's scope.
 
 ## Brand Personality
 

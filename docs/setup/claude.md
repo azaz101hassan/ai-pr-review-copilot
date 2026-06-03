@@ -1,8 +1,8 @@
 # Claude integration setup — Anthropic SDK + structured findings
 
-This walks you through standing up the Day-3 review loop locally: an Anthropic API key with a workspace spend cap, a `.env` knob for the model, and the new `npm run review:dry-run` CLI plus `POST /reviews/dry-run` HTTP endpoint. Target: a working end-to-end dry-run that prints findings on a violation diff in **about 15 minutes** on a fresh clone.
+This walks you through standing up the review loop locally: an Anthropic API key with a workspace spend cap, a `.env` knob for the model, and the new `npm run review:dry-run` CLI plus `POST /reviews/dry-run` HTTP endpoint. Target: a working end-to-end dry-run that prints findings on a violation diff in **about 15 minutes** on a fresh clone.
 
-> **Prerequisite:** Day 1 (webhook receiver) and Day 2 (Chroma + Voyage + seeded corpus) are already shipped on `main`. If you haven't run [`docs/setup/embeddings.md`](embeddings.md), do that first — Day 3 *retrieves* the rules Day 2 seeded.
+> **Prerequisite:** The webhook receiver and the Chroma + Voyage + seeded corpus setup are already shipped on `main`. If you haven't run [`docs/setup/embeddings.md`](embeddings.md), do that first — the review loop *retrieves* the rules seeded there.
 
 ---
 
@@ -20,12 +20,12 @@ This walks you through standing up the Day-3 review loop locally: an Anthropic A
 Anthropic supports a hard monthly cap. **Do this before running anything that calls the API** — it is the dollar backstop if a runaway loop or misconfigured key somehow gets out.
 
 1. **Settings → Limits** → **Monthly spending limit**.
-2. Set it to something small enough that you'd notice the alert but large enough to cover the sprint. **Suggested: $10–$25** for the Day-3 → Day-10 sprint.
+2. Set it to something small enough that you'd notice the alert but large enough to cover your work. **Suggested: $10–$25**.
 3. Confirm.
 
 Each `runDryRun` call is approximately **1–5¢** depending on cache state (cold Sonnet ~$0.04–$0.10; warm cache halves it; Haiku is ~8× cheaper across the board). The local 30 req/min/IP throttler caps per-IP burn rate; this spend cap is the dollar-amount backstop on top.
 
-If your usage approaches **$5** during Day-3 dev work, that's already unusual — audit the iteration loop before continuing.
+If your usage approaches **$5** during a single dev session, that's already unusual — audit the iteration loop before continuing.
 
 ---
 
@@ -56,17 +56,16 @@ The API will refuse to start without `ANTHROPIC_API_KEY` — `ConfigService` val
 
 ## 5. Model selection
 
-The `ANTHROPIC_MODEL` env var defaults to a **NODE_ENV-aware** choice so dev iteration stays cheap and production stays demo-quality:
+The `ANTHROPIC_MODEL` env var defaults unconditionally to `claude-haiku-4-5-20251001` regardless of `NODE_ENV`. Haiku is the deliberate default because the reviewer targets small, focused diffs where Haiku's quality holds and per-review cost is ~$0.02–0.05 — roughly 8× cheaper than Sonnet uncached. Operators who want the marginal precision gain of Sonnet (or any other model) opt in by setting `ANTHROPIC_MODEL` explicitly.
 
-| `NODE_ENV` | `ANTHROPIC_MODEL` unset | Resolved model |
-| --- | --- | --- |
-| `development` (default in `npm run dev:api`) | yes | `claude-haiku-4-5-20251001` (~8× cheaper than Sonnet) |
-| `production` | yes | `claude-sonnet-4-6` (demo-quality output) |
-| any | explicitly set | the explicit value always wins |
+| `ANTHROPIC_MODEL` set? | Resolved model |
+| --- | --- |
+| No (unset or empty) | `claude-haiku-4-5-20251001` — always, regardless of `NODE_ENV` |
+| Yes | the explicit value, validated non-empty at boot |
 
 **Override paths:**
 
-- **Force Haiku in dev (recommended default, already the case in dev):** leave `ANTHROPIC_MODEL` unset — Haiku is the dev default. Setting `ANTHROPIC_MODEL=claude-haiku-4-5-20251001` explicitly is fine if you want it visible in `.env`.
+- **Keep the default (Haiku):** leave `ANTHROPIC_MODEL` unset. Setting `ANTHROPIC_MODEL=claude-haiku-4-5-20251001` explicitly is fine if you want it visible in `.env`.
 - **Smoke-test production model in dev:** set `ANTHROPIC_MODEL=claude-sonnet-4-6` in `.env` before bringing up `npm run dev:api`.
 - **Try Opus 4.7 for a one-off:** set `ANTHROPIC_MODEL=claude-opus-4-7` (~5× cost vs Sonnet — use sparingly).
 
@@ -90,7 +89,7 @@ If you're unsure which model just ran, check the CLI line directly above the cos
 | any | `true` / `1` / `yes` (case-insensitive) | `true` |
 | any | anything else (or empty) | `false` |
 
-**Why:** before Day 5 ships auth, the endpoint is unauthenticated. Gating it on `ENABLE_DRY_RUN=false` outside dev forecloses the accidental-deploy-to-prod denial-of-wallet path. The CLI (`npm run review:dry-run`) is unaffected — it's process-local, no HTTP.
+**Why:** the endpoint is unauthenticated in development builds. Gating it on `ENABLE_DRY_RUN=false` outside dev forecloses the accidental-deploy-to-prod denial-of-wallet path. The CLI (`npm run review:dry-run`) is unaffected — it's process-local, no HTTP.
 
 Override to `ENABLE_DRY_RUN=false` in dev if you want to use only the CLI surface and verify the 404 behavior locally.
 
@@ -144,7 +143,7 @@ curl -sS http://localhost:4001/reviews/dry-run \
   -d '{ "diff": "diff --git a/x.js b/x.js\n@@ -1 +1 @@\n-let x = 1\n+var x = 1\n", "k": 5 }' | jq
 ```
 
-Response shape (Day 4+):
+Response shape:
 
 ```json
 {
@@ -201,31 +200,30 @@ sqlite3 apps/api/data/app.sqlite \
 | **404** on `POST /reviews/dry-run` | `ENABLE_DRY_RUN` is `false` | Set `ENABLE_DRY_RUN=true` in `apps/api/.env` (dev only) or use the CLI. |
 | **`unexpected_response_shape`** error | Claude returned something other than the forced tool call (rare with `tool_choice: { type: 'tool' }`) | File a bug. Inspect logs for the actual shape; verify the model id isn't a typo. |
 | **`truncated_response`** error (`stop_reason === 'max_tokens'`) | Claude ran out of room | Increase `MAX_TOKENS` in `infrastructure/anthropic/anthropic-llm-reviewer.ts` (default 4096) or trim the diff. |
-| **`turn_cap_exceeded`** error (Day-4+) | The multi-turn agent loop reached the 6-turn cap without calling `emit_finding` — usually means Claude is oscillating between tool calls or hitting repeated `is_error` results | Inspect `tool_calls_json` on the failed `reviews` row for the per-turn trace. The review is marked `failed` and no findings are persisted. If a fixture consistently hits the cap, narrow the prompt or pre-seed context the agent would otherwise have to discover. |
-| **`malformed_emit_finding`** error (Day-4+) | Claude invoked `emit_finding` but the payload failed schema validation (e.g., `findings: null`, missing `rule_id` / `title` / `message`, or non-string `location_hint` / `citation`) | Inspect `tool_calls_json` for the partial loop state. If recurring, tighten the `EMIT_FINDING_TOOL` schema or add a corrective example to `SYSTEM_PROMPT` — both edits require bumping `PROMPT_AND_TOOL_VERSION` and the `HASH_MAP` entry in the same commit. |
-| **`AnalyzeDiffResult` findings empty when violations are obvious** | Retrieval didn't surface the expected rule in top-K | Run `npm run query:rules --workspace apps/api -- <path>` to see what's actually retrieved. If the rule isn't in the top-K, the embeddings layer (Day 2) is the problem, not Claude. |
-| **`Resolved model: claude-haiku-...` when you expected Sonnet** (or vice versa) | NODE_ENV mismatch | Verify `NODE_ENV` in the shell that booted `npm run dev:api`. Set `ANTHROPIC_MODEL` explicitly in `.env` if you want to lock the choice. |
+| **`turn_cap_exceeded`** error | The multi-turn agent loop reached the 6-turn cap without calling `emit_finding` — usually means Claude is oscillating between tool calls or hitting repeated `is_error` results | Inspect `tool_calls_json` on the failed `reviews` row for the per-turn trace. The review is marked `failed` and no findings are persisted. If a fixture consistently hits the cap, narrow the prompt or pre-seed context the agent would otherwise have to discover. |
+| **`malformed_emit_finding`** error | Claude invoked `emit_finding` but the payload failed schema validation (e.g., `findings: null`, missing `rule_id` / `title` / `message`, or non-string `location_hint` / `citation`) | Inspect `tool_calls_json` for the partial loop state. If recurring, tighten the `EMIT_FINDING_TOOL` schema or add a corrective example to `SYSTEM_PROMPT` — both edits require bumping `PROMPT_AND_TOOL_VERSION` and the `HASH_MAP` entry in the same commit. |
+| **`AnalyzeDiffResult` findings empty when violations are obvious** | Retrieval didn't surface the expected rule in top-K | Run `npm run query:rules --workspace apps/api -- <path>` to see what's actually retrieved. If the rule isn't in the top-K, the embeddings layer is the problem, not Claude. |
+| **`Resolved model: claude-haiku-...` when you expected Sonnet** (or vice versa) | `ANTHROPIC_MODEL` not set — Haiku is the unconditional default | Set `ANTHROPIC_MODEL=claude-sonnet-4-6` (or your preferred model) explicitly in `apps/api/.env`. |
 | **Cost surprise** — `[review:dry-run] estimated cost` exceeds a couple cents per call | Cache miss (every call), or accidentally on Opus/Sonnet during iteration | Check the resolved-model line. If it's Sonnet/Opus and you're iterating, switch to Haiku. If cache_read tokens stay at 0 across calls, the system prompt likely drifted — `git diff apps/api/src/infrastructure/anthropic/anthropic-llm-reviewer.ts`. |
-| **`cache(read/write)=0/0` every call** on Haiku | Haiku's prompt-cache minimum is higher than Sonnet's (~2048 vs ~1024 tokens). Our cacheable prefix (~1280 tokens) clears Sonnet but not Haiku. | Expected and intentional — padding the prompt further to clear Haiku's threshold would make every Haiku call more expensive (bigger prompt) for caching benefits that only materialise after many calls. Haiku is already ~8× cheaper than Sonnet uncached; that's the iteration economics we keep. Use Sonnet for sessions where caching matters (Day-6 eval, demos). |
+| **`cache(read/write)=0/0` every call** on Haiku | Haiku's prompt-cache minimum is higher than Sonnet's (~2048 vs ~1024 tokens). Our cacheable prefix (~1280 tokens) clears Sonnet but not Haiku. | Expected and intentional — padding the prompt further to clear Haiku's threshold would make every Haiku call more expensive (bigger prompt) for caching benefits that only materialise after many calls. Haiku is already ~8× cheaper than Sonnet uncached; that's the iteration economics we keep. Use Sonnet for sessions where caching matters (eval runs, demos). |
 | **Process crashed mid-call; row stuck in `in_progress`** | Expected — the 3-state lifecycle survives this | The startup sweep at `ReviewsService.onModuleInit()` finalises any `in_progress` row older than 5 minutes as `failed/process_terminated` on the next boot. |
 
 ---
 
-## 9. What Day 3 does *not* yet do
+## 9. Current limitations of the dry-run surface
 
-- **Post comments back to GitHub.** Day 5 wires Octokit and the `pr_node_id` column. Day 3 only persists findings.
-- **Multi-turn agent loop.** Day 4 introduces the agentic loop (Claude can request additional context, call sub-tools, iterate). Day 3 is single-turn forced-tool-call.
-- **Webhook-triggered reviews.** Day 4 / Day 5 extend the webhook handler so `opened` / `synchronize` events drive `runDryRun()` automatically. Day 3's surface is dry-run only.
-- **Authentication on `POST /reviews/dry-run`.** Day 5 introduces a unified auth strategy. Today, the endpoint is rate-limited + gated by `ENABLE_DRY_RUN`, not authenticated.
-- **A cost / token telemetry dashboard.** Day 8 reads the `input_tokens`, `output_tokens`, `cache_*` columns we now write on every row.
+- **Post comments back to GitHub.** The dry-run only persists findings locally — it does not post a Review to the PR. That path is covered by the real-PR integration; see [`docs/setup/real-pr-smoke.md`](real-pr-smoke.md).
+- **Webhook-triggered reviews.** The dry-run surface is manual-only. The webhook handler drives reviews automatically once the real-PR integration is configured.
+- **Authentication on `POST /reviews/dry-run`.** The endpoint is rate-limited and gated by `ENABLE_DRY_RUN`, not authenticated. Use it for local development only.
+- **A cost / token telemetry dashboard.** The `input_tokens`, `output_tokens`, and `cache_*` columns are written on every row and are queryable directly from SQLite; a web UI for them is not yet shipped.
 
 See [`docs/plans/04-day3-claude-integration.md`](../plans/04-day3-claude-integration.md) → "Scope Boundaries" for the full deferred-work list.
 
 ---
 
-## 10. Day 4 — Function definition lookup, known limitations
+## 10. Function definition lookup — known limitations
 
-Day 4 adds a `fetch_function_definition` tool the agent can call to
+The agent exposes a `fetch_function_definition` tool to
 locate a function or method by name. The implementation
 (`apps/api/src/infrastructure/repo-context/helpers/grep-function-definition.ts`)
 is a **grep heuristic**, not an AST parser. It matches three line
@@ -245,9 +243,7 @@ lines of context on each side (≤ 21 lines total).
 
 ### Known limitations
 
-These are accepted Day-4 gaps. The agent's output stays truthful about
-what it found — it never invents content — but the heuristic can miss
-or pick a non-canonical definition in these cases:
+The agent's output stays truthful about what it found — it never invents content — but the heuristic can miss or pick a non-canonical definition in these cases:
 
 - **TypeScript overloads.** When a function has multiple signature
   declarations followed by an implementation:
@@ -306,21 +302,20 @@ or pick a non-canonical definition in these cases:
 ### Why a heuristic, not a parser
 
 A real parser (tree-sitter, ts-morph, the TypeScript compiler) would
-close every gap above. Day 4 deliberately ships the heuristic instead
-because:
+close every gap above. The heuristic ships instead because:
 
-- The demo's value is in the multi-turn behavior, not the function-
-  lookup precision. A non-canonical match still lets the agent
-  reason about the surrounding code.
+- The value is in the multi-turn behavior, not function-lookup
+  precision. A non-canonical match still lets the agent reason about
+  the surrounding code.
 - Tree-sitter adds a native dependency and a per-language grammar
-  selection step (the Day-4 fixtures are JS-only; the project will
-  add Python / Ruby / Go later).
+  selection step (current fixtures are JS-only; the project will add
+  Python / Ruby / Go later).
 - ts-morph parses the full TypeScript program — which means the
   agent's per-tool latency would grow with codebase size in a way
   the dry-run iteration loop wouldn't tolerate.
 
-Day 10 is the candidate slot for a tree-sitter or ts-morph upgrade
-if Day-6 eval surfaces the gap as a real false-negative cause. Until
-then, the agent's `message` field is the right place to caveat any
-ambiguity (it can say "matched the first of two `process` definitions
-in this file"); the heuristic itself stays simple.
+A tree-sitter or ts-morph upgrade is a candidate future improvement
+once the eval harness surfaces the gap as a real false-negative cause.
+Until then, the agent's `message` field is the right place to caveat
+any ambiguity (it can say "matched the first of two `process`
+definitions in this file"); the heuristic itself stays simple.

@@ -19,7 +19,7 @@ import { GithubRequestError } from './github-request.error';
 // HTTP routes bind — the fail-fast principle from
 // `validateRedisUrl`/`requireAppPrivateKey` extends past env parsing
 // into "does the credential actually authenticate." Paired with the
-// Redis PING probe (QueueModule) in U4.
+// Redis PING probe in QueueModule.
 //
 // The probe Octokit is constructed inline rather than going through
 // `IGithubAuthProvider.forInstallation` because the App JWT path needs
@@ -48,7 +48,7 @@ export class GitHubAppService implements OnModuleInit {
     await this.runProbe();
   }
 
-  // Public so the health surface (future Day-8 work) can re-run it.
+  // Public so a future health surface can re-run it on demand.
   async runProbe(): Promise<void> {
     const probe = this.createProbeClient();
     try {

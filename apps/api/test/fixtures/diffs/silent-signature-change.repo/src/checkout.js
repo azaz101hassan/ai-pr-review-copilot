@@ -1,4 +1,4 @@
-// Synthetic fixture for Day-4 multi-turn agent loop tests.
+// Synthetic fixture for the multi-turn agent loop tests.
 //
 // This file holds the canonical `chargeCard` definition plus four
 // call sites. The matching `.patch` updates ONE call site (inside

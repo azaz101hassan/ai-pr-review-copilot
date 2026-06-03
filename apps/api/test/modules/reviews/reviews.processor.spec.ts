@@ -56,12 +56,12 @@ function makeJob(data: ReviewJobData = baseData, id = 'bullmq-job-1') {
   return { id, data } as unknown as Job<ReviewJobData>;
 }
 
-// Day-5 F2: the processor now pre-allocates the review_id and
-// passes it into runRealReview. Tests of the happy path build the
-// service result around that worker-allocated id by reading
-// `input.reviewId` in mockImplementation. The `reviewId` parameter
-// here is the OVERRIDE — set it to a non-UUID / mismatched value
-// to exercise the defense-in-depth UUID-mismatch branch.
+// The processor pre-allocates the review_id and passes it into
+// runRealReview. Happy-path tests build the service result around
+// that worker-allocated id by reading `input.reviewId` in
+// mockImplementation. The `reviewId` parameter here is the OVERRIDE —
+// set it to a non-UUID / mismatched value to exercise the
+// defense-in-depth UUID-mismatch branch.
 function happyServiceResult(reviewId?: string) {
   return {
     review_id: reviewId ?? '01234567-89ab-4cde-8fed-cba987654321',
@@ -486,9 +486,9 @@ describe('ReviewsProcessor.process — guards', () => {
     await parts.processor.process(makeJob());
     expect(parts.runRealReview).not.toHaveBeenCalled();
     expect(parts.octokit.rest.pulls.createReview).not.toHaveBeenCalled();
-    // F1 closure: the audit row exists with status='completed',
-    // error_code=null, and the dedicated prompt_version so Day-6
-    // eval can filter standalone empty diffs out cleanly.
+    // The audit row exists with status='completed', error_code=null,
+    // and the dedicated prompt_version so eval can filter standalone
+    // empty diffs out cleanly.
     expect(parts.insert).toHaveBeenCalledTimes(1);
     const row = parts.insert.mock.calls[0][0];
     expect(row.status).toBe('completed');
@@ -499,7 +499,7 @@ describe('ReviewsProcessor.process — guards', () => {
 });
 
 describe('ReviewsProcessor.process — Review POST failure', () => {
-  it('marks failed/inline_post_failed and throws UnrecoverableError when createReview throws (F3)', async () => {
+  it('marks failed/inline_post_failed and throws UnrecoverableError when createReview throws', async () => {
     const err: Error & { status?: number } = new Error('Bad Gateway');
     err.status = 502;
     const parts = makeProcessor({
@@ -508,8 +508,8 @@ describe('ReviewsProcessor.process — Review POST failure', () => {
       }),
     });
 
-    // F3: POST failures are terminal — a retry reruns the agent
-    // loop AND POSTs again (3× duplicate Reviews + 3× Anthropic
+    // POST failures are terminal — a retry would rerun the agent
+    // loop AND POST again (3× duplicate Reviews + 3× Anthropic
     // spend on a flaky 5xx). UnrecoverableError tells BullMQ to
     // skip remaining attempts.
     const { UnrecoverableError } = jest.requireActual('bullmq');
@@ -678,10 +678,11 @@ describe('ReviewsProcessor.process — runRealReview failure', () => {
 
 describe('ReviewsProcessor.process — UUID validation', () => {
   it('throws and marks failed when runRealReview returns a review_id that does not match the worker-allocated id', async () => {
-    // Day-5 F2: the worker pre-allocates the review_id and passes it
-    // into runRealReview. A drift between what we passed in and what
-    // came back signals an internal-logic bug; we fail terminally
-    // (UnrecoverableError — no retry) and mark the row failed/internal_error.
+    // The worker pre-allocates the review_id and passes it into
+    // runRealReview. A drift between what we passed in and what came
+    // back signals an internal-logic bug; we fail terminally
+    // (UnrecoverableError — no retry) and mark the row
+    // failed/internal_error.
     const parts = makeProcessor({
       runRealReview: happyServiceResult('not-a-uuid'),
     });
@@ -855,9 +856,8 @@ describe('ReviewsProcessor.onApplicationShutdown', () => {
     try {
       await parts.processor.onApplicationShutdown();
       expect(drainSpy).toHaveBeenCalledTimes(1);
-      // Default SHUTDOWN_DRAIN_TIMEOUT_MS is 15_000 (Day-5 F14
-      // closure — see ConfigService) since jest.setup.ts doesn't
-      // override it.
+      // Default SHUTDOWN_DRAIN_TIMEOUT_MS is 15_000 (see
+      // ConfigService) since jest.setup.ts doesn't override it.
       expect(drainSpy).toHaveBeenCalledWith(15_000);
     } finally {
       drainSpy.mockRestore();

@@ -1,6 +1,6 @@
 {
   "status": "emitted",
-  "fixtureId": "real-pr-day5-queue-process-env",
+  "fixtureId": "queue-process-env-violation",
   "findings": [
     {
       "rule_id": "config-service-only",

@@ -343,11 +343,11 @@ describe('FilesystemRepoContextProvider', () => {
     });
   });
 
-  describe('reason enum coverage (Day-4 invariant)', () => {
+  describe('reason enum coverage', () => {
     it('only ever emits not_found, invalid_input, or parse_error (no GitHub-only reasons)', async () => {
-      // Exercise every failure path the filesystem provider can hit and
-      // assert no `forbidden | rate_limited | network` ever leaks out.
-      // This contract is what lets Day-5's GitHubRepoContextProvider
+      // Exercise every failure path the filesystem provider can hit
+      // and assert no `forbidden | rate_limited | network` ever leaks
+      // out. This contract is what lets the GitHub-backed sibling
       // slot in without renegotiating the interface.
       const seenReasons = new Set<string>();
       const collect = (r: { ok: boolean; reason?: string }) => {

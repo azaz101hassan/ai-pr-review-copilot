@@ -1,6 +1,6 @@
 # RAG foundation setup — Chroma + Voyage embeddings
 
-This walks you through standing up the Day-2 retrieval pipeline locally: a Chroma vector database via Docker Compose, a Voyage AI API key for embeddings, and a seeded corpus of code-style rules you can query from a CLI or HTTP. Target: a working `POST /embeddings/search` in **about 20 minutes** on a fresh clone.
+This walks you through standing up the retrieval pipeline locally: a Chroma vector database via Docker Compose, a Voyage AI API key for embeddings, and a seeded corpus of code-style rules you can query from a CLI or HTTP. Target: a working `POST /embeddings/search` in **about 20 minutes** on a fresh clone.
 
 > **Why Voyage and not OpenAI / Cohere / a local model?** The project is Anthropic-first, and Anthropic acquired Voyage in early 2025 — their embedding docs route here. `voyage-code-3` is also code-tuned, which matters when the corpus is a code-style ruleset. See [`docs/plans/03-day2-rag-foundation.md`](../plans/03-day2-rag-foundation.md) for the full rationale.
 
@@ -9,8 +9,8 @@ This walks you through standing up the Day-2 retrieval pipeline locally: a Chrom
 ## Prerequisites
 
 - The repo cloned and `npm install`'d.
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running. (Day 1 didn't need Docker; Day 2 does — Chroma is the new dev dependency.)
-- A working `apps/api/.env` from the Day-1 setup. If you haven't done that yet, follow [`github-app.md`](github-app.md) first.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running. (Chroma is required; the webhook receiver alone does not need Docker.)
+- A working `apps/api/.env` from the GitHub App setup. If you haven't done that yet, follow [`github-app.md`](github-app.md) first.
 
 ---
 
@@ -18,7 +18,7 @@ This walks you through standing up the Day-2 retrieval pipeline locally: a Chrom
 
 1. Go to [voyageai.com](https://www.voyageai.com/) and create an account.
 2. Open your [dashboard](https://dash.voyageai.com/) → **API Keys** → **Create new secret key**. Copy it immediately — it's only shown once.
-3. **Attach a payment method.** The free tier without one is capped at **3 requests/minute, 10 000 tokens/minute** — far too low to seed the corpus in one go. Once a payment method is on file the limits jump to ~2000 RPM. The sprint corpus is small enough that you won't actually be charged anything close to a dollar; the payment method is just the unlock.
+3. **Attach a payment method.** The free tier without one is capped at **3 requests/minute, 10 000 tokens/minute** — far too low to seed the corpus in one go. Once a payment method is on file the limits jump to ~2000 RPM. The corpus is small enough that you won't actually be charged anything close to a dollar; the payment method is just the unlock.
 
 > The key looks like `pa-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`. It is **not** the same as any Anthropic API key — they are separate billing relationships even though Anthropic owns Voyage.
 
@@ -164,12 +164,10 @@ The `diff` field is capped at 50 000 chars (Voyage is per-token, the endpoint is
 
 ## What this loop does NOT do (yet)
 
-These land on later days, intentionally:
-
-- **No LLM analysis** — `search` returns matching rules, but doesn't write a review. Day 3 wires Claude in.
-- **No GitHub posting** — review comments don't go back to PRs yet. Day 5 adds Octokit posting.
-- **No auth on the search endpoint** — `POST /embeddings/search` is open, matching `/health`. Day 5's auth work covers both.
-- **Whole-diff embedding only** — large diffs may suffer dilution. Per-hunk embedding is a Day-6 optimization, gated on the eval harness showing it matters.
-- **No live ESLint-docs fetch** — `seeds/airbnb-rules.json` is a curated snapshot. A live "refresh" command lands alongside the Day-6 eval harness.
+- **No LLM analysis** — `search` returns matching rules, but doesn't write a review. Claude integration is covered in [`docs/setup/claude.md`](claude.md).
+- **No GitHub posting** — review comments don't go back to PRs yet. Octokit posting is covered in [`docs/setup/real-pr-smoke.md`](real-pr-smoke.md).
+- **No auth on the search endpoint** — `POST /embeddings/search` is open, matching `/health`.
+- **Whole-diff embedding only** — large diffs may suffer dilution. Per-hunk embedding is a future optimization, gated on the eval harness showing it matters.
+- **No live ESLint-docs fetch** — `seeds/airbnb-rules.json` is a curated snapshot. A live "refresh" command is planned alongside expanded eval coverage.
 
 See [`docs/plans/03-day2-rag-foundation.md`](../plans/03-day2-rag-foundation.md) → **Scope Boundaries** for the full deferred list.

@@ -59,7 +59,7 @@ export function formatWalkthroughFailedBody(
   // Mode marker — lets a future dashboard scraper distinguish a
   // failure walkthrough from a success / skip without re-parsing.
   const modeMarker = `<!-- ai-pr-review-copilot:v1:mode=failed -->`;
-  const header = '**🤖 AI PR Review Copilot** — review failed';
+  const header = '**AI PR Review Copilot** — review failed';
 
   return [
     marker,

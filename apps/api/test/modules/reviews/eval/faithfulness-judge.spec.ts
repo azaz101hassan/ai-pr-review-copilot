@@ -110,7 +110,7 @@ describe('judgeFinding', () => {
     expect(result.claims.every((c) => c.kind === '')).toBe(true);
   });
 
-  it('edge case (AE3): unsupported claims → score near 0', async () => {
+  it('edge case: unsupported claims → score near 0', async () => {
     const client = mockClient({
       claims: [
         {

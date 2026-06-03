@@ -31,7 +31,7 @@ export function formatWalkthroughSkippedBody(
   // Mode marker — lets future renderers / a dashboard scraper branch
   // on "was this a skip or a real review?" without re-parsing the body.
   const modeMarker = `<!-- ai-pr-review-copilot:v1:mode=size-skipped -->`;
-  const header = '**🤖 AI PR Review Copilot** — review skipped';
+  const header = '**AI PR Review Copilot** — review skipped';
 
   return [
     marker,

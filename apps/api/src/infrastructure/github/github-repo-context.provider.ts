@@ -13,21 +13,20 @@ import type { IReviewFindingRepository } from '@/modules/reviews/types/review-fi
 import { grepFunctionDefinition } from '@/infrastructure/repo-context/helpers/grep-function-definition';
 import { formatBriefError, readStatus } from '@/types';
 
-// Day-5 GitHub-API-backed implementation of IRepoContextProvider.
-// Constructed once per job by ReviewsProcessor (U7) — the Octokit
+// GitHub-API-backed implementation of IRepoContextProvider.
+// Constructed once per job by ReviewsProcessor — the Octokit
 // instance is per-installation (sourced from IGithubAuthProvider's
 // cache) and the owner/repo/head_sha/pr_node_id tuple is the
-// per-PR-run context. The provider never throws: any unexpected error
-// wraps into `{ ok: false, reason: 'network', message: <sanitized> }`
-// so the agent loop's tool-call protocol stays intact (a thrown
-// exception would abort the whole turn rather than letting Claude
-// recover).
+// per-PR-run context. The provider never throws: any unexpected
+// error wraps into `{ ok: false, reason: 'network', message:
+// <sanitized> }` so the agent loop's tool-call protocol stays intact
+// (a thrown exception would abort the whole turn rather than letting
+// Claude recover).
 //
-// Day-5 invariants the provider satisfies:
+// Invariants:
 //   - fetchFile honours a 1 MB cap via the response's `size` field
 //     (short-circuits before downloading the full base64 payload).
-//   - The wider RepoContextErrorReason vocabulary contracted in Day 4
-//     (`forbidden | rate_limited | network`) is now exercised:
+//   - Octokit-status → RepoContextErrorReason mapping:
 //       404 → not_found
 //       403 with rate-limit-remaining: 0 / 429 → rate_limited
 //       other 403 → forbidden
@@ -78,13 +77,13 @@ export class GitHubRepoContextProvider implements IRepoContextProvider {
       };
     }
 
-    // F10 closure: honour the IRepoContextProvider.fetchFile
-    // contract's `invalid_input` reason for path-traversal segments,
-    // leading slash, query/fragment separators, and control
-    // characters. Octokit's getContent IS server-side-safe today
-    // (GitHub strips traversal), but the interface contract is
-    // shared with future providers (including a Day-7 local-FS
-    // fallback) that trust this layer to have already filtered.
+    // Honour the IRepoContextProvider.fetchFile contract's
+    // `invalid_input` reason for path-traversal segments, leading
+    // slash, query/fragment separators, and control characters.
+    // Octokit's getContent IS server-side-safe today (GitHub strips
+    // traversal), but the interface contract is shared with future
+    // providers (e.g. a local-FS fallback) that trust this layer to
+    // have already filtered.
     const invalid = invalidFilePathReason(filePath);
     if (invalid) {
       return {
@@ -164,9 +163,9 @@ export class GitHubRepoContextProvider implements IRepoContextProvider {
     }
     // The Octokit code-search alternative for the unhinted case (no
     // `file` arg) is rate-limited at 30 req/min on Apps and would
-    // burn the agent's effective tool budget; mirroring the filesystem
-    // provider's "needs a file arg" pattern is the simpler honest
-    // contract for Day 5.
+    // burn the agent's effective tool budget; mirroring the
+    // filesystem provider's "needs a file arg" pattern is the
+    // simpler honest contract.
     if (!file) {
       return {
         ok: false,
@@ -279,9 +278,9 @@ export class GitHubRepoContextProvider implements IRepoContextProvider {
         message: `unauthorized: ${ctx}`,
       };
     }
-    // 5xx / transport / unknown — all surface as `network`. The agent
-    // can either retry a different input or give up; the worker's
-    // outer error classifier (U7) catches subsequent failures.
+    // 5xx / transport / unknown — all surface as `network`. The
+    // agent can either retry a different input or give up; the
+    // worker's outer error classifier catches subsequent failures.
     const reason: RepoContextErrorReason = 'network';
     return {
       ok: false,
@@ -291,12 +290,12 @@ export class GitHubRepoContextProvider implements IRepoContextProvider {
   }
 }
 
-// F10 closure. Reject obvious path-traversal / control-char
-// payloads before the GET hits Octokit. The check is conservative —
-// it doesn't try to resolve `..` against the repo root (that's
-// server-side), just refuses to send strings that no honest caller
-// would use. Returns the reason string when invalid, undefined when
-// the path looks safe to forward.
+// Reject obvious path-traversal / control-char payloads before the
+// GET hits Octokit. The check is conservative — it doesn't try to
+// resolve `..` against the repo root (that's server-side), just
+// refuses to send strings that no honest caller would use. Returns
+// the reason string when invalid, undefined when the path looks safe
+// to forward.
 function invalidFilePathReason(filePath: string): string | undefined {
   if (filePath.length === 0) return 'path is required';
   // Control characters anywhere — `\0`, `\n`, `\r`, `\t`, etc. URL
@@ -342,11 +341,10 @@ function readHeaders(err: unknown): HeaderMap {
   return {};
 }
 
-// F21 closure. HTTP header values are `string | string[]` (e.g.,
-// `set-cookie` is canonically multi-value); the previous
-// `Record<string, string>` cast silently lost array values. Type
-// the surface accurately and collapse to the first when our
-// downstream parsers want a singular.
+// HTTP header values are `string | string[]` (e.g. `set-cookie` is
+// canonically multi-value); a `Record<string, string>` cast would
+// silently lose array values. Type the surface accurately and
+// collapse to the first when our downstream parsers want a singular.
 type HeaderValue = string | string[] | undefined;
 type HeaderMap = Record<string, HeaderValue>;
 

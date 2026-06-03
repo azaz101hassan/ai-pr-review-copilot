@@ -1,0 +1,6 @@
+blank_issues_enabled: true
+
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/azaz101hassan/ai-pr-review-copilot/security/advisories/new
+    about: Use GitHub Security Advisories for vulnerability reports (do not open a public issue).

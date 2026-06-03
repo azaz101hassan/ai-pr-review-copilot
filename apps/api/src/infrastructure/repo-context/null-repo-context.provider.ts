@@ -8,8 +8,8 @@ import {
 } from '@/modules/reviews/types/repo-context-provider';
 
 // Deterministic-degraded default for callers that have no repo
-// context (the HTTP `POST /reviews/dry-run` path at Day-4; Day-5
-// will replace it on the real-PR path with `GitHubRepoContextProvider`).
+// context (the HTTP `POST /reviews/dry-run` path). The real-PR
+// worker path uses `GitHubRepoContextProvider` instead.
 //
 // File / function fetches return a truthful `not_found` so Claude
 // reads the capability as broken and falls through to `emit_finding`

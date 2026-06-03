@@ -6,9 +6,7 @@ import {
 } from './review.types';
 import { ReviewFindingRecord } from './review-finding.types';
 
-// ---------------------------------------------------------------------------
-// Dashboard read-side types
-// ---------------------------------------------------------------------------
+// Dashboard read-side types.
 
 // Filter spec used by the dashboard endpoints. All fields are optional;
 // the time bounds are inclusive. The controller maps validated query DTOs
@@ -157,7 +155,8 @@ export interface IReviewRepository {
   findById(id: string): ReviewRecord | undefined;
 
   // Listing API. Capped at 100 rows by default to keep the response
-  // bounded — Day 5/6 paginates properly when a listing UI lands.
+  // bounded — replaced by `findFiltered` (offset-based) for the
+  // dashboard. Retained for internal/debug callers.
   findAll(limit?: number): ReviewRecord[];
 
   // Flips an `in_progress` row to `completed` with the usage stats. Used
@@ -174,11 +173,11 @@ export interface IReviewRepository {
   // did not), which is why this version isn't guarded on status.
   markFailed(id: string, patch: ReviewFailurePatch): void;
 
-  // Day-5 F2 closure. Same as markFailed BUT only fires when the
-  // row's status is still 'in_progress'. The SIGTERM drain uses this
-  // so a row that finished completing milliseconds before the drain
-  // inspected its in-flight Set doesn't get flipped from 'completed'
-  // to 'failed'. Returns the number of rows actually updated.
+  // Same as markFailed BUT only fires when the row's status is still
+  // 'in_progress'. The SIGTERM drain uses this so a row that finished
+  // completing milliseconds before the drain inspected its in-flight
+  // Set doesn't get flipped from 'completed' to 'failed'. Returns the
+  // number of rows actually updated.
   markFailedIfInProgress(id: string, patch: ReviewFailurePatch): number;
 
   // Startup sweep. Marks any `in_progress` row whose `created_at` is
@@ -186,21 +185,19 @@ export interface IReviewRepository {
   // 'process_terminated'). Returns the number of rows updated.
   sweepStaleInProgress(opts: { olderThanMs: number; errorCode: string }): number;
 
-  // Day-5 worker guard. Returns the most-recent in_progress row for
-  // the given pr_node_id whose created_at is within the lookback
-  // window, or undefined when no such row exists. ReviewsProcessor
-  // (U7) consults this at job entry — when a row is already running
-  // for the same PR (BullMQ stalled-job replay; double-delivery
-  // race) the processor exits clean rather than starting a parallel
-  // Anthropic call.
+  // Worker guard. Returns the most-recent in_progress row for the
+  // given pr_node_id whose created_at is within the lookback window,
+  // or undefined when no such row exists. ReviewsProcessor consults
+  // this at job entry — when a row is already running for the same
+  // PR (BullMQ stalled-job replay; double-delivery race) the
+  // processor exits clean rather than starting a parallel Anthropic
+  // call.
   findRecentInProgressForPr(
     prNodeId: string,
     withinMs: number,
   ): ReviewRecord | undefined;
 
-  // ---------------------------------------------------------------------------
-  // Dashboard read-side methods (Day 7)
-  // ---------------------------------------------------------------------------
+  // Dashboard read-side methods.
 
   // Returns reviews matching the filter spec, joined with pull_requests
   // via LEFT JOIN so PR metadata is available (NULL when pr_node_id is
@@ -223,7 +220,7 @@ export interface IReviewRepository {
 
   // Runs nine queries inside a single read transaction and returns
   // the aggregated analytics for the matched filter window. The five
-  // "main" queries and the three Day-8 observability queries exclude
+  // "main" queries and the three observability queries exclude
   // standalone rows via baseWhere; the sixth (size-gate skip count)
   // and the error-code breakdown narrow further by additional
   // predicates. See the implementation for the per-query details.

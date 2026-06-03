@@ -62,11 +62,11 @@ export class WebhookService {
       return { status: 'duplicate' };
     }
 
-    // F12 closure: installation lifecycle events. GitHub fires
-    // these when the App is uninstalled, suspended, or unsuspended
-    // — the cached Octokit for that installation must be evicted
-    // so we don't keep retrying with a dead token. The event is
-    // still recorded for audit; the side effect is the cache eviction.
+    // Installation lifecycle events. GitHub fires these when the App
+    // is uninstalled, suspended, or unsuspended — the cached Octokit
+    // for that installation must be evicted so we don't keep
+    // retrying with a dead token. The event is still recorded for
+    // audit; the side effect is the cache eviction.
     if (event === 'installation') {
       const installationId = payload.installation?.id;
       if (
@@ -96,23 +96,21 @@ export class WebhookService {
         const repoFullName =
           payload.repository?.full_name ?? 'unknown/unknown';
 
-        // F19 closure: persist the PR row first, but DEFER the
-        // webhook_events insert until AFTER the enqueue succeeds.
-        // The previous order put both rows inside a single
-        // transaction BEFORE the enqueue — so a Redis blip on
-        // enqueue committed the audit row and the redelivery
-        // short-circuited as 'duplicate' without re-enqueuing,
-        // stranding the PR. New order:
+        // Persist the PR row first, then defer the webhook_events
+        // insert until AFTER the enqueue succeeds. Order:
         //   1. PR upsert (idempotent, safe to redo on redelivery).
         //   2. Allowlist + draft + installation_id checks (early exit
         //      branches insert their own audit row directly).
         //   3. Enqueue (the external dependency).
         //   4. webhook_events insert (the durable "we processed this
         //      delivery" gate the next idempotency check reads).
-        // Trade-off: if step 4 fails with step 3 already succeeded,
-        // a redelivery will re-enqueue — the worker's per-PR
-        // in-progress guard catches it as a clean exit. That's the
-        // smaller failure mode than stranded PRs.
+        // Putting steps 3 and 4 in the other order would let a Redis
+        // blip commit the audit row without enqueuing, and the
+        // redelivery would short-circuit as 'duplicate' and strand
+        // the PR. Trade-off in the current order: if step 4 fails
+        // after step 3 succeeded, a redelivery re-enqueues — the
+        // worker's per-PR in-progress guard catches it as a clean
+        // exit. That's the smaller failure mode than stranded PRs.
         this.pullRequests.save({
           node_id: pr.node_id,
           repo_full_name: repoFullName,
@@ -154,13 +152,12 @@ export class WebhookService {
           );
         };
 
-        // Day-5 gates. Draft filter applies to BOTH opened AND
-        // synchronize so re-pushes against an in-progress draft PR
-        // also short-circuit (R1 / AE-D — preserves the WIP-budget
-        // rationale; no Anthropic spend on draft commits). The
-        // `ready_for_review` action lands on the existing
-        // 'ignored-action' path; the bot then reviews on the next
-        // synchronize after promotion.
+        // Draft filter applies to BOTH opened AND synchronize so
+        // re-pushes against an in-progress draft PR also short-circuit
+        // (no Anthropic spend on draft commits — preserves the
+        // WIP-budget rationale). The `ready_for_review` action lands
+        // on the existing 'ignored-action' path; the bot then reviews
+        // on the next synchronize after promotion.
         if (pr.draft === true) {
           this.logger.log(
             `pull_request.${action} #${pr.number} skipped — draft PR (${repoFullName})`,
@@ -171,7 +168,7 @@ export class WebhookService {
 
         // DOGFOOD_REPOS allowlist + kill switch. Empty set → silent
         // for every PR (operator drop-out without uninstalling the
-        // App). R13 / AE6.
+        // App).
         if (!this.config.dogfoodRepos.has(repoFullName)) {
           this.logger.log(
             `pull_request.${action} #${pr.number} skipped — repo "${repoFullName}" not in DOGFOOD_REPOS allowlist`,
@@ -180,10 +177,9 @@ export class WebhookService {
           return { status: 'ignored-repo' };
         }
 
-        // Installation id is required to mint Octokit (U2 / U7).
-        // Real GitHub webhooks always carry it on pull_request
-        // events; treat its absence as an invalid event rather than
-        // crashing the enqueue.
+        // Installation id is required to mint Octokit. Real GitHub
+        // webhooks always carry it on pull_request events; treat its
+        // absence as an invalid event rather than crashing the enqueue.
         const installationId = payload.installation?.id;
         if (typeof installationId !== 'number' || installationId <= 0) {
           this.logger.warn(
@@ -199,12 +195,11 @@ export class WebhookService {
         // tokens (DOGFOOD_REPOS parser), so this split is safe.
         const [owner, repoName] = repoFullName.split('/');
 
-        // F19 closure: enqueue BEFORE the audit row commits. If
-        // the enqueue throws (Redis blip), the audit row is never
-        // written and GitHub's redelivery restarts the whole
-        // pipeline cleanly (the duplicate guard skips redeliveries
-        // ONLY when the audit row exists; absent row = re-process).
-        // R4 / AE4.
+        // Enqueue BEFORE the audit row commits. If the enqueue
+        // throws (Redis blip), the audit row is never written and
+        // GitHub's redelivery restarts the whole pipeline cleanly
+        // (the duplicate guard skips redeliveries ONLY when the
+        // audit row exists; absent row = re-process).
         await this.reviewQueue.enqueueReview({
           pr_node_id: pr.node_id,
           owner,
@@ -218,11 +213,11 @@ export class WebhookService {
         return { status: 'processed' };
       }
 
-      // Other PR actions (closed, reopened, edited, …). Day 1 does not
-      // model PR state transitions, so we just record the event without
-      // touching the PR row. Defensive FK: if the PR is unknown (we
-      // missed the opened delivery), keep the FK null instead of
-      // exploding with a constraint error.
+      // Other PR actions (closed, reopened, edited, …). We don't
+      // model these state transitions today, so we just record the
+      // event without touching the PR row. Defensive FK: if the PR
+      // is unknown (we missed the opened delivery), keep the FK null
+      // instead of exploding with a constraint error.
       const existing = this.pullRequests.findByNodeId(pr.node_id);
       this.events.insert({
         delivery_id: delivery,
@@ -233,7 +228,7 @@ export class WebhookService {
         raw_payload: rawPayload,
       });
       this.logger.log(
-        `pull_request.${action ?? 'unknown'} #${pr.number} recorded but not processed (Day 1 scope)`,
+        `pull_request.${action ?? 'unknown'} #${pr.number} recorded but not processed`,
       );
       return { status: 'ignored-action' };
     }
@@ -247,7 +242,7 @@ export class WebhookService {
       received_at: receivedAt,
       raw_payload: rawPayload,
     });
-    this.logger.log(`event ${event} recorded but not processed (Day 1 scope)`);
+    this.logger.log(`event ${event} recorded but not processed`);
     return { status: 'ignored-event' };
   }
 }

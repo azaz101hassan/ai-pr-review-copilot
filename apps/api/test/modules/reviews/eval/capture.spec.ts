@@ -1,9 +1,9 @@
 /**
  * Unit tests for the pure helpers exported by capture.ts.
  *
- * Tests ONLY the exported pure functions — not the live capture loop.
- * The live loop is gated behind RUN_EVAL_CAPTURE / RUN_ANTHROPIC_INTEGRATION
- * and exercised during U9 baseline capture.
+ * Tests ONLY the exported pure functions — not the live capture
+ * loop. The live loop is gated behind RUN_EVAL_CAPTURE /
+ * RUN_ANTHROPIC_INTEGRATION and exercised during baseline capture.
  */
 
 import type { NormalizedChunk } from '@/modules/embeddings/helpers/corpus-loader';

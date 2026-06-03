@@ -109,7 +109,7 @@ describe('formatFindings', () => {
     expect(output).toBe('No violations found.');
   });
 
-  it('renders a single finding as the Day-3 table (one-row tabular)', () => {
+  it('renders a single finding as a one-row tabular print', () => {
     const output = formatFindings({
       findings: [makeFinding()],
     });

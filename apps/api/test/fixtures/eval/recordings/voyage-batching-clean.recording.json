@@ -1,6 +1,6 @@
 {
   "status": "emitted",
-  "fixtureId": "real-pr-pr11-voyage-clean",
+  "fixtureId": "voyage-batching-clean",
   "findings": [
     {
       "rule_id": "no-await-in-loop",

@@ -1,11 +1,11 @@
 # Local dev infrastructure for the PR Review Copilot.
 #
 # Services:
-#   chroma — vector index (Day 2 RAG foundation, see
-#           docs/plans/03-day2-rag-foundation.md).
-#   redis  — BullMQ backing store for the per-PR review queue (Day 5
-#           real-PR integration, see docs/plans/06-day5-real-pr-integration.md
-#           and docs/setup/day5-real-pr.md).
+#   chroma — vector index for the RAG retrieval pipeline (see
+#           docs/plans/03-day2-rag-foundation.md for the design plan).
+#   redis  — BullMQ backing store for the per-PR review queue (real-PR
+#           integration, see docs/plans/06-day5-real-pr-integration.md
+#           and docs/setup/real-pr-smoke.md).
 #
 # Usage:
 #   docker compose up -d              # background, all services
@@ -14,7 +14,7 @@
 #   docker compose down               # stop; data persists in named volumes
 #   docker compose down -v            # stop and wipe persisted volumes
 #
-# See docs/setup/embeddings.md and docs/setup/day5-real-pr.md for the
+# See docs/setup/embeddings.md and docs/setup/real-pr-smoke.md for the
 # full bring-up walkthroughs.
 
 services:
@@ -52,13 +52,13 @@ services:
       start_period: 20s
 
   redis:
-    # Pinned tag — Day-5 review queue is BullMQ on Redis. `redis:7-alpine`
+    # Pinned tag — review queue is BullMQ on Redis. `redis:7-alpine`
     # is the canonical small image; bump deliberately when upgrading.
     image: redis:7-alpine
     container_name: pr-copilot-redis
     restart: unless-stopped
     # Bind to localhost only by default. The whole stack is a single-
-    # operator dev environment (Day-5 demo + dogfood). Exposing 6379 on
+    # operator dev environment (local demo + dogfood). Exposing 6379 on
     # all interfaces would let any machine on the LAN read/write the
     # queue; the password is the only auth and we shouldn't rely on it
     # to deter a network-reachable attacker.

@@ -16,9 +16,9 @@ describe('Health (e2e)', () => {
 
   beforeAll(async () => {
     // Booting AppModule constructs ConfigService, which requires
-    // GITHUB_WEBHOOK_SECRET, (Day 2+) VOYAGE_API_KEY, and (Day 3+)
-    // ANTHROPIC_API_KEY at boot. Stub all three so the module compiles
-    // without leaking real credentials.
+    // GITHUB_WEBHOOK_SECRET, VOYAGE_API_KEY, and ANTHROPIC_API_KEY
+    // at boot. Stub all three so the module compiles without leaking
+    // real credentials.
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-e2e-'));
     process.env.GITHUB_WEBHOOK_SECRET = 'health-test-secret-1234567890';
     process.env.VOYAGE_API_KEY = 'voyage-test-key-0123456789abcdef';

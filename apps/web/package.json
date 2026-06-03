@@ -1,6 +1,7 @@
 {
   "name": "@ai-pr-review-copilot/web",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "PR Review Copilot dashboard — Next.js 14 App Router with Tailwind v4 + shadcn/ui",
   "scripts": {

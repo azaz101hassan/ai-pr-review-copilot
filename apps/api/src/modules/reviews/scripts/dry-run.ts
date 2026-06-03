@@ -119,13 +119,12 @@ export function formatFindings(result: Pick<RunDryRunResult, 'findings'>): strin
   });
 
   if (sorted.length === 1) {
-    // Day-3 single-finding shape — keep the tabular print so existing
-    // smoke procedures still recognise the output.
+    // Single-finding shape — tabular print, easy to scan in a smoke run.
     return renderTable(sorted);
   }
 
-  // Day-4 multi-finding shape — numbered list grouped visually by
-  // severity (the sort above already takes care of grouping).
+  // Multi-finding shape — numbered list grouped visually by severity
+  // (the sort above already takes care of grouping).
   return sorted
     .map((f, idx) => {
       const loc = f.location_hint ? ` @ ${f.location_hint}` : '';

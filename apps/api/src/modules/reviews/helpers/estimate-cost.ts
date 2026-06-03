@@ -55,8 +55,8 @@ export interface EstimateCostResult {
 
 // Returns total estimated cost in USD plus a per-bucket breakdown for
 // the line we log at the end of every dry-run. Returning the buckets
-// (rather than a number alone) means downstream callers — Day-8
-// dashboards in particular — can attribute spend without re-computing.
+// (rather than a number alone) lets downstream callers — the
+// dashboard in particular — attribute spend without re-computing.
 export function estimateCost(usage: UsageStats, model: string): EstimateCostResult {
   const rates = MODEL_RATES[model] ?? fallbackRates(model);
 

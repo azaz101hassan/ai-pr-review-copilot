@@ -4,16 +4,22 @@
 // resolves EmbeddingsService, calls indexCorpus(), prints the counts,
 // exits. Idempotent — re-running updates `updated_at` on existing
 // chunks and re-upserts the same vectors into Chroma by id.
+//
+// Uses SeedModule instead of the full AppModule so operators who only
+// need to index conventions into Chroma are not required to supply
+// GitHub App credentials or a Redis connection. SeedModule imports only
+// the three modules the seed path needs: SeedConfigModule (env
+// validation scoped to seed vars), DatabaseModule, and EmbeddingsModule.
 
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
-import { AppModule } from '@/app.module';
+import { SeedModule } from './seed.module';
 import { EmbeddingsService } from '@/modules/embeddings';
 
 async function main(): Promise<void> {
   const logger = new Logger('seed:knowledge');
-  const app = await NestFactory.createApplicationContext(AppModule, {
+  const app = await NestFactory.createApplicationContext(SeedModule, {
     logger: ['error', 'warn', 'log'],
   });
   try {
