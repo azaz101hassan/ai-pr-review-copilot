@@ -15,8 +15,8 @@
  *     APP_PRIVATE_KEY / REDIS_URL
  *
  * ConfigService's constructor still validates the keys this module
- * DOES need (ANTHROPIC_API_KEY, VOYAGE_API_KEY, CHROMA_URL, etc.),
- * satisfying R16 (capture reads keys exclusively via ConfigService).
+ * DOES need (ANTHROPIC_API_KEY, VOYAGE_API_KEY, CHROMA_URL, etc.).
+ * Capture reads keys exclusively via ConfigService — never bare env.
  */
 
 import { Module } from '@nestjs/common';

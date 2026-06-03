@@ -9,7 +9,7 @@
 //
 // Path-extraction note: we split on the LAST colon followed by digits
 // so Windows-style absolute paths ("C:\\src\\foo.ts:42") keep the
-// drive-letter colon as part of the path. The Day-5 corpus is
+// drive-letter colon as part of the path. The current corpus is
 // Unix-style; this is forward-compat.
 
 export interface ParsedAnchor {

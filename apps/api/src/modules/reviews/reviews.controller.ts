@@ -37,10 +37,10 @@ export class ReviewsController {
       diff: dto.diff,
       k: dto.k,
       prNodeId: dto.pr_node_id ?? null,
-      // Day-4: HTTP path uses NullRepoContextProvider (bound in
+      // The HTTP path uses NullRepoContextProvider (bound in
       // ReviewsModule). Truthful "no repo context" tool_results keep
-      // turn counts low and predictable on this path. Day-5 swaps the
-      // binding to GitHubRepoContextProvider.
+      // turn counts low and predictable here — real-PR reviews flow
+      // through the worker, not this controller.
       repoContext: this.repoContext,
     });
   }

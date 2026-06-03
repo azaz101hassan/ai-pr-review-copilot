@@ -1,5 +1,5 @@
 /**
- * Claim-decomposition faithfulness judge (U4).
+ * Claim-decomposition faithfulness judge.
  *
  * A single Haiku call per finding via structured tool-use. Decomposes
  * the finding's title/message into atomic self-contained claims, and

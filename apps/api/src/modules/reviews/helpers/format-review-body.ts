@@ -39,7 +39,7 @@ export function formatReviewBody(input: FormatReviewBodyInput): string {
   // symmetry. Reference it once to make tsc happy in strict mode.
   void (input.sanitize ?? sanitizeFindingMarkdown);
 
-  const header = '**🤖 AI PR Review Copilot** — automated review (Day 5)';
+  const header = '**AI PR Review Copilot** — automated review';
   const marker = `<!-- ai-pr-review-copilot:v1:review-id=${input.reviewId} -->`;
 
   const lines: string[] = [header, marker, ''];

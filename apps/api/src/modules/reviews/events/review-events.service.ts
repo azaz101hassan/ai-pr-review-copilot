@@ -35,14 +35,14 @@ export interface TerminalReviewEvent {
 
 // Singleton in-process event bus for review terminal-state events.
 //
-// Design constraints (per Day-7 plan, U2 Key Technical Decisions):
+// Design constraints:
 //
 // 1. Emit lives in ReviewsService.runDryRun OUTSIDE the db.transaction()
 //    callback — better-sqlite3 has no post-commit hook, and emitting inside
 //    the callback would rollback the transaction if a subscriber threw.
 //
 // 2. Connection-cap state (tryAcquireSlot / releaseSlot / subscriberCount)
-//    lives on DashboardEventsController (U5), NOT here. Slot management is
+//    lives on DashboardEventsController, NOT here. Slot management is
 //    HTTP-connection lifecycle, not event-bus state.
 //
 // 3. beforeApplicationShutdown() completes the inner Subject so connected
@@ -85,8 +85,9 @@ export class ReviewEventsService implements BeforeApplicationShutdown {
     this.subject.next(event);
   }
 
-  // Observable of terminal-state events. DashboardEventsController (U5)
-  // subscribes once per SSE connection to forward events to the browser.
+  // Observable of terminal-state events. DashboardEventsController
+  // subscribes once per SSE connection to forward events to the
+  // browser.
   // All subscribers receive every event (broadcast — no per-connection
   // filter logic lives here; clients discard events that don't match their
   // current filter spec).
@@ -94,11 +95,12 @@ export class ReviewEventsService implements BeforeApplicationShutdown {
     return this.subject.asObservable();
   }
 
-  // NestJS lifecycle hook. Completing the Subject sends a clean `complete`
-  // notification to all current RxJS subscribers, which in turn allows the
-  // @Sse() Observable to terminate gracefully. Without this, connected
-  // EventSource clients do not detect closure on SIGTERM and keep the
-  // process alive beyond the shutdown timeout.
+  // NestJS lifecycle hook. Completing the Subject sends a clean
+  // `complete` notification to all current RxJS subscribers, which in
+  // turn allows the @Sse() Observable to terminate gracefully.
+  // Without this, connected EventSource clients do not detect the
+  // shutdown on SIGTERM and keep the process alive beyond the
+  // shutdown timeout.
   beforeApplicationShutdown(): void {
     if (!this.subject.closed) {
       this.subject.complete();

@@ -1,7 +1,7 @@
 /**
- * Gated capture entry point (U5) — boots a lean Nest context, loops the
- * corpus calling `analyzeDiff` directly, runs the faithfulness judge per
- * finding, and writes committed recordings.
+ * Gated capture entry point — boots a lean Nest context, loops the
+ * corpus calling `analyzeDiff` directly, runs the faithfulness judge
+ * per finding, and writes committed recordings.
  *
  * Gated behind RUN_EVAL_CAPTURE=true (or RUN_ANTHROPIC_INTEGRATION=true).
  * Default off — never runs in CI.

@@ -30,49 +30,47 @@ import {
 } from '@/modules/webhooks/types/pull-request.repository';
 import { ReviewEventsService, TerminalReviewEvent } from './events/review-events.service';
 
-// ReviewsService orchestrates the Day-3 pipeline:
+// ReviewsService orchestrates the review pipeline:
 //   embeddings.search() → llm.analyzeDiff() → persist (3-step lifecycle)
 //
 // The 3-step lifecycle removes the "process died between insert and
 // update" failure mode that a 2-state status enum would silently leak.
-// See docs/plans/04-day3-claude-integration.md → Key Technical
-// Decisions → Persistence atomicity.
 
 export interface RunDryRunInput {
   diff: string;
   k?: number;
   prNodeId?: string | null;
-  // Day-4: per-review repo-context source. CLI builds a
+  // Per-review repo-context source. CLI builds a
   // `FilesystemRepoContextProvider` against the resolved `--repo`
   // directory; HTTP callers pass nothing and the adapter falls back
   // to truthful `is_error` tool_results (or a NullRepoContextProvider
   // if the controller layer ever wires one).
   repoContext?: IRepoContextProvider;
-  // Day-5 F2 closure: caller-provided review_id. The BullMQ worker
-  // pre-allocates the UUID so it can add to its in-flight tracking
-  // Set BEFORE the lifecycle row is inserted — closes the race
-  // window between row insert and the activeReviewIds.add() that
-  // previously ran AFTER runRealReview returned. CLI / HTTP callers
-  // don't pass this; runDryRun generates one when absent.
+  // Caller-provided review_id. The BullMQ worker pre-allocates the
+  // UUID so it can add to its in-flight tracking Set BEFORE the
+  // lifecycle row is inserted — closes the race window between row
+  // insert and the activeReviewIds.add() that would otherwise run
+  // AFTER runRealReview returned. CLI / HTTP callers don't pass
+  // this; runDryRun generates one when absent.
   reviewId?: string;
 }
 
-// Day-5 sibling entry point for the BullMQ worker. The worker
-// pre-checks empty-diff / MAX_DIFF_BYTES and constructs the
+// Sibling entry point for the BullMQ worker. The worker pre-checks
+// empty-diff / MAX_DIFF_BYTES and constructs the
 // GitHubRepoContextProvider before calling this; runRealReview just
-// delegates to the shared lifecycle. `headSha` and `owner`/`repo` are
-// captured here so future Day-5+ work can persist them on the row
-// without renegotiating the input shape — Day-5 doesn't use them
-// inside the service (the worker uses them for the createReview POST).
+// delegates to the shared lifecycle. `headSha` is captured here so
+// future work can persist it on the row without renegotiating the
+// input shape — the service doesn't use it directly (the worker
+// uses it for the createReview POST).
 export interface RunRealReviewInput {
   diff: string;
   prNodeId: string;
   headSha: string;
   repoContext: IRepoContextProvider;
-  // F2 closure (mirrors RunDryRunInput.reviewId). The processor
-  // pre-allocates the UUID and adds it to activeReviewIds BEFORE
-  // calling runRealReview so the SIGTERM-drain Set is consistent
-  // with the row's existence for the entire lifecycle.
+  // Mirrors RunDryRunInput.reviewId. The processor pre-allocates the
+  // UUID and adds it to activeReviewIds BEFORE calling runRealReview
+  // so the SIGTERM-drain Set is consistent with the row's existence
+  // for the entire lifecycle.
   reviewId?: string;
 }
 
@@ -83,8 +81,8 @@ export interface RunDryRunResult {
   usage: UsageStats | null;
   model: string;
   prompt_version: string;
-  // Day-4: agent-loop aggregates. Always populated on the completed
-  // path; `null` only when the review failed BEFORE the first
+  // Agent-loop aggregates. Always populated on the completed path;
+  // `null` only when the review failed BEFORE the first
   // messages.create response returned.
   turn_count: number;
   tool_calls: ToolCallRecord[] | null;
@@ -102,17 +100,14 @@ export class ReviewsServiceError extends Error {
 
 const DEFAULT_K = 10;
 // Cutoff used by the startup sweep AND the per-PR worker guard.
-// Day-5 bumped 5 → 10 minutes so the sweep doesn't race a healthy
-// long-running agent loop: the worst-case 6-turn loop with file
-// fetches reaches ~6 minutes wall clock; 10 minutes is safely above
-// that while still surfacing real stalls within an operator's
-// attention window. Per-row updated_at heartbeat is the Day-8
-// follow-up if observed in practice.
+// 10 minutes is safely above the worst-case 6-turn agent loop with
+// file fetches (~6 minutes wall clock) while still surfacing real
+// stalls within an operator's attention window.
 const STALE_IN_PROGRESS_CUTOFF_MS = 10 * 60_000;
 // Severity values that match the rule corpus's metadata.severity field.
 // Sourced from rule metadata at persistence; the adapter never emits
-// severity (see D1 in the plan). Exported so SettingsResponseDto can
-// reference them without instantiating the service.
+// severity. Exported so SettingsResponseDto can reference them without
+// instantiating the service.
 export type SeverityLevel = 'error' | 'warning' | 'info';
 export const ALLOWED_SEVERITIES: ReadonlySet<SeverityLevel> = new Set<SeverityLevel>([
   'error',
@@ -133,12 +128,13 @@ export class ReviewsService implements OnModuleInit {
     private readonly findings: IReviewFindingRepository,
     private readonly db: DatabaseService,
     private readonly config: ConfigService,
-    // Day-7: in-process event bus for terminal-state SSE events. Injected
-    // by class (no token) — ReviewsModule provides and exports it.
+    // In-process event bus for terminal-state SSE events. Injected by
+    // class (no token) — ReviewsModule provides and exports it.
     private readonly events: ReviewEventsService,
-    // Day-7: needed to resolve repo_full_name + author_login for the SSE
-    // event payload when pr_node_id is non-NULL. DatabaseModule is @Global()
-    // so the token is available without re-importing the database module.
+    // Used to resolve repo_full_name + author_login for the SSE event
+    // payload when pr_node_id is non-NULL. DatabaseModule is @Global()
+    // so the token is available without re-importing the database
+    // module.
     @Inject(PULL_REQUEST_REPOSITORY)
     private readonly pullRequests: IPullRequestRepository,
   ) {}
@@ -170,8 +166,10 @@ export class ReviewsService implements OnModuleInit {
     const prNodeId = input.prNodeId ?? null;
     // attempt_id is the handle used in pre-insert log lines so log
     // tracing has *something* to grep on if the row never lands. The
-    // review_id is generated separately just below, and is NEVER logged
-    // before the row commits (PF1).
+    // review_id is generated separately just below, and is NEVER
+    // logged before the row commits — a log line referencing an id
+    // that never made it into the DB would mislead an operator
+    // chasing a "missing review" report.
     const attemptId = randomUUID();
 
     this.logger.debug(
@@ -190,7 +188,7 @@ export class ReviewsService implements OnModuleInit {
     // The `retrieved_chunk_ids_hash` is unaffected (already
     // sort-stable via hashSortedComposites), and the column we write
     // now reflects what Claude actually saw (sorted), which is also
-    // what Day-6 eval will want to reproduce.
+    // what eval replay needs to reproduce.
     const searchHits = [...rawHits].sort((a, b) =>
       `${a.source}:${a.rule_id}`.localeCompare(`${b.source}:${b.rule_id}`),
     );
@@ -198,12 +196,12 @@ export class ReviewsService implements OnModuleInit {
     const retrievedChunkIds = searchHits.map((hit) => `${hit.source}:${hit.rule_id}`);
     const retrievedChunkIdsHash = hashSortedComposites(retrievedChunkIds);
 
-    // PF1: generate the review_id just before the insert (and not in a
-    // pre-insert log line). Once the row is durably inserted we can use
-    // it freely. Day-5 F2: when the caller pre-allocates a review_id
-    // (the BullMQ worker does so it can add to its in-flight tracking
-    // Set BEFORE the row insert), use the caller's id and validate
-    // it's a UUID — otherwise generate one.
+    // Generate the review_id just before the insert (and not in a
+    // pre-insert log line) — once the row is durably inserted we can
+    // log it freely. When the caller pre-allocates a review_id (the
+    // BullMQ worker does so it can add to its in-flight tracking Set
+    // BEFORE the row insert), use the caller's id and validate it's
+    // a UUID — otherwise generate one.
     const reviewId = validateOptionalReviewId(input.reviewId) ?? randomUUID();
     const startedAt = new Date();
     this.reviews.insert({
@@ -257,7 +255,7 @@ export class ReviewsService implements OnModuleInit {
         }
       };
 
-      // Day-7 U2: helper to emit the failure SSE event AFTER the
+      // Helper to emit the failure SSE event AFTER the
       // markFailedSafely write has landed. Wrapping in try/catch so a
       // subscriber throw does not propagate back to the catch block —
       // the original error is still what the caller receives via throw.
@@ -289,18 +287,18 @@ export class ReviewsService implements OnModuleInit {
           completed_at: failedAt,
           error_status: err.status,
           error_code: err.errorCode ?? 'anthropic_error',
-          // Day-4: turn_cap_exceeded and malformed_emit_finding
-          // carry partial loop state on the error so it lands in the
-          // reviews row alongside the failure. Pre-loop failures
-          // (auth, network) leave these undefined → markFailed leaves
-          // turn_count at the schema default (0).
+          // turn_cap_exceeded and malformed_emit_finding carry partial
+          // loop state on the error so it lands in the reviews row
+          // alongside the failure. Pre-loop failures (auth, network)
+          // leave these undefined → markFailed leaves turn_count at
+          // the schema default (0).
           turn_count: err.turnCount,
           tool_calls: err.toolCalls ?? null,
         });
-        // Day-7 U2 emit — failure site (AnthropicRequestError branch).
-        // Outside any transaction — the markFailed write above has already
-        // committed. Emit here so the SSE stream reflects the failure before
-        // the error propagates to the caller.
+        // Emit the failure SSE — outside any transaction, since the
+        // markFailed write above has already committed. Emit before
+        // throwing so the SSE stream reflects the failure before the
+        // error propagates to the caller.
         emitFailedSafely(failedAt);
         throw err;
       }
@@ -310,7 +308,6 @@ export class ReviewsService implements OnModuleInit {
         error_status: null,
         error_code: 'internal_error',
       });
-      // Day-7 U2 emit — failure site (non-Anthropic error branch).
       emitFailedSafely(failedAt);
       throw new ReviewsServiceError(
         'ReviewsService.runDryRun failed before transaction commit',
@@ -320,9 +317,9 @@ export class ReviewsService implements OnModuleInit {
 
     // Build per-finding inserts BEFORE the transaction so the
     // synchronous callback below does only sync work. Severity is
-    // sourced from each matched SearchHit's metadata (D1). Adapter
-    // already filtered hallucinated rule_ids, but we re-defend here
-    // with a fallback in case future adapters skip the filter.
+    // sourced from each matched SearchHit's metadata. The adapter
+    // already filters hallucinated rule_ids; we re-defend here with
+    // a fallback in case future adapters skip the filter.
     const completedAt = new Date();
     const findingInserts: ReviewFindingInsert[] = [];
     for (const finding of result.findings) {
@@ -368,11 +365,12 @@ export class ReviewsService implements OnModuleInit {
 
     const persistedFindings = this.findings.findByReviewId(reviewId);
 
-    // Day-7 U2 emit — success site. Must be OUTSIDE the db.transaction()
-    // callback above: better-sqlite3 runs callbacks synchronously inside
-    // BEGIN…COMMIT with no post-commit hook. Emitting inside the callback
-    // would rollback the transaction if a subscriber threw. Placing it here
-    // guarantees "emit only after the row is durably committed" (R8, R11).
+    // SSE success emit. Must be OUTSIDE the db.transaction() callback
+    // above: better-sqlite3 runs callbacks synchronously inside
+    // BEGIN…COMMIT with no post-commit hook, so emitting inside the
+    // callback would rollback the transaction if a subscriber threw.
+    // Placing it here guarantees "emit only after the row is durably
+    // committed".
     try {
       const prRow = prNodeId ? this.pullRequests.findByNodeId(prNodeId) : undefined;
       const successEvent: TerminalReviewEvent = {
@@ -411,8 +409,8 @@ export class ReviewsService implements OnModuleInit {
     };
   }
 
-  // Day-5 sibling of runDryRun for the BullMQ worker path. The
-  // lifecycle is identical (insert in_progress → llm.analyzeDiff →
+  // Sibling of runDryRun for the BullMQ worker path. The lifecycle
+  // is identical (insert in_progress → llm.analyzeDiff →
   // transaction(markCompleted + findings.insertMany)). The only
   // differences are upstream: the worker fetched the diff from
   // Octokit, pre-checked empty / MAX_DIFF_BYTES, and constructed the
@@ -429,17 +427,17 @@ export class ReviewsService implements OnModuleInit {
     });
   }
 
-  // Day-5 U8 shutdown drain helper. Marks every review_id in the
-  // set as failed/<errorCode>, gated on the row still being
-  // 'in_progress' (F2 closure — see IReviewRepository.markFailedIfInProgress).
-  // Wraps the loop in a single better-sqlite3 transaction so the
-  // whole batch commits or none does.
+  // Shutdown-drain helper. Marks every review_id in the set as
+  // failed/<errorCode>, gated on the row still being 'in_progress'
+  // (see IReviewRepository.markFailedIfInProgress). Wraps the loop
+  // in a single better-sqlite3 transaction so the whole batch commits
+  // or none does.
   //
   // The unique caller is ReviewsProcessor.drainGracefully on
-  // SIGTERM timeout. Rows that completed between the drain
-  // snapshot and this call retain their 'completed' status — the
-  // guarded UPDATE is a no-op for them. Returns the number of rows
-  // actually flipped so the drain log reflects truth.
+  // SIGTERM timeout. Rows that completed between the drain snapshot
+  // and this call retain their 'completed' status — the guarded
+  // UPDATE is a no-op for them. Returns the number of rows actually
+  // flipped so the drain log reflects truth.
   markRowsFailedByIdSet(reviewIds: string[], errorCode: string): number {
     if (reviewIds.length === 0) return 0;
     const completedAt = new Date();

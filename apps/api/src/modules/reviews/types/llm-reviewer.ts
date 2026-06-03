@@ -9,10 +9,9 @@ export const LLM_REVIEWER = Symbol('LlmReviewer');
 
 // Per-finding shape returned by the adapter. Note: `severity` is
 // DELIBERATELY absent. Severity is sourced from the matched rule's
-// metadata in `ReviewsService` at persistence time (see Key Technical
-// Decisions → Severity sourcing in docs/plans/04-day3-claude-integration.md).
-// Letting Claude emit severity would let it contradict the rule's
-// declared severity silently; rule metadata wins.
+// metadata in `ReviewsService` at persistence time. Letting Claude
+// emit severity would let it silently contradict the rule's declared
+// severity; rule metadata wins.
 export interface Finding {
   rule_id: string;
   title: string;
@@ -23,10 +22,10 @@ export interface Finding {
 
 // Token usage echoed from Anthropic's response. Cache fields are nullable
 // because they're only populated when the request had a cacheable prefix
-// AND the prefix cleared Sonnet's 1024-token caching threshold. Day-3
-// integration spec asserts > 0 on first real call to catch the
-// "silent zero" failure mode. Day-4: this shape is unchanged, but the
-// adapter accumulates these values across turns into a single total.
+// AND the prefix cleared Sonnet's 1024-token caching threshold. The
+// integration spec asserts > 0 on the first real call to catch the
+// "silent zero" failure mode. The adapter accumulates these values
+// across turns into a single total.
 export interface UsageStats {
   input_tokens: number;
   output_tokens: number;
@@ -39,12 +38,11 @@ export interface UsageStats {
 // `metadata` (severity is consumed in the service, not the adapter).
 // The service maps from `SearchHit` to this shape before invoking.
 //
-// Day-4: `repoContext` is the per-review seam through which the
-// agent loop fetches additional context (file content, function
-// definitions, prior reviews). When omitted, every non-terminal
-// tool call returns an `is_error` tool_result, so the loop still
-// runs but degenerates to a single `emit_finding` turn — preserving
-// the Day-3 behavior on callers that haven't been updated.
+// `repoContext` is the per-review seam through which the agent loop
+// fetches additional context (file content, function definitions,
+// prior reviews). When omitted, every non-terminal tool call returns
+// an `is_error` tool_result, so the loop still runs but degenerates
+// to a single `emit_finding` turn.
 export interface AnalyzeDiffInput {
   diff: string;
   rules: Array<{
@@ -56,14 +54,14 @@ export interface AnalyzeDiffInput {
   repoContext?: IRepoContextProvider;
 }
 
-// Day-4 return shape. `turnCount` reports how many `messages.create`
-// calls the loop made before it reached `emit_finding`; `toolCalls`
-// records one entry per turn (including the terminal turn). Day-6
-// eval slices on these to measure loop behavior over the corpus.
+// `turnCount` reports how many `messages.create` calls the loop made
+// before it reached `emit_finding`; `toolCalls` records one entry per
+// turn (including the terminal turn). Eval slices on these to measure
+// loop behavior over the corpus.
 //
-// Day-8 added two observability counters reported only on the
-// terminal `emit_finding` path (failure paths throw, so the contract
-// never sees those branches):
+// Two observability counters are reported only on the terminal
+// `emit_finding` path (failure paths throw, so the contract never sees
+// those branches):
 //   - hallucinatedFindingCount: how many findings the model emitted
 //     that the post-emit filter dropped (unknown rule_id or wrong
 //     `source:rule_id` composite). Sum of both filter paths into one
@@ -84,25 +82,26 @@ export interface AnalyzeDiffResult {
   cacheHitCount: number;
 }
 
-// Day-4 contract: multi-turn agent loop. The adapter calls
-// `messages.create` repeatedly (`tool_choice: 'any'`) until Claude
-// invokes the terminal `emit_finding` tool or the 6-turn cap is
-// reached. Day-3's single-turn behavior survives as the degenerate
-// case where `emit_finding` arrives on turn 1.
+// Multi-turn agent loop contract. The adapter calls `messages.create`
+// repeatedly (`tool_choice: 'any'`) until Claude invokes the terminal
+// `emit_finding` tool or the configured turn cap is reached. A clean
+// diff that requires no context fetches degenerates to a single
+// `emit_finding` turn.
 export interface ILlmReviewer {
   analyzeDiff(input: AnalyzeDiffInput): Promise<AnalyzeDiffResult>;
 }
 
 // Snapshot-test-guarded version of the prompt + tool schemas written
-// to every `reviews.prompt_version` column. The U4 snapshot spec
-// hashes `SYSTEM_PROMPT + JSON.stringify(tools)` and looks up the
-// expected hash in `PROMPT_AND_TOOL_VERSION_HASH_MAP` — bumping the
-// constant requires landing the new hash entry in the SAME COMMIT so
-// Day-6 reproducibility holds. Renamed from `PROMPT_VERSION` to make
-// explicit that the tool schema is in scope.
+// to every `reviews.prompt_version` column. The snapshot spec hashes
+// `SYSTEM_PROMPT + JSON.stringify(tools)` and looks up the expected
+// hash in `PROMPT_AND_TOOL_VERSION_HASH_MAP` — bumping the constant
+// requires landing the new hash entry in the SAME COMMIT so eval
+// reproducibility holds. Includes "tool" in the name to make explicit
+// that the tool schema is in scope, not just the prompt text.
 //
-// Day-3: 'v2' (single-turn forced report_findings tool)
-// Day-4: 'v3' (multi-turn agentic loop; 4 tools; same Finding shape)
+// History:
+//   'v2' — single-turn forced report_findings tool
+//   'v3' — multi-turn agentic loop; 4 tools; same Finding shape
 export const PROMPT_AND_TOOL_VERSION = 'v3' as const;
 
 // Hash enforcement map. The snapshot spec asserts

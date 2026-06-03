@@ -272,11 +272,13 @@ function countVerdicts(verdicts: FaithfulnessVerdict[]): {
   return { supported, unclear, not_supported };
 }
 
-// ── Suppression verification ───────────────────────────────────────
+// Suppression verification.
 
 /**
- * AE2: Suppression is verified if zero findings AND a priorReviewSnapshot
- * exists with at least one entry that has `dismissed_at != null`.
+ * Suppression is verified when a fixture emits zero findings AND a
+ * priorReviewSnapshot exists with at least one entry whose
+ * `dismissed_at != null` — i.e. the reviewer correctly respected a
+ * prior dismissal.
  */
 function verifySuppressionFixture(recording: EmittedRecording): boolean {
   if (recording.findings.length > 0) return false;
