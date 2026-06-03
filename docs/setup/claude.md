@@ -56,17 +56,16 @@ The API will refuse to start without `ANTHROPIC_API_KEY` — `ConfigService` val
 
 ## 5. Model selection
 
-The `ANTHROPIC_MODEL` env var defaults to a **NODE_ENV-aware** choice so dev iteration stays cheap and production stays demo-quality:
+The `ANTHROPIC_MODEL` env var defaults unconditionally to `claude-haiku-4-5-20251001` regardless of `NODE_ENV`. Haiku is the deliberate default because the reviewer targets small, focused diffs where Haiku's quality holds and per-review cost is ~$0.02–0.05 — roughly 8× cheaper than Sonnet uncached. Operators who want the marginal precision gain of Sonnet (or any other model) opt in by setting `ANTHROPIC_MODEL` explicitly.
 
-| `NODE_ENV` | `ANTHROPIC_MODEL` unset | Resolved model |
-| --- | --- | --- |
-| `development` (default in `npm run dev:api`) | yes | `claude-haiku-4-5-20251001` (~8× cheaper than Sonnet) |
-| `production` | yes | `claude-sonnet-4-6` (demo-quality output) |
-| any | explicitly set | the explicit value always wins |
+| `ANTHROPIC_MODEL` set? | Resolved model |
+| --- | --- |
+| No (unset or empty) | `claude-haiku-4-5-20251001` — always, regardless of `NODE_ENV` |
+| Yes | the explicit value, validated non-empty at boot |
 
 **Override paths:**
 
-- **Force Haiku in dev (recommended default, already the case in dev):** leave `ANTHROPIC_MODEL` unset — Haiku is the dev default. Setting `ANTHROPIC_MODEL=claude-haiku-4-5-20251001` explicitly is fine if you want it visible in `.env`.
+- **Keep the default (Haiku):** leave `ANTHROPIC_MODEL` unset. Setting `ANTHROPIC_MODEL=claude-haiku-4-5-20251001` explicitly is fine if you want it visible in `.env`.
 - **Smoke-test production model in dev:** set `ANTHROPIC_MODEL=claude-sonnet-4-6` in `.env` before bringing up `npm run dev:api`.
 - **Try Opus 4.7 for a one-off:** set `ANTHROPIC_MODEL=claude-opus-4-7` (~5× cost vs Sonnet — use sparingly).
 
@@ -204,7 +203,7 @@ sqlite3 apps/api/data/app.sqlite \
 | **`turn_cap_exceeded`** error | The multi-turn agent loop reached the 6-turn cap without calling `emit_finding` — usually means Claude is oscillating between tool calls or hitting repeated `is_error` results | Inspect `tool_calls_json` on the failed `reviews` row for the per-turn trace. The review is marked `failed` and no findings are persisted. If a fixture consistently hits the cap, narrow the prompt or pre-seed context the agent would otherwise have to discover. |
 | **`malformed_emit_finding`** error | Claude invoked `emit_finding` but the payload failed schema validation (e.g., `findings: null`, missing `rule_id` / `title` / `message`, or non-string `location_hint` / `citation`) | Inspect `tool_calls_json` for the partial loop state. If recurring, tighten the `EMIT_FINDING_TOOL` schema or add a corrective example to `SYSTEM_PROMPT` — both edits require bumping `PROMPT_AND_TOOL_VERSION` and the `HASH_MAP` entry in the same commit. |
 | **`AnalyzeDiffResult` findings empty when violations are obvious** | Retrieval didn't surface the expected rule in top-K | Run `npm run query:rules --workspace apps/api -- <path>` to see what's actually retrieved. If the rule isn't in the top-K, the embeddings layer is the problem, not Claude. |
-| **`Resolved model: claude-haiku-...` when you expected Sonnet** (or vice versa) | NODE_ENV mismatch | Verify `NODE_ENV` in the shell that booted `npm run dev:api`. Set `ANTHROPIC_MODEL` explicitly in `.env` if you want to lock the choice. |
+| **`Resolved model: claude-haiku-...` when you expected Sonnet** (or vice versa) | `ANTHROPIC_MODEL` not set — Haiku is the unconditional default | Set `ANTHROPIC_MODEL=claude-sonnet-4-6` (or your preferred model) explicitly in `apps/api/.env`. |
 | **Cost surprise** — `[review:dry-run] estimated cost` exceeds a couple cents per call | Cache miss (every call), or accidentally on Opus/Sonnet during iteration | Check the resolved-model line. If it's Sonnet/Opus and you're iterating, switch to Haiku. If cache_read tokens stay at 0 across calls, the system prompt likely drifted — `git diff apps/api/src/infrastructure/anthropic/anthropic-llm-reviewer.ts`. |
 | **`cache(read/write)=0/0` every call** on Haiku | Haiku's prompt-cache minimum is higher than Sonnet's (~2048 vs ~1024 tokens). Our cacheable prefix (~1280 tokens) clears Sonnet but not Haiku. | Expected and intentional — padding the prompt further to clear Haiku's threshold would make every Haiku call more expensive (bigger prompt) for caching benefits that only materialise after many calls. Haiku is already ~8× cheaper than Sonnet uncached; that's the iteration economics we keep. Use Sonnet for sessions where caching matters (eval runs, demos). |
 | **Process crashed mid-call; row stuck in `in_progress`** | Expected — the 3-state lifecycle survives this | The startup sweep at `ReviewsService.onModuleInit()` finalises any `in_progress` row older than 5 minutes as `failed/process_terminated` on the next boot. |

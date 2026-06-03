@@ -22,7 +22,7 @@ List what you ran. Examples:
 - [ ] Types clean (`npx tsc --noEmit` from `apps/api`)
 - [ ] No new `process.env.X` reads outside `ConfigService`
 - [ ] If a new table or column was added: migration generated and schema barrel updated
-- [ ] If the seeded corpus changed: `npm run seed` re-run and output checked
+- [ ] If the seeded corpus changed: `npm run seed:knowledge --workspace apps/api` re-run and output checked
 
 ## Screenshots / output
 
