@@ -1,13 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-// Single typed gateway to process.env. Read once at boot, fail fast on
-// misconfig, hand strongly-typed values to consumers. Reasons we own a
-// hand-rolled one instead of @nestjs/config for now:
-//  - Day 1 has 3 vars total; the dependency isn't paying its way yet.
-//  - Inline validation lives next to the consumer's mental model
-//    (the guard's "16+ chars" rule lives here, not in a Joi schema).
-//  - We can move to @nestjs/config + Joi when the surface grows past
-//    ~10 vars or we need per-environment .env layering.
+// Single typed gateway to process.env. Read once at boot, fail fast
+// on misconfig, hand strongly-typed values to consumers. The
+// hand-rolled gateway (rather than @nestjs/config) keeps inline
+// validation next to the consumer's mental model — the guard's
+// "16+ chars" rule lives here, not in a separate Joi schema. We can
+// move to @nestjs/config + Joi when the surface grows past ~10 vars
+// or we need per-environment .env layering.
 @Injectable()
 export class ConfigService {
   private static readonly logger = new Logger(ConfigService.name);
@@ -16,35 +15,34 @@ export class ConfigService {
   readonly databasePath: string;
   readonly port: number;
 
-  // Day 2 — RAG foundation. Voyage = embedding provider, Chroma = vector
-  // index. Voyage key is required and fails fast like the webhook secret;
-  // the other three carry sensible defaults so a fresh `.env` only needs
-  // VOYAGE_API_KEY filled in.
+  // RAG foundation. Voyage = embedding provider, Chroma = vector
+  // index. Voyage key is required and fails fast like the webhook
+  // secret; the other three carry sensible defaults so a fresh
+  // `.env` only needs VOYAGE_API_KEY filled in.
   readonly voyageApiKey: string;
   readonly chromaUrl: string;
   readonly chromaCollection: string;
   readonly embeddingModel: string;
 
-  // Day 3 — Claude integration. Key is required (fails fast). Model
-  // default is NODE_ENV-aware: Haiku in dev (~8× cheaper per call, fine
-  // for iteration), Sonnet in production (demo-quality output). Explicit
-  // ANTHROPIC_MODEL always wins. The resolved model is logged at boot so
-  // a misconfig (Sonnet silently downgrading because NODE_ENV is wrong)
+  // Claude integration. Key is required (fails fast). Model default
+  // is Haiku in every environment; explicit ANTHROPIC_MODEL always
+  // wins. The resolved model is logged at boot so a misconfig
   // surfaces immediately.
   readonly anthropicApiKey: string;
   readonly anthropicModel: string;
 
-  // Gates registration of POST /reviews/dry-run. Defaults to true in dev
-  // (NODE_ENV=development) and false everywhere else — forecloses the
-  // accidental-deploy-to-prod denial-of-wallet path before Day 5 ships
-  // auth. The CLI path is unaffected (no HTTP).
+  // Gates registration of POST /reviews/dry-run. Defaults to true
+  // in dev (NODE_ENV=development) and false everywhere else —
+  // forecloses the accidental-deploy-to-prod denial-of-wallet path
+  // on an unauthenticated review endpoint. The CLI path is unaffected
+  // (no HTTP).
   readonly enableDryRun: boolean;
 
-  // Day 5 — real-PR integration. App credentials authenticate Octokit
-  // via @octokit/auth-app; Redis backs the BullMQ review queue;
-  // DOGFOOD_REPOS is the allowlist + kill switch for which repos the
-  // bot reviews; the remaining knobs bound the agent loop's runtime
-  // and cost surface. See docs/setup/day5-real-pr.md.
+  // Real-PR integration. App credentials authenticate Octokit via
+  // @octokit/auth-app; Redis backs the BullMQ review queue;
+  // DOGFOOD_REPOS is the allowlist + kill switch for which repos
+  // the bot reviews; the remaining knobs bound the agent loop's
+  // runtime and cost surface.
   readonly appId: string;
   readonly appPrivateKey: string;
   readonly redisUrl: string;
@@ -134,11 +132,10 @@ export class ConfigService {
       process.env.WORKER_CONCURRENCY,
       1,
     );
-    // F14 closure: 15s default leaves 15s margin under k8s's default
+    // 15s default leaves 15s margin under k8s's default
     // terminationGracePeriodSeconds: 30 for Nest's own shutdown
-    // (database close, queue shutdown, etc.). Bumped down from
-    // 25_000 where the 5s margin proved tight on real shutdowns.
-    // Operators with a longer platform grace can raise this.
+    // (database close, queue shutdown, etc.). Operators with a
+    // longer platform grace can raise this.
     this.shutdownDrainTimeoutMs = this.requirePositiveInteger(
       'SHUTDOWN_DRAIN_TIMEOUT_MS',
       process.env.SHUTDOWN_DRAIN_TIMEOUT_MS,
@@ -281,10 +278,10 @@ export class ConfigService {
     return normalized;
   }
 
-  // BullMQ's connection field accepts a URL with redis:// or rediss://
-  // scheme. We parse to surface typos at boot rather than at first
-  // queue.add. Loopback-only enforcement and TLS policy live in docs;
-  // see the Day-5 Open Questions about non-localhost deployments.
+  // BullMQ's connection field accepts a URL with redis:// or
+  // rediss:// scheme. We parse to surface typos at boot rather than
+  // at first queue.add. Loopback-only enforcement and TLS policy
+  // live in the setup docs.
   private validateRedisUrl(name: string, value: string | undefined): string {
     if (!value) {
       throw new Error(
@@ -406,9 +403,9 @@ export function parseSkipRedisProbe(
 
 // Generic boolean-flag parser modelled on parseEnableDryRun but
 // without the NODE_ENV branch. Used for ANTHROPIC_USE_ZERO_RETENTION
-// and any future Day-5+ feature flag that has a fixed default rather
-// than a per-environment default. Truthy tokens (case-insensitive):
-// 'true', '1', 'yes'. Empty / unset → fallback. Anything else → false.
+// and any future feature flag with a fixed default rather than a
+// per-environment one. Truthy tokens (case-insensitive): 'true', '1',
+// 'yes'. Empty / unset → fallback. Anything else → false.
 export function parseBooleanFlag(
   explicit: string | undefined,
   fallback: boolean,

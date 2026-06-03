@@ -21,10 +21,10 @@ import { HealthController } from '@/system';
     // also covered (well above realistic health-check load). CLI
     // callers bypass entirely (no HTTP).
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 30 }]),
-    // Day-5: GitHub App auth seam + boot probe. Loaded before
-    // WebhookModule so the GET /app probe blocks startup before any
-    // webhook route binds — a malformed PEM surfaces in the first
-    // second of boot, not at first webhook arrival.
+    // GitHub App auth seam + boot probe. Loaded before WebhookModule
+    // so the GET /app probe blocks startup before any webhook route
+    // binds — a malformed PEM surfaces in the first second of boot,
+    // not at first webhook arrival.
     GithubModule,
     WebhookModule,
     // ReviewsModule must come AFTER EmbeddingsModule so Nest resolves
@@ -34,9 +34,10 @@ import { HealthController } from '@/system';
     // ConfigService.enableDryRun — see modules/reviews/reviews.module.ts.
     EmbeddingsModule,
     ReviewsModule.forRoot(),
-    // Day-7: read-only dashboard REST surface (reviews list, detail,
-    // analytics, filter population, settings). Repositories come from
-    // DatabaseModule (@Global); ConfigService from ConfigModule (@Global).
+    // Read-only dashboard REST surface (reviews list, detail,
+    // analytics, filter population, settings). Repositories come
+    // from DatabaseModule (@Global); ConfigService from ConfigModule
+    // (@Global).
     DashboardModule,
   ],
   controllers: [HealthController],

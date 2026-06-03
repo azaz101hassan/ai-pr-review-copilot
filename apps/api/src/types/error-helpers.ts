@@ -5,13 +5,11 @@
 //
 // CLAUDE.md tier note: `src/types/` is "cross-tier shared types
 // only", which these straddle — they're functions, not types, but
-// they're truly cross-tier (used by feature modules AND infrastructure
-// adapters) and don't belong to any one vendor. The alternative
-// (`src/infrastructure/errors/`) would invite the kitchen-sink
-// common-module pitfall when other generic utilities want a home.
-//
-// F28 closure (consolidates four `formatBriefError` and two
-// `readStatus` duplicates flagged by the Day-5 review).
+// they're truly cross-tier (used by feature modules AND
+// infrastructure adapters) and don't belong to any one vendor. The
+// alternative (`src/infrastructure/errors/`) would invite the
+// kitchen-sink common-module pitfall when other generic utilities
+// want a home.
 
 /**
  * Read a numeric HTTP status off an unknown thrown value. Returns
