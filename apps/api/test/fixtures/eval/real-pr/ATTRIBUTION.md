@@ -45,7 +45,7 @@ projects, while avoiding any licensing concerns.
 The two fixtures below are extracted verbatim from this repository's
 own git history. They exist because the synthetic samples above test
 contrived patterns, while these test the reviewer against actual diffs
-it failed (or would be expected to succeed) on during dogfood smokes.
+it failed (or would be expected to succeed) on during self-review smokes.
 
 ### real-pr-pr11-voyage-clean.patch
 
@@ -55,15 +55,15 @@ it failed (or would be expected to succeed) on during dogfood smokes.
   Reads its API key via `ConfigService` injection (no `process.env` direct
   reads anywhere in the changed surface).
 - **Expected violations:** none (`[]`)
-- **What this tests:** **precision on a real clean diff.** During the
-  PR #11 dogfood smoke (2026-06-02), the reviewer hallucinated a
-  `config-service-only` finding on this exact file, claiming it reads
+- **What this tests:** **precision on a real clean diff.** During a
+  smoke test on a real PR diff (2026-06-02), the reviewer hallucinated
+  a `config-service-only` finding on this exact file, claiming it reads
   `process.env.VOYAGE_API_KEY` directly. It does not. This fixture
   reproduces the precision failure surface in a tractable size.
 
 ### real-pr-day5-queue-process-env.patch
 
-- **Source:** Day-5 PR #9 (squash commit `70b96f2`),
+- **Source:** Squash commit `70b96f2`,
   `apps/api/src/infrastructure/queue/queue.module.ts`
 - **Description:** Introduces the BullMQ-backed `QueueModule` with a
   `SKIP_REDIS_PROBE` test escape hatch read directly via
@@ -77,7 +77,7 @@ it failed (or would be expected to succeed) on during dogfood smokes.
 
 ## Why synthetic?
 
-The Day-6 plan defers the specific selection of real public PRs to
+The eval-harness plan defers selecting specific real public PRs to
 implementation time (see "Open Questions > Deferred to Implementation").
 Synthetic samples that faithfully represent the *shape* of real-world
 PRs avoid:

@@ -2,20 +2,20 @@
 
 Hand-curated unified-diff fixtures used by:
 
-- `test/modules/embeddings/embeddings.e2e-spec.ts` — retrieval quality gate (top-K must contain the expected `rule_id`). Day-3 retrieval-only fixtures live here.
+- `test/modules/embeddings/embeddings.e2e-spec.ts` — retrieval quality gate (top-K must contain the expected `rule_id`). Retrieval-only fixtures live here.
 - `test/modules/reviews/reviews.e2e-spec.ts` — end-to-end LLM review loop (the stub `ILlmReviewer` only emits findings whose `rule_id` is in the retrieved set, so a fixture that produces zero findings fails this gate).
 - `npm run query:rules` / `npm run review:dry-run` — manual smoke from the CLI.
 
 There are now **three categories** of fixture:
 
-1. **Retrieval-only `.patch` fixtures (Day-3 shape).** A self-contained
+1. **Retrieval-only `.patch` fixtures.** A self-contained
    diff that violates one rule from the seeded corpus
    (`apps/api/seeds/*.json`). Wired into BOTH `embeddings.e2e-spec.ts`
    and `reviews.e2e-spec.ts`. The diff itself must carry enough
    vocabulary signal for the bag-of-words retrieval to find the right
    rule.
 
-2. **`.repo/`-backed agent-loop fixtures (Day-4 shape).** A `.patch`
+2. **`.repo/`-backed agent-loop fixtures.** A `.patch`
    file plus a co-located `<fixture>.repo/` directory holding the
    surrounding source the agent loop fetches via
    `FilesystemRepoContextProvider`. These fixtures exercise the
@@ -25,10 +25,9 @@ There are now **three categories** of fixture:
    finding. They are **exempt from the
    `embeddings.e2e-spec.ts` retrieval gate** (the violation pattern
    lives across multiple files, not in a single diff) and are wired
-   only into the scenario-specific describes in `reviews.e2e-spec.ts`
-   (AE1, AE1b, AE2 in the Day-4 plan).
+   only into the scenario-specific describes in `reviews.e2e-spec.ts`.
 
-3. **Clean `.patch` fixtures (Day-6 eval shape).** A self-contained
+3. **Clean-eval `.patch` fixtures.** A self-contained
    diff that is provably clean against all 43 seeded rules (33 Airbnb +
    10 team-standards). A correct reviewer should return zero findings.
    These are used by the eval harness (`test/fixtures/eval/`) with the
@@ -45,8 +44,8 @@ There are now **three categories** of fixture:
 | `prefer-const-violation.patch` | retrieval-only | `prefer-const` (airbnb-eslint) | Synthetic — `calculateTotal` rewrites `const` bindings as `let` even though nothing is reassigned. The trailing comment makes the violation explicit so the LLM has signal without depending on flow analysis. |
 | `co-authored-by-claude-violation.patch` | retrieval-only | `no-co-authored-by-claude` (team-standards) | Synthetic — a `CHANGELOG.md` entry includes the prohibited `Co-Authored-By: Claude` trailer plus the "🤖 Generated with..." marker, and a release script edit deliberately preserves the trailer. |
 | `thin-controllers-violation.patch` | retrieval-only | `thin-controllers`, `no-crud-on-database-service`, `repository-pattern`, `config-service-only` (team-standards) | Synthetic — `OrdersController` inlines business logic, calls `DatabaseService.drizzle.insert(...)` directly, constructs a Stripe client inside the controller, and bypasses the repository pattern. Multi-rule violation by design so the e2e can exercise multi-finding output. |
-| `silent-signature-change.patch` + `silent-signature-change.repo/` | agent-loop | `no-param-reassign` (closest retrieval match) | Day-4 — adds an `idempotencyKey` arg to ONE of five `chargeCard` call sites. The other four (three in `checkout.js`, one in `retry-queue.js`) are unchanged; the inconsistency is only visible when the agent fetches both files. |
-| `dismissed-eqeqeq-rerun.patch` + `dismissed-eqeqeq-rerun.repo/` | agent-loop | `eqeqeq` (airbnb-eslint) | Day-4 — re-applies an `eqeqeq` violation at a location that `.repo/reviews.json` records as previously dismissed by the team. The agent must call `fetch_prior_review`, observe the `dismissed_at` timestamp, and emit zero findings. |
+| `silent-signature-change.patch` + `silent-signature-change.repo/` | agent-loop | `no-param-reassign` (closest retrieval match) | Adds an `idempotencyKey` arg to ONE of five `chargeCard` call sites. The other four (three in `checkout.js`, one in `retry-queue.js`) are unchanged; the inconsistency is only visible when the agent fetches both files. |
+| `dismissed-eqeqeq-rerun.patch` + `dismissed-eqeqeq-rerun.repo/` | agent-loop | `eqeqeq` (airbnb-eslint) | Re-applies an `eqeqeq` violation at a location that `.repo/reviews.json` records as previously dismissed by the team. The agent must call `fetch_prior_review`, observe the `dismissed_at` timestamp, and emit zero findings. |
 | `clean-extract-helper.patch` | clean | *(none -- expected zero findings)* | Synthetic -- extracts an inline map callback from `InvoiceService.generateInvoice` into a typed pure helper `computeLineTotal` in a `helpers/` file. Uses `const`, named exports, `@/*` path aliases, template-literal-free, proper import order. |
 | `clean-rename-variable.patch` | clean | *(none -- expected zero findings)* | Synthetic -- renames `findAvailableSlots` to `findAvailableWindows` and internal variables (`slots` to `windows`, `cursor` to `candidateStart`, `slotDurationMs` to `windowDurationMs`) across two files. Pure rename refactor with no behavioral change. |
 | `clean-tighten-return-type.patch` | clean | *(none -- expected zero findings)* | Synthetic -- adds an explicit `Promise<DeliveryResult>` return type to `NotificationService.send()` and introduces a `DeliveryResult` interface in a new types file. Tightens the public contract without changing behavior. |
@@ -62,7 +61,7 @@ There are now **three categories** of fixture:
 
 ## Adding a fixture
 
-### Retrieval-only `.patch` fixture (Day-3 shape)
+### Retrieval-only `.patch` fixture
 
 1. Pick a `rule_id` from `apps/api/seeds/*.json`.
 2. Write a small synthetic diff that violates it. The diff itself must be enough signal — the embedding stub in `embeddings.e2e-spec.ts` is a bag-of-words, so include the rule's vocabulary verbatim where possible.
@@ -72,12 +71,12 @@ There are now **three categories** of fixture:
    - `reviews.e2e-spec.ts` (the LLM review gate — exercised through the stub `ILlmReviewer`).
 5. Run `npm test --workspace apps/api`. If the fixture produces zero findings or the wrong rule, the gate fails and the fixture needs more signal.
 
-### `.repo/`-backed agent-loop fixture (Day-4 shape)
+### `.repo/`-backed agent-loop fixture
 
 1. Decide the multi-turn pattern the fixture demonstrates (e.g., signature change across files, prior-review dismissal).
 2. Create the `.patch` and a sibling `<name>.repo/` directory.
 3. Populate `.repo/src/...` with the surrounding source files the agent needs to fetch. If the fixture exercises `fetch_prior_review`, drop a `reviews.json` array at the root of `.repo/` with `PriorReviewEntry`-shaped objects (see `src/modules/reviews/types/repo-context-provider.ts`).
 4. Add a row to the table above with category `agent-loop`.
 5. **Do NOT add it to `embeddings.e2e-spec.ts`** — the violation lives across multiple files; the retrieval gate isn't the right contract.
-6. Wire it into the relevant Day-4 AE describe in `reviews.e2e-spec.ts` (AE1, AE1b, AE2, …).
+6. Wire it into the relevant agent-loop describe block in `reviews.e2e-spec.ts`.
 7. Run `npm test --workspace apps/api`.
