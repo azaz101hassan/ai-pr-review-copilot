@@ -21,19 +21,20 @@ interface SseFrame {
 
 // SSE controller for the dashboard live-update feed.
 //
-// Endpoint: GET /dashboard/events (R8, R11, R15).
+// Endpoint: GET /dashboard/events.
 //
-// Design constraints (Day-7 plan, U5):
+// Design constraints:
 //
-// 1. Connection cap = 10. The cap counter lives here — slot management
-//    is HTTP-connection lifecycle, not event-bus state (plan P2 #20).
+// 1. Connection cap = 10. The cap counter lives here — slot
+//    management is HTTP-connection lifecycle, not event-bus state.
 //    Over-cap connections receive a single named frame
 //    `event: cap-reached\ndata: \n\n` and the Observable completes
-//    immediately. The slot is NOT consumed because acquisition failed.
-//    HTTP 503 is NOT returned — browser EventSource does not expose
-//    status to onerror and would auto-reconnect regardless (reconnect
-//    storm). The client registers addEventListener('cap-reached', ...)
-//    to call eventSource.close() instead.
+//    immediately. The slot is NOT consumed because acquisition
+//    failed. HTTP 503 is NOT returned — browser EventSource does
+//    not expose status to onerror and would auto-reconnect
+//    regardless (reconnect storm). The client registers
+//    addEventListener('cap-reached', ...) to call eventSource.close()
+//    instead.
 //
 // 2. Heartbeat = 25 s as a named SSE event:
 //    `event: keepalive\ndata: \n\n`. The client does NOT register a
