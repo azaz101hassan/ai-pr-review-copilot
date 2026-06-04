@@ -3,7 +3,7 @@ import {
   FETCH_FILE_TOOL_NAME,
   FETCH_FUNCTION_TOOL_NAME,
   FETCH_PRIOR_REVIEW_TOOL_NAME,
-} from '../system-prompt';
+} from '@/infrastructure/llm/system-prompt';
 import { formatProviderError } from './format-provider-error';
 
 export type RunToolCallInput = {

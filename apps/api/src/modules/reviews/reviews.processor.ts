@@ -365,7 +365,7 @@ export class ReviewsProcessor
       // body. On terminal failures the failed-walkthrough is the
       // final state.
       const reason: FailureReason = isAnthropicErrorLike(err)
-        ? 'anthropic_error'
+        ? 'llm_error'
         : 'internal_error';
       await this.tryPostFailedWalkthrough({
         octokit,

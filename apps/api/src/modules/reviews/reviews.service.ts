@@ -98,11 +98,14 @@ export class ReviewsServiceError extends Error {
   }
 }
 
-// Raised from 20 → 40 after a real-PR probe showed the new api-conventions
-// rules dominating retrieval and pushing classic airbnb syntax rules
-// (eqeqeq, no-var, no-magic-numbers, etc.) out of the top-K window for
-// domain-themed diffs. 40 keeps both families in the candidate set at
-// the cost of ~2× input tokens per agent loop.
+// Default top-K for the embeddings search that feeds the LLM with
+// candidate rules. The api-conventions seed enlarged the corpus from
+// ~43 to ~73 chunks; at K=10 it dominated retrieval on domain-themed
+// diffs, pushing classic airbnb syntax rules (eqeqeq, no-var,
+// no-magic-numbers) out of the candidate window. K=25 keeps both rule
+// families in scope without ballooning input tokens — a deliberate
+// climb-down from a brief K=40 experiment where the marginal recall
+// gain didn't justify the ~2× input-token cost per agent loop.
 const DEFAULT_K = 25;
 // Cutoff used by the startup sweep AND the per-PR worker guard.
 // 10 minutes is safely above the worst-case 6-turn agent loop with
@@ -293,7 +296,7 @@ export class ReviewsService implements OnModuleInit {
         markFailedSafely({
           completed_at: failedAt,
           error_status: err.status,
-          error_code: err.errorCode ?? 'anthropic_error',
+          error_code: err.errorCode ?? 'llm_error',
           // turn_cap_exceeded and malformed_emit_finding carry partial
           // loop state on the error so it lands in the reviews row
           // alongside the failure. Pre-loop failures (auth, network)

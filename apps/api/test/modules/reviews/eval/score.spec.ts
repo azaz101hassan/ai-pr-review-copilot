@@ -14,6 +14,7 @@ import {
   runScore,
   formatMarkdownSummary,
 } from '@/modules/reviews/eval/score';
+import { STALENESS_TRACKED_PATHS } from '@/modules/reviews/eval/staleness';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -140,17 +141,16 @@ function getRepoRoot(): string {
  * Recordings must carry this SHA to appear fresh to the staleness check.
  */
 function getLatestTrackedSha(): string {
+  // Source paths from the same constant the prod check uses so this
+  // helper can't silently drift if STALENESS_TRACKED_PATHS gains or
+  // loses entries.
+  const pathArgs = STALENESS_TRACKED_PATHS.map((p) => `"${p}"`).join(' ');
   try {
     return require('child_process')
-      .execSync(
-        'git log -1 --format=%H -- ' +
-          '"apps/api/src/infrastructure/llm/" ' +
-          '"apps/api/src/infrastructure/anthropic/" ' +
-          '"apps/api/src/infrastructure/openrouter/" ' +
-          '"apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts" ' +
-          '"apps/api/seeds/"',
-        { cwd: getRepoRoot(), encoding: 'utf-8' },
-      )
+      .execSync(`git log -1 --format=%H -- ${pathArgs}`, {
+        cwd: getRepoRoot(),
+        encoding: 'utf-8',
+      })
       .trim();
   } catch {
     return 'deadbeef';

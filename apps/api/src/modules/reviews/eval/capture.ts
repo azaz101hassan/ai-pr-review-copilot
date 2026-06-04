@@ -219,7 +219,7 @@ export function assembleThrewRecording(
     status: 'threw',
     fixtureId,
     error: {
-      errorCode: error.errorCode ?? 'anthropic_error',
+      errorCode: error.errorCode ?? 'llm_error',
       turnCount: error.turnCount ?? null,
       toolCalls: error.toolCalls ?? null,
     },

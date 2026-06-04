@@ -31,7 +31,8 @@ import type { reviews } from '@/infrastructure/db/schema';
 //     - permission_error
 //     - not_found_error
 //     - credit_balance_too_low
-//     - anthropic_error      (catchall when raw was unknown)
+//     - anthropic_error      (legacy alias of llm_error, retained for back-compat reads)
+//     - llm_error             (provider-neutral catchall when raw was unknown)
 //   Agent-loop terminal:
 //     - turn_cap_exceeded
 //     - malformed_emit_finding
@@ -52,6 +53,7 @@ export type KnownReviewErrorCode =
   | 'not_found_error'
   | 'credit_balance_too_low'
   | 'anthropic_error'
+  | 'llm_error'
   | 'turn_cap_exceeded'
   | 'malformed_emit_finding'
   | 'unexpected_response_shape'
@@ -77,6 +79,7 @@ const KNOWN_REVIEW_ERROR_CODES = new Set<KnownReviewErrorCode>([
   'not_found_error',
   'credit_balance_too_low',
   'anthropic_error',
+  'llm_error',
   'turn_cap_exceeded',
   'malformed_emit_finding',
   'unexpected_response_shape',

@@ -15,6 +15,7 @@ export type FailureReason =
   | 'comment_post_failed'
   | 'inline_post_failed'
   | 'anthropic_error'
+  | 'llm_error'
   | 'internal_error';
 
 export interface FormatWalkthroughFailedBodyInput {
@@ -34,6 +35,8 @@ const REASON_COPY: Record<FailureReason, string> = {
   inline_post_failed:
     'the bot generated findings but GitHub rejected the inline review',
   anthropic_error:
+    'the language-model call was rejected (likely an account or configuration issue)',
+  llm_error:
     'the language-model call was rejected (likely an account or configuration issue)',
   internal_error:
     'the bot hit an unexpected internal error',

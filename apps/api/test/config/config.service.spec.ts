@@ -18,6 +18,11 @@ describe('ConfigService', () => {
     EMBEDDING_MODEL: process.env.EMBEDDING_MODEL,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+    LLM_PROVIDER: process.env.LLM_PROVIDER,
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
+    OPENROUTER_BASE_URL: process.env.OPENROUTER_BASE_URL,
+    LLM_SPIKE_VERBOSE: process.env.LLM_SPIKE_VERBOSE,
     ENABLE_DRY_RUN: process.env.ENABLE_DRY_RUN,
     NODE_ENV: process.env.NODE_ENV,
     DATABASE_PATH: process.env.DATABASE_PATH,
@@ -59,6 +64,10 @@ describe('ConfigService', () => {
     GITHUB_WEBHOOK_SECRET: VALID_WEBHOOK_SECRET,
     VOYAGE_API_KEY: VALID_VOYAGE_KEY,
     ANTHROPIC_API_KEY: VALID_ANTHROPIC_KEY,
+    // Pin the provider so a stray `LLM_PROVIDER=openrouter` in the
+    // host shell can't flip these tests onto the OpenRouter branch
+    // (which would then fail-fast on the missing OPENROUTER_* keys).
+    LLM_PROVIDER: 'anthropic',
     NODE_ENV: 'test',
     APP_ID: VALID_APP_ID,
     APP_PRIVATE_KEY: VALID_PEM_ESCAPED,
