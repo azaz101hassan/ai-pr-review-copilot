@@ -131,7 +131,7 @@ export class DashboardService {
     const sources = this.sourceRepo.listAll();
 
     return new SettingsResponseDto({
-      model: this.config.anthropicModel,
+      model: this.config.activeModel(),
       embeddingModel: this.config.embeddingModel,
       chromaCollection: this.config.chromaCollection,
       knowledgeSources: sources.map((s) => ({

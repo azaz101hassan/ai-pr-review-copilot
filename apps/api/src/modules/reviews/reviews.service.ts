@@ -214,7 +214,9 @@ export class ReviewsService implements OnModuleInit {
       pr_node_id: prNodeId,
       created_by: null,
       diff_length: diffLength,
-      model: this.config.anthropicModel,
+      // Best-effort placeholder — overwritten with the real model id
+      // from the SDK response in the markCompleted call below.
+      model: this.config.activeModel(),
       prompt_version: PROMPT_AND_TOOL_VERSION,
       top_k: k,
       retrieved_chunk_ids: JSON.stringify(retrievedChunkIds),
@@ -364,6 +366,12 @@ export class ReviewsService implements OnModuleInit {
         tool_calls: result.toolCalls,
         hallucinated_finding_count: result.hallucinatedFindingCount,
         cache_hit_count: result.cacheHitCount,
+        // Overwrite the placeholder model inserted before the LLM call with
+        // the actual model id echoed back by the provider SDK. This is the
+        // canonical fix for the multi-provider model display bug: the insert
+        // stores config.activeModel() as a best-effort placeholder; this
+        // write locks in the real value from the response.
+        model: result.model,
       });
       this.findings.insertMany(findingInserts);
     });

@@ -184,6 +184,19 @@ export class ConfigService {
     }
   }
 
+  /**
+   * Returns the model identifier for whichever LLM provider is currently
+   * active. Use this wherever a "best-effort" model label is needed before
+   * the actual SDK response is available (e.g., the in_progress insert row
+   * or a failure row where no SDK call ran). The real model is always written
+   * back via ReviewCompletionPatch.model once analyzeDiff() returns.
+   */
+  activeModel(): string {
+    return this.llmProvider === 'openrouter'
+      ? this.openrouterModel
+      : this.anthropicModel;
+  }
+
   private validateOpenrouterBaseUrl(value: string): string {
     let parsed: URL;
     try {

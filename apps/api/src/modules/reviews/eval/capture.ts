@@ -61,6 +61,17 @@ import {
 
 /** Pinned seed corpus version. 43 chunks = 33 airbnb + 10 team-standards. */
 export const SEED_CORPUS_VERSION = 'v1';
+
+/**
+ * Returns the configured model id for the active LLM provider.
+ * Used to populate provenance on failure / pre-result paths where no
+ * SDK response is available yet. Once `analyzeDiff` returns, always
+ * prefer `result.model` (the id the provider actually used) over this.
+ */
+export function resolveActiveModel(config: ConfigService): string {
+  return config.activeModel();
+}
+
 export const EXPECTED_CHUNK_COUNT = 43;
 
 /** Sentinel in manifest's injectedRules that means "use the full corpus". */
@@ -412,7 +423,7 @@ async function main(): Promise<void> {
     const config = app.get(ConfigService);
 
     // eslint-disable-next-line no-console
-    console.log(`[eval:capture] model: ${config.anthropicModel}`);
+    console.log(`[eval:capture] model: ${resolveActiveModel(config)}`);
 
     // ── 2. Preflight checks ────────────────────────────────────────
 
@@ -532,9 +543,13 @@ async function main(): Promise<void> {
       const fixturePath = resolveFixturePath(entry, apiRoot);
       const diff = fs.readFileSync(fixturePath, 'utf-8');
 
+      // The provenance model is a best-effort placeholder for the failure
+      // path (assembleThrewRecording) where no SDK response is available.
+      // For successful runs, assembleEmittedRecording spreads the actual
+      // model id from result.model over this value before writing.
       const provenance: RecordingProvenance = {
         promptVersion: PROMPT_AND_TOOL_VERSION,
-        model: config.anthropicModel,
+        model: resolveActiveModel(config),
         judgeModel: DEFAULT_JUDGE_MODEL,
         judgePromptVersion: FAITHFULNESS_JUDGE_VERSION,
         seedCorpusVersion: SEED_CORPUS_VERSION,
@@ -667,7 +682,9 @@ async function captureFixture(
       result,
       judgments,
       ruleSet,
-      provenance,
+      // Stamp the actual model id echoed by the provider SDK so the
+      // recording captures what really ran, not the config placeholder.
+      { ...provenance, model: result.model },
       { priorReviewSnapshot },
     );
 
@@ -744,7 +761,7 @@ async function captureCleanFixture(
       resultA,
       judgmentsA,
       fullCorpusRuleSet,
-      provenance,
+      { ...provenance, model: resultA.model },
     );
 
     const filePathA = writeRecording(evalFixturesDir, recordingA);
@@ -807,7 +824,7 @@ async function captureCleanFixture(
       resultB,
       judgmentsB,
       retrievalRuleSet,
-      abProvenance,
+      { ...abProvenance, model: resultB.model },
     );
 
     const filePathB = writeRecording(evalFixturesDir, recordingB);

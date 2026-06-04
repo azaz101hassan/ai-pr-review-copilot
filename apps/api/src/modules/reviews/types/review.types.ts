@@ -127,8 +127,8 @@ export type ToolCallRecord = {
 // Patch shape passed to IReviewRepository.markCompleted — the columns
 // that get populated on the successful terminal flip from `in_progress`
 // to `completed`. `error_status` / `error_code` stay null on this path;
-// they belong to `markFailed`. `turn_count` and `tool_calls` are
-// optional so historical / partial callers stay valid; the typical
+// they belong to `markFailed`. `turn_count`, `tool_calls`, and `model`
+// are optional so historical / partial callers stay valid; the typical
 // path populates them from the reviewer's AnalyzeDiffResult.
 export type ReviewCompletionPatch = {
   completed_at: Date;
@@ -143,6 +143,11 @@ export type ReviewCompletionPatch = {
   // populates them from the reviewer's AnalyzeDiffResult.
   hallucinated_finding_count?: number;
   cache_hit_count?: number;
+  // The actual model id echoed back by the provider SDK. When set,
+  // markCompleted overwrites the placeholder inserted before the
+  // analyzeDiff call. Optional for backward-compat with callers
+  // that pre-date the multi-provider switch.
+  model?: string;
 };
 
 // Patch shape passed to IReviewRepository.markFailed. Token columns stay

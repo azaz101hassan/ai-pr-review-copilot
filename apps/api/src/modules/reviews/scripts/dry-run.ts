@@ -203,7 +203,7 @@ async function main(): Promise<void> {
     const config = app.get(ConfigService);
     // eslint-disable-next-line no-console
     console.log(
-      `[review:dry-run] model: ${config.anthropicModel}${args.repoDir ? ` repo: ${args.repoDir}` : ''}`,
+      `[review:dry-run] model: ${config.activeModel()}${args.repoDir ? ` repo: ${args.repoDir}` : ''}`,
     );
 
     const reviews = app.get(ReviewsService);

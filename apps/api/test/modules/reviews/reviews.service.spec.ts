@@ -61,10 +61,17 @@ function makeSearchHit(overrides: Partial<SearchHit> = {}): SearchHit {
 }
 
 function makeConfig(overrides: Partial<ConfigService> = {}): ConfigService {
-  return {
+  const base = {
     anthropicModel: 'claude-haiku-4-5-20251001',
-    ...overrides,
-  } as ConfigService;
+    llmProvider: 'anthropic' as const,
+    openrouterModel: '',
+    activeModel() {
+      return (this as ConfigService).llmProvider === 'openrouter'
+        ? (this as ConfigService).openrouterModel
+        : (this as ConfigService).anthropicModel;
+    },
+  };
+  return { ...base, ...overrides } as unknown as ConfigService;
 }
 
 function makeEmbeddings(hits: SearchHit[]): EmbeddingsService {
