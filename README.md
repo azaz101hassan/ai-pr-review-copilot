@@ -34,7 +34,7 @@ ai-pr-review-copilot/
 │   └── web/        # Next.js — operator dashboard
 ├── docs/
 │   ├── plans/      # implementation plans
-│   └── setup/      # GitHub App + ngrok walkthrough
+│   └── setup/      # GitHub App + tunnel walkthrough
 └── .github/
     └── workflows/  # CI (tests + next build)
 ```
@@ -90,7 +90,7 @@ npm run dev:web
 
 **Verify it's running:** `curl http://localhost:4001/health` should return `{ "status": "ok", ... }`.
 
-For the full end-to-end bring-up (ngrok tunnel, GitHub App webhook URL, real PR smoke test), see [`docs/setup/real-pr-smoke.md`](docs/setup/real-pr-smoke.md).
+For the full end-to-end bring-up (public-URL tunnel via cloudflared or ngrok, GitHub App webhook URL, real PR smoke test), see [`docs/setup/real-pr-smoke.md`](docs/setup/real-pr-smoke.md).
 
 ### API endpoints
 
@@ -107,7 +107,7 @@ To receive PR webhooks from a real GitHub repo, follow [`docs/setup/github-app.m
 
 1. Register a GitHub App (Pull requests Read & write, Contents Read, Metadata Read; subscribe to "Pull request" event).
 2. Set the webhook secret to the value you put in `apps/api/.env`.
-3. Run `ngrok http 4001` and paste the HTTPS URL into the App's webhook URL (suffixed with `/webhooks/github`).
+3. Start a public-URL tunnel pointed at port 4001 — either `cloudflared tunnel --url http://localhost:4001` or `ngrok http 4001` — and paste the HTTPS URL into the App's webhook URL (suffixed with `/webhooks/github`).
 4. Install the App on a test repo.
 5. Open or update a PR. Watch the API log it.
 
@@ -170,7 +170,7 @@ The `apps/api` suite covers config validation, repositories, the embedding pipel
 | Webhook deliveries return 401 in GitHub's "Recent Deliveries" tab | Webhook secret in the App config doesn't match `apps/api/.env` | Re-copy the secret from `apps/api/.env` into the GitHub App's webhook secret field. |
 | `better-sqlite3` rebuild errors on `npm install` | Node version without prebuilt binaries | The local default is Node 24; if rebuilds fail, install Node 22 (`nvm install 22 && nvm use 22`) and reinstall. CI runs Node 22 for the same reason. |
 | `next build` fails with type errors after editing pages | Stale `.next/types` | `rm -rf apps/web/.next && npm run build --workspace apps/web`. |
-| ngrok URL changes every restart | Free-tier ngrok doesn't reserve subdomains | Either keep the same ngrok session running, or use a paid reserved domain. Update the GitHub App's webhook URL when it changes. |
+| Tunnel URL changes every restart | Free-tier cloudflared (`trycloudflare.com`) and ngrok rotate URLs on each restart | Either keep the same tunnel process running, or upgrade to a stable named tunnel (`cloudflared tunnel create`) / paid reserved domain (ngrok). Update the GitHub App's webhook URL whenever it changes. |
 
 ---
 
