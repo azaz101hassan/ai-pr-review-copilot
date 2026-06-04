@@ -1,6 +1,6 @@
-# GitHub App + ngrok setup
+# GitHub App + tunnel setup
 
-This walks you through registering a GitHub App so it can deliver pull-request webhooks to `apps/api` running locally. Target: working webhook delivery in **about 15 minutes**.
+This walks you through registering a GitHub App so it can deliver pull-request webhooks to `apps/api` running locally. The "tunnel" is whatever tool exposes `localhost:4001` to the public internet so GitHub can reach it — this guide supports either [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) or [ngrok](https://ngrok.com/download). Target: working webhook delivery in **about 15 minutes**.
 
 > **Why a GitHub App rather than a repo webhook?** Posting review comments back to the PR requires an authentication identity GitHub trusts — a GitHub App with `pull_requests: write` permission. Registering the App upfront means the auth surface is ready when the real-PR integration is wired.
 
@@ -10,7 +10,9 @@ This walks you through registering a GitHub App so it can deliver pull-request w
 
 - A GitHub account.
 - A test repository (public or private) you can open a PR against. A fork of any small public repo works.
-- [ngrok](https://ngrok.com/download) installed locally and authenticated (`ngrok config add-authtoken <your token>` — the free tier is sufficient).
+- A public-URL tunnel for `apps/api` (step 2 lists two options — pick one):
+  - [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) — quickest start, no account required for `trycloudflare.com` URLs.
+  - [ngrok](https://ngrok.com/download) — requires `ngrok config add-authtoken <your token>` once; free tier is sufficient.
 - This repo cloned and `npm install`'d.
 
 ---
@@ -25,15 +27,31 @@ Copy the output. You'll paste it into two places: the GitHub App's settings (ste
 
 ---
 
-## 2. Start ngrok pointed at apps/api
+## 2. Tunnel apps/api to a public URL
+
+GitHub delivers webhooks over HTTPS to a public hostname. `apps/api` listens on `localhost:4001`, so it needs a tunnel. Pick one of the two options below.
+
+### Option A — cloudflared (quickest start)
+
+```bash
+cloudflared tunnel --url http://localhost:4001
+```
+
+Leave it running. The first lines of output include a forwarding URL like `https://jail-encyclopedia-election-vacuum.trycloudflare.com` — copy that HTTPS URL. No Cloudflare account is required for these ephemeral `trycloudflare.com` URLs.
+
+### Option B — ngrok
 
 ```bash
 ngrok http 4001
 ```
 
-Leave it running. You'll see a forwarding URL like `https://ab12-203-0-113-4.ngrok-free.app` — copy the HTTPS one. The webhook endpoint you'll configure in step 4 is **that URL + `/webhooks/github`**.
+Leave it running. The dashboard shows a forwarding URL like `https://ab12-203-0-113-4.ngrok-free.app` — copy the HTTPS one.
 
-> ngrok free-tier URLs change on every restart. If you stop and restart ngrok, you'll need to update the GitHub App's webhook URL.
+### Both options
+
+The webhook endpoint you'll configure in step 4 is **that URL + `/webhooks/github`**.
+
+> Free-tier tunnel URLs (both cloudflared `trycloudflare.com` and ngrok) change on every restart. Either restart the tunnel and update the GitHub App's webhook URL whenever the URL rotates, or upgrade to a stable named tunnel / paid plan on whichever service you picked.
 
 ---
 
@@ -50,7 +68,7 @@ Go to [github.com/settings/apps/new](https://github.com/settings/apps/new) (this
 | **GitHub App name** | Any unique name, e.g. `ai-pr-review-copilot-<your-username>-dev`. The "-dev" suffix lets you create a separate prod App later without name collisions. |
 | **Homepage URL** | `https://github.com/<your-username>/ai-pr-review-copilot` (or any URL — it just has to be valid). |
 | **Webhook → Active** | ✓ checked |
-| **Webhook URL** | `<your ngrok HTTPS URL>/webhooks/github` |
+| **Webhook URL** | `<your tunnel HTTPS URL>/webhooks/github` (the cloudflared or ngrok URL from step 2) |
 | **Webhook secret** | The hex string from step 1. Paste it exactly. |
 | **Callback URL** | Leave blank (no OAuth flow needed for webhook-only mode). |
 | **Setup URL** | Leave blank. |
@@ -139,7 +157,7 @@ In the App's settings → **Advanced** → **Recent Deliveries**. Each delivery 
 If you see 401s, check:
 
 1. The webhook secret in step 1 matches `apps/api/.env` exactly (no trailing newline).
-2. The ngrok URL is still the same as what you put in the App's webhook URL (ngrok URLs change on restart).
+2. The tunnel URL is still the same as what you put in the App's webhook URL (free-tier cloudflared and ngrok URLs change on restart).
 3. `apps/api` is actually running (not crashed).
 
 ---
