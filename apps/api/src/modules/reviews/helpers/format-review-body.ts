@@ -4,11 +4,17 @@ import type { FindingCounts } from './finding-counts.types';
 
 type SanitizeFn = (input: string) => string;
 
-// Slim Review-with-inlines body. Per-finding rendering moved to
-// format-inline-comment (anchorable findings) and
-// format-walkthrough-body (outside-diff findings). The Review's
-// body only carries the self-identifying header, the UUID marker,
-// a counts row, and (when applicable) a pointer to the Walkthrough.
+// Pointer-only Review body. The counts table and any outside-diff
+// rendering live in the walkthrough issue comment; the review's body
+// exists only to carry the UUID marker (so duplicate-review detection
+// works) and to point readers at the walkthrough.
+//
+// History: an earlier "slim" iteration of this body still rendered the
+// counts table AND the same header as the walkthrough. That collided
+// visually in the PR timeline — the walkthrough issue comment and the
+// review event landed within seconds of each other and looked like
+// duplicate posts. The counts table is the walkthrough's job; this
+// file's job is the marker plus a one-line pointer.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Severity-rich Finding shape. The processor narrows the raw Finding
@@ -22,10 +28,8 @@ export interface FormatReviewBodyInput {
   reviewId: string;
   counts: FindingCounts;
   hasOutsideDiff: boolean;
-  // Sanitizer is plumbed in for symmetry with the other formatters
-  // even though the slim body does not currently render any
-  // user-controlled markdown — callers can keep passing it without
-  // a code change if findings ever return to the body.
+  // Sanitizer kept for symmetry with the other formatters even though
+  // this body doesn't currently render user-controlled markdown.
   sanitize?: SanitizeFn;
 }
 
@@ -35,30 +39,25 @@ export function formatReviewBody(input: FormatReviewBodyInput): string {
       `formatReviewBody: reviewId is not a canonical UUID (got "${input.reviewId}").`,
     );
   }
-  // sanitize is intentionally unused right now — keep the param for
-  // symmetry. Reference it once to make tsc happy in strict mode.
   void (input.sanitize ?? sanitizeFindingMarkdown);
 
-  const header = '**AI PR Review Copilot** — automated review';
   const marker = `<!-- ai-pr-review-copilot:v1:review-id=${input.reviewId} -->`;
 
-  const lines: string[] = [header, marker, ''];
-
   if (input.counts.total === 0) {
-    lines.push('_No findings — the diff matched no team rules._');
-    return lines.join('\n');
+    return [marker, '_No findings — the diff matched no team rules._'].join('\n');
   }
 
-  lines.push('| 🛑 errors | ⚠️ warnings | 💡 info |');
-  lines.push('|---|---|---|');
-  lines.push(
-    `| ${input.counts.error} | ${input.counts.warning} | ${input.counts.info} |`,
-  );
+  // With findings: a single pointer line. Header + counts live in the
+  // walkthrough comment. Mentioning the walkthrough by name keeps the
+  // reader oriented when both posts land in the same timeline.
+  const lines: string[] = [
+    marker,
+    '_Inline comments below. See the walkthrough comment for the full summary._',
+  ];
 
   if (input.hasOutsideDiff) {
-    lines.push('');
     lines.push(
-      '_See the Walkthrough comment above for findings outside this diff._',
+      '_Some findings sit outside this diff and are listed in the walkthrough._',
     );
   }
 
