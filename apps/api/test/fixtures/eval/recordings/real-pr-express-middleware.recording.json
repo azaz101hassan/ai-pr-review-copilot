@@ -5,139 +5,34 @@
     {
       "rule_id": "prefer-const",
       "title": "Use const for variables that are never reassigned",
-      "message": "Replace `var` declarations with `const` for variables that are never reassigned (jwt, config, token, decoded, userId, role, message). `const` signals intent and prevents accidental reassignment.",
+      "message": "Replace `var` with `const` for variables that are never reassigned. Variables like `jwt`, `config`, `token`, `decoded`, `userId`, `role`, and `message` are not reassigned after initialization, so they should use `const` instead. `const` signals intent and prevents accidental reassignment.",
       "location_hint": "src/middleware/auth.js:1-27",
       "citation": "var jwt = require('jsonwebtoken');\nvar config = require('../config');\n...\nvar token = req.headers.authorization?.split(' ')[1];\n...\nvar decoded = jwt.verify(token, process.env.JWT_SECRET);\n...\nvar userId = decoded.id;\nvar role = decoded.role;\n...\nvar message = err.message;",
       "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "The variable jwt is never reassigned in the code.",
-            "kind": "",
-            "reason": "The diff shows that jwt is assigned once via `var jwt = require('jsonwebtoken');` at line 1 and is never reassigned anywhere in the function. The rule document states that if a binding is never reassigned, it should be declared const.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variable config is never reassigned in the code.",
-            "kind": "",
-            "reason": "The diff shows that config is assigned once via `var config = require('../config');` at line 2 and is never reassigned anywhere in the function. The rule document states that if a binding is never reassigned, it should be declared const.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variable token is never reassigned in the code.",
-            "kind": "",
-            "reason": "The diff shows that token is assigned once via `var token = req.headers.authorization?.split(' ')[1];` and is never reassigned anywhere in the function. The rule document states that if a binding is never reassigned, it should be declared const.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variable decoded is never reassigned in the code.",
-            "kind": "",
-            "reason": "The diff shows that decoded is assigned once via `var decoded = jwt.verify(token, process.env.JWT_SECRET);` and is never reassigned anywhere in the function. The rule document states that if a binding is never reassigned, it should be declared const.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variable userId is never reassigned in the code.",
-            "kind": "",
-            "reason": "The diff shows that userId is assigned once via `var userId = decoded.id;` and is never reassigned anywhere in the function. The rule document states that if a binding is never reassigned, it should be declared const.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variable role is never reassigned in the code.",
-            "kind": "",
-            "reason": "The diff shows that role is assigned once via `var role = decoded.role;` and is never reassigned anywhere in the function. The rule document states that if a binding is never reassigned, it should be declared const.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variable message is never reassigned in the code.",
-            "kind": "",
-            "reason": "The diff shows that message is assigned once via `var message = err.message;` and is never reassigned anywhere in the function. The rule document states that if a binding is never reassigned, it should be declared const.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Using const for variables that are never reassigned signals intent and prevents accidental reassignment.",
-            "kind": "",
-            "reason": "This statement is directly from the rule document, which states: 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.' This is the rationale provided in the rule.",
-            "verdict": "supported"
-          }
-        ]
+        "score": null,
+        "claims": []
       }
     },
     {
       "rule_id": "no-console",
       "title": "Do not leave console.log in production code",
-      "message": "Remove `console.warn()` and `console.error()` calls from production code. Replace with the project's logger instead to avoid noise in production logs.",
-      "location_hint": "src/middleware/auth.js:19,26",
+      "message": "Remove `console.warn` and `console.error` calls from production code. Use the project's logger instead to maintain consistent logging and avoid leaking sensitive information in production logs.",
+      "location_hint": "src/middleware/auth.js:19-20,25",
       "citation": "console.warn('Token has no expiration');\n...\nconsole.error('Auth failed: ' + message);",
       "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "console.warn() calls should be removed from production code.",
-            "kind": "",
-            "reason": "The rule document states 'Do not leave console.log in production code' and explains that 'Stale console.log calls are noise in production logs.' The rule applies to console debugging methods generally. The diff shows a console.warn() call at line 19 in src/middleware/auth.js, which is production code (middleware). The finding's message explicitly states to 'Remove `console.warn()` and `console.error()` calls from production code,' which aligns with the rule's intent to eliminate console debugging calls from production.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "console.error() calls should be removed from production code.",
-            "kind": "",
-            "reason": "The rule document states 'Do not leave console.log in production code' and explains that 'Stale console.log calls are noise in production logs.' The rule applies to console debugging methods generally. The diff shows a console.error() call at line 26 in src/middleware/auth.js, which is production code (middleware). The finding's message explicitly states to 'Remove `console.warn()` and `console.error()` calls from production code,' which aligns with the rule's intent to eliminate console debugging calls from production.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "console.warn() and console.error() calls should be replaced with the project's logger.",
-            "kind": "",
-            "reason": "The rule document explicitly states 'Replacement: use the project's logger' and provides an example showing logger.debug() as the replacement for console.log(). The finding's message states 'Replace with the project's logger instead to avoid noise in production logs,' which directly mirrors the rule's guidance. This is a core recommendation of the rule.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Leaving console.warn() and console.error() in production code causes noise in production logs.",
-            "kind": "",
-            "reason": "The rule document states 'Stale console.log calls are noise in production logs and may leak request bodies or PII.' The finding's message states 'to avoid noise in production logs,' which directly aligns with the rule's explanation of why console calls should be removed.",
-            "verdict": "supported"
-          }
-        ]
+        "score": null,
+        "claims": []
       }
     },
     {
       "rule_id": "config-service-only",
       "title": "All env access goes through ConfigService",
-      "message": "Replace direct `process.env.JWT_SECRET` access with a typed property from ConfigService. Add a jwtSecret property to ConfigService and inject it instead of reading process.env directly.",
+      "message": "Replace direct `process.env.JWT_SECRET` access with a typed property from ConfigService. ConfigService should be injected and validate the secret at construction time, not at runtime. Add a `jwtSecret` property to ConfigService and inject it into this middleware.",
       "location_hint": "src/middleware/auth.js:11",
-      "citation": "var decoded = jwt.verify(token, process.env.JWT_SECRET);",
+      "citation": "const decoded = jwt.verify(token, process.env.JWT_SECRET);",
       "faithfulness": {
-        "score": 0.8,
-        "claims": [
-          {
-            "claim": "Direct process.env.JWT_SECRET access exists in src/middleware/auth.js at line 11.",
-            "kind": "",
-            "reason": "The citation shows 'var decoded = jwt.verify(token, process.env.JWT_SECRET);' and the diff shows this line still contains process.env.JWT_SECRET access (line 11 in the modified file). The diff does not remove this direct access.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "A jwtSecret property should be added to ConfigService.",
-            "kind": "",
-            "reason": "The rule document states 'Add a typed property + validator on ConfigService' for env values. The finding explicitly requests 'Add a jwtSecret property to ConfigService'. However, the diff does not show any changes to ConfigService or the addition of a jwtSecret property.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "ConfigService should be injected instead of reading process.env directly.",
-            "kind": "",
-            "reason": "The rule document explicitly states 'inject ConfigService where you need the value' and the finding requests 'inject it instead of reading process.env directly'. However, the diff shows that process.env.JWT_SECRET is still being accessed directly without ConfigService injection.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The code in src/middleware/auth.js currently reads process.env.JWT_SECRET directly.",
-            "kind": "",
-            "reason": "The diff clearly shows line 11 contains 'var decoded = jwt.verify(token, process.env.JWT_SECRET);' which is direct process.env access, not through ConfigService.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The diff implements the recommended changes to use ConfigService for JWT_SECRET access.",
-            "kind": "",
-            "reason": "The diff does not show ConfigService being injected into the auth middleware, nor does it show process.env.JWT_SECRET being replaced with a ConfigService property. The direct process.env.JWT_SECRET access remains unchanged in the diff.",
-            "verdict": "not_supported"
-          }
-        ]
+        "score": null,
+        "claims": []
       }
     }
   ],
@@ -160,7 +55,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "9b4928f03d80279e2c388424218217e53a3fd2bc0fe9029e33858d139390599e",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }
