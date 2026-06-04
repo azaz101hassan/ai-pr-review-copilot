@@ -3,36 +3,48 @@
   "fixtureId": "clean-config-constant",
   "findings": [
     {
-      "rule_id": "no-magic-numbers",
-      "title": "Name your magic numbers",
-      "message": "Extract the glob pattern and directory path into named constants at the top of the file. Currently './src/infrastructure/db/schema/*.ts' and './src/infrastructure/db/migrations' are configuration values that should have descriptive names to clarify their purpose.",
+      "rule_id": "prefer-const",
+      "title": "Use const for variables that are never reassigned",
+      "message": "The variables SCHEMA_GLOB and MIGRATIONS_DIR are declared with let but are never reassigned. Declare them as const to signal intent and prevent accidental reassignment.",
       "location_hint": "drizzle.config.ts:3-4",
-      "citation": "const SCHEMA_GLOB = './src/infrastructure/db/schema/*.ts';\nconst MIGRATIONS_DIR = './src/infrastructure/db/migrations';",
+      "citation": "let SCHEMA_GLOB = './src/infrastructure/db/schema/*.ts';\nlet MIGRATIONS_DIR = './src/infrastructure/db/migrations';",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The glob pattern './src/infrastructure/db/schema/*.ts' should be extracted into a named constant.",
+            "claim": "The variable SCHEMA_GLOB is declared with let in the original code.",
             "kind": "",
-            "reason": "The rule document states that literal values scattered through code should be pulled into named constants at the top of the file so the reader sees the intent. The finding cites this glob pattern as a configuration value that should have a descriptive name. The diff shows this pattern has been extracted into a named constant SCHEMA_GLOB at the top of the file, supporting the claim that extraction is appropriate.",
+            "reason": "The citation shows 'let SCHEMA_GLOB = './src/infrastructure/db/schema/*.ts';' which indicates SCHEMA_GLOB was originally declared with let.",
             "verdict": "supported"
           },
           {
-            "claim": "The directory path './src/infrastructure/db/migrations' should be extracted into a named constant.",
+            "claim": "The variable MIGRATIONS_DIR is declared with let in the original code.",
             "kind": "",
-            "reason": "The rule document states that literal values should be pulled into named constants at the top of the file. The finding cites this directory path as a configuration value that should have a descriptive name. The diff shows this path has been extracted into a named constant MIGRATIONS_DIR at the top of the file, supporting the claim that extraction is appropriate.",
+            "reason": "The citation shows 'let MIGRATIONS_DIR = './src/infrastructure/db/migrations';' which indicates MIGRATIONS_DIR was originally declared with let.",
             "verdict": "supported"
           },
           {
-            "claim": "The named constants should be placed at the top of the file.",
+            "claim": "The variable SCHEMA_GLOB is never reassigned.",
             "kind": "",
-            "reason": "The rule document explicitly states constants should be pulled 'at the top of the file (or a shared constants module)'. The diff shows SCHEMA_GLOB and MIGRATIONS_DIR are defined at lines 3-4, immediately after the import statement and before the export default statement, which is the top of the file. This directly supports the claim.",
+            "reason": "The diff shows SCHEMA_GLOB is assigned once at line 3 and then used in the schema property at line 9. There is no evidence in the diff of any reassignment of SCHEMA_GLOB after its initial declaration.",
             "verdict": "supported"
           },
           {
-            "claim": "The named constants should have descriptive names to clarify their purpose.",
+            "claim": "The variable MIGRATIONS_DIR is never reassigned.",
             "kind": "",
-            "reason": "The rule document states constants should be named 'so the reader sees the intent, not the value'. The finding explicitly states the constants should have 'descriptive names to clarify their purpose'. The diff shows the constants are named SCHEMA_GLOB and MIGRATIONS_DIR, which are descriptive names that clarify what each value represents (a schema glob pattern and a migrations directory). This supports the claim.",
+            "reason": "The diff shows MIGRATIONS_DIR is assigned once at line 4 and then used in the out property at line 10. There is no evidence in the diff of any reassignment of MIGRATIONS_DIR after its initial declaration.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "SCHEMA_GLOB and MIGRATIONS_DIR should be declared as const to signal intent and prevent accidental reassignment.",
+            "kind": "",
+            "reason": "The rule document states: 'If a binding is never reassigned, declare it const. const signals intent and prevents accidental reassignment that breaks the reader's mental model.' Since both variables are never reassigned, this rule applies to them.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The diff changes SCHEMA_GLOB and MIGRATIONS_DIR from let to const declarations.",
+            "kind": "",
+            "reason": "The diff shows the variables are now declared with 'const SCHEMA_GLOB' and 'const MIGRATIONS_DIR' at lines 3-4, whereas the citation shows they were originally declared with 'let'.",
             "verdict": "supported"
           }
         ]
@@ -91,7 +103,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }

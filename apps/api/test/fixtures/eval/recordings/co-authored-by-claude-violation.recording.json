@@ -5,41 +5,35 @@
     {
       "rule_id": "no-co-authored-by-claude",
       "title": "Never add Co-Authored-By: Claude to commits or PRs",
-      "message": "The CHANGELOG.md adds `Co-Authored-By: Claude <noreply@anthropic.com>` and a reference to \"Generated with Claude Code\" in the release notes. Per team standards, commit messages and PR descriptions must not contain AI-attribution trailers; the author is the human running the session. Remove these lines from the changelog.",
+      "message": "The CHANGELOG.md contains `Co-Authored-By: Claude` and `Generated with Claude Code` trailers that must be removed. These trailers should not appear in commit messages or PR descriptions — the author of every commit is the human running the session.",
       "location_hint": "CHANGELOG.md:10-12",
       "citation": "Co-Authored-By: Claude <noreply@anthropic.com>\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
       "faithfulness": {
-        "score": 0.8,
+        "score": 0.75,
         "claims": [
           {
-            "claim": "The CHANGELOG.md adds `Co-Authored-By: Claude <noreply@anthropic.com>` to the release notes.",
+            "claim": "CHANGELOG.md contains `Co-Authored-By: Claude` trailer",
             "kind": "",
-            "reason": "The diff shows lines 10-11 in CHANGELOG.md containing exactly this text: `Co-Authored-By: Claude <noreply@anthropic.com>`",
+            "reason": "The diff shows that CHANGELOG.md has been modified to add a new section (v0.4.1) that includes the line `Co-Authored-By: Claude <noreply@anthropic.com>` at lines 10-11.",
             "verdict": "supported"
           },
           {
-            "claim": "The CHANGELOG.md adds a reference to 'Generated with Claude Code' in the release notes.",
+            "claim": "CHANGELOG.md contains `Generated with Claude Code` trailer",
             "kind": "",
-            "reason": "The diff shows line 12 in CHANGELOG.md containing `🤖 Generated with [Claude Code](https://claude.com/claude-code)`",
+            "reason": "The diff shows that CHANGELOG.md has been modified to add the line `🤖 Generated with [Claude Code](https://claude.com/claude-code)` at line 12.",
             "verdict": "supported"
           },
           {
-            "claim": "Per team standards, commit messages and PR descriptions must not contain AI-attribution trailers.",
+            "claim": "These trailers must be removed from CHANGELOG.md",
             "kind": "",
-            "reason": "The rule document explicitly states: 'Commit messages, PR descriptions, and review comments must not contain `Co-Authored-By: Claude`, `Generated with Claude Code`, or any other AI-attribution trailer.'",
-            "verdict": "supported"
+            "reason": "The rule document explicitly states that commit messages, PR descriptions, and review comments must not contain `Co-Authored-By: Claude`, `Generated with Claude Code`, or any other AI-attribution trailer. The finding cites this rule and indicates these trailers should not appear. However, the diff shows these trailers being ADDED to CHANGELOG.md, not removed. The rule document does not specifically address whether CHANGELOG.md (as a documentation file) should follow this rule, but the finding asserts they must be removed.",
+            "verdict": "unclear"
           },
           {
-            "claim": "The author of every commit is the human running the session, not Claude.",
+            "claim": "The author of every commit is the human running the session",
             "kind": "",
-            "reason": "The rule document states: 'The author of every commit is the human running the session.'",
+            "reason": "This statement is directly from the rule document, which states 'The author of every commit is the human running the session.' It is a principle underlying the rule.",
             "verdict": "supported"
-          },
-          {
-            "claim": "The lines containing AI-attribution trailers should be removed from the changelog.",
-            "kind": "",
-            "reason": "The finding's message explicitly states 'Remove these lines from the changelog.' However, the diff shows a contradictory change: the script `format-commit.sh` was modified to include a comment stating 'NOTE: we DO want Co-Authored-By: Claude trailers in the release notes so contributors get credit. Removed the filter line above.' This indicates the AI-attribution lines were intentionally kept in the changelog, contrary to the finding's directive and the rule document.",
-            "verdict": "not_supported"
           }
         ]
       }
@@ -64,7 +58,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "c672df107db3a1f636bb278fbe953c20fee9ac8024eba5dff08a6a8735cc97b4",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }

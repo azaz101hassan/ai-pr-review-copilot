@@ -1,62 +1,11 @@
 {
-  "status": "emitted",
+  "status": "threw",
   "fixtureId": "voyage-batching-clean",
-  "findings": [
-    {
-      "rule_id": "no-await-in-loop",
-      "title": "Avoid await inside a loop when iterations are independent",
-      "message": "The `await new Promise((resolve) => setTimeout(resolve, retryAfterMs))` call is awaited inside a retry loop. While this is a blocking wait for rate-limiting that requires serialization per attempt, the rule expects all delay/sleep calls to use Promise.all for independent iterations or be justified. If retrying with delays is the intended behavior (which it is — to respect rate-limit windows), document why sequential retries are necessary to avoid future 'fixes'.",
-      "location_hint": "apps/api/src/infrastructure/voyage/voyage-embedding.provider.ts:176",
-      "citation": "for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {\n  // ...\n  if (isRateLimit && !isLastAttempt) {\n    await new Promise((resolve) => setTimeout(resolve, retryAfterMs));\n    continue;\n  }",
-      "faithfulness": {
-        "score": 0.8,
-        "claims": [
-          {
-            "claim": "The `await new Promise((resolve) => setTimeout(resolve, retryAfterMs))` call is awaited inside a retry loop.",
-            "kind": "",
-            "reason": "The diff shows the code at lines 176-177 (in the context of the loop starting at line 126): `if (isRateLimit && !isLastAttempt) { await new Promise((resolve) => setTimeout(resolve, retryAfterMs)); continue; }`. This confirms the await is inside the for-loop that iterates from `attempt = 0` to `attempt <= MAX_RATE_LIMIT_RETRIES`.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The await is a blocking wait for rate-limiting that requires serialization per attempt.",
-            "kind": "",
-            "reason": "The diff shows the code is handling HTTP 429 (rate-limit) responses with a retry-after delay. The comment in the diff (lines 16-24) explains: 'Voyage's free-tier embeddings quota resets on a ~30s window; 35s gives the window time to roll over plus a small safety margin.' This indicates the delay is intentionally sequential to respect rate-limit windows. The rule document states 'Keep the loop when each iteration must wait for the previous one', which applies here since rate-limit retries inherently require sequential waiting.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The rule expects all delay/sleep calls to use Promise.all for independent iterations.",
-            "kind": "",
-            "reason": "The rule document states: 'Awaiting inside a for-loop serializes calls that could run in parallel. If the iterations are independent, use Promise.all.' However, the rule also explicitly states: 'Keep the loop when each iteration must wait for the previous one (e.g., paginated reads where the next cursor depends on the prior response).' The rate-limit retry scenario is analogous to the paginated reads example—each iteration must wait for the previous one to complete before retrying. The rule does not mandate Promise.all for all delay calls; it only requires it when iterations are independent.",
-            "verdict": "not_supported"
-          },
-          {
-            "claim": "Retrying with delays is the intended behavior to respect rate-limit windows.",
-            "kind": "",
-            "reason": "The diff includes extensive comments explaining the retry logic. Lines 16-24 state: 'In-provider retry policy for 429 responses. Voyage's free-tier embeddings quota resets on a ~30s window; 35s gives the window time to roll over plus a small safety margin.' The code explicitly checks `if (isRateLimit && !isLastAttempt)` before awaiting the delay, confirming this is intentional behavior.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Sequential retries are necessary to avoid future 'fixes'.",
-            "kind": "",
-            "reason": "The finding message states the code should be 'documented why sequential retries are necessary to avoid future 'fixes'.' The diff does include documentation: the comment block at lines 16-24 explains the rationale for the in-provider retry policy and why it respects rate-limit windows. This documentation serves the purpose of explaining why sequential retries are necessary.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    }
-  ],
-  "ruleSet": [
-    "config-service-only",
-    "drizzle-schema-source-of-truth",
-    "module-tier-dependencies",
-    "no-await-in-loop",
-    "no-co-authored-by-claude",
-    "no-empty-catch",
-    "no-mocks-for-the-db",
-    "no-throw-literal",
-    "repository-pattern",
-    "thin-controllers"
-  ],
+  "error": {
+    "errorCode": "credit_balance_too_low",
+    "turnCount": null,
+    "toolCalls": null
+  },
   "provenance": {
     "promptVersion": "v3",
     "model": "claude-haiku-4-5-20251001",
@@ -64,7 +13,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }

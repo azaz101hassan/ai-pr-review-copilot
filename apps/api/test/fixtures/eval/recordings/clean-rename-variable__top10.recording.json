@@ -5,23 +5,29 @@
     {
       "rule_id": "explicit-function-return-type",
       "title": "Declare return types on exported functions",
-      "message": "The exported function `findAvailableWindows` is missing an explicit return type annotation. Add `: TimeSlot[]` to ensure the return type is declared as part of the function contract.",
-      "location_hint": "src/scheduling/availability.ts:12",
-      "citation": "export function findAvailableWindows(\n  dayStart: Date,\n  dayEnd: Date,\n  bookings: TimeSlot[],\n  windowDurationMs: number,\n): TimeSlot[] {",
+      "message": "The exported function `findAvailableWindows` is missing an explicit return type annotation. Add `: TimeSlot[]` to the function signature to document the return contract and prevent silent type changes from internal refactors.",
+      "location_hint": "src/scheduling/availability.ts:12-17",
+      "citation": "export function findAvailableWindows(\n  dayStart: Date,\n  dayEnd: Date,\n  bookings: TimeSlot[],\n  windowDurationMs: number,\n): TimeSlot[]",
       "faithfulness": {
-        "score": 0,
+        "score": 0.6666666666666666,
         "claims": [
           {
             "claim": "The exported function `findAvailableWindows` is missing an explicit return type annotation.",
             "kind": "",
-            "reason": "The citation shows the function signature with `: TimeSlot[]` explicitly declared as the return type. The diff also confirms that the function in the updated code (line 18 in the new version) includes the return type annotation `: TimeSlot[]`. Therefore, the function does have an explicit return type annotation.",
+            "reason": "The citation provided shows the function signature with `: TimeSlot[]` explicitly declared as the return type. The diff also shows the function with the return type annotation `: TimeSlot[]` on line 17. The function does have an explicit return type annotation, contradicting the claim.",
             "verdict": "not_supported"
           },
           {
-            "claim": "Adding `: TimeSlot[]` to the function ensures the return type is declared as part of the function contract.",
+            "claim": "Adding `: TimeSlot[]` to the function signature would document the return contract.",
             "kind": "",
-            "reason": "The rule document states that explicit return types are a contract that prevent internal refactors from silently widening the public type. The citation and diff both show that `: TimeSlot[]` is already present in the function signature. The claim about adding this annotation is accurate in principle (it does ensure the return type is declared), but it is not applicable here since the annotation already exists.",
-            "verdict": "unclear"
+            "reason": "The rule document states that explicit return types are a contract that prevent internal refactors from silently widening the public type. The citation and diff both show `: TimeSlot[]` is already present in the function signature. However, the rule document does support the general principle that explicit return types document the return contract.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Adding `: TimeSlot[]` to the function signature would prevent silent type changes from internal refactors.",
+            "kind": "",
+            "reason": "The rule document explicitly states: 'Explicit return types are a contract — they prevent an internal refactor from silently widening the public type.' This directly supports the claim that explicit return types prevent silent type changes from internal refactors.",
+            "verdict": "supported"
           }
         ]
       }
@@ -46,7 +52,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }

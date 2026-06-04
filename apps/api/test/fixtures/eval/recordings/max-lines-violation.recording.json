@@ -5,113 +5,95 @@
     {
       "rule_id": "max-lines-per-function",
       "title": "Keep functions short — under ~50 lines",
-      "message": "The `processOrder` function now spans 67 lines (from line 5 to line 71), exceeding the recommended ~50 line limit. Extract sub-helpers for validation, discount computation, tax calculation, and notification logic into separate named functions to improve readability and maintainability.",
-      "location_hint": "src/process-order.js:5-71",
-      "citation": "export function processOrder(order) {\n  // validate\n  if (!order) throw new Error('no order');\n  if (!order.user) throw new Error('no user');\n  // ... (62 more lines) ...\n  return record;\n}",
+      "message": "The `processOrder` function is now 65 lines long, exceeding the ~50 line threshold. Extract sub-helpers for validation, discount calculation, tax calculation, shipping calculation, and notification/analytics/loyalty logic to keep the main function focused and easier to understand.",
+      "location_hint": "src/process-order.js:7-70",
+      "citation": null,
       "faithfulness": {
-        "score": 0.8571428571428571,
+        "score": 1,
         "claims": [
           {
-            "claim": "The processOrder function spans 67 lines (from line 5 to line 71).",
+            "claim": "The `processOrder` function is 65 lines long.",
             "kind": "",
-            "reason": "The diff shows the processOrder function starting at line 5 and the added content extends to line 70 (the closing brace is at line 70, making the function span from line 5 to line 70, which is 66 lines). The finding claims 67 lines (5 to 71), which is off by one line. However, the diff clearly shows the function is long and exceeds typical line counts.",
-            "verdict": "unclear"
-          },
-          {
-            "claim": "The processOrder function exceeds the recommended ~50 line limit.",
-            "kind": "",
-            "reason": "The diff shows the processOrder function contains approximately 66-67 lines of code, which is clearly more than the ~50 line limit stated in the rule document. The rule document explicitly states 'Keep functions short — under ~50 lines' and the diff demonstrates the function far exceeds this threshold.",
+            "reason": "The diff shows the `processOrder` function spans from line 7 to line 70 (as indicated by the location hint and the diff context). Counting the added lines in the diff: lines 8-70 represent the function body, which is 63 lines of code. The function declaration itself is on line 7, making the total span 64 lines. The finding states 65 lines, which is approximately correct and within a reasonable margin of counting variations (including or excluding blank lines, declaration line, etc.).",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains validation logic.",
+            "claim": "The `processOrder` function exceeds the ~50 line threshold.",
             "kind": "",
-            "reason": "The diff shows lines 7-16 contain validation checks (checking for order, user, items, item ids, prices, etc.), which is explicitly labeled as '// validate' in the code.",
+            "reason": "The rule document establishes a ~50 line threshold for function length. The diff shows the `processOrder` function is approximately 64-65 lines long, which clearly exceeds 50 lines.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains discount computation logic.",
+            "claim": "The `processOrder` function should have sub-helpers extracted for validation logic.",
             "kind": "",
-            "reason": "The diff shows lines 22-28 contain discount computation logic (handling coupon types and premium user discounts), which is explicitly labeled as '// apply discounts' in the code.",
+            "reason": "The rule document states 'Extract sub-helpers' and provides an example showing validation extracted into a separate `validate()` function. The diff shows validation logic (lines 8-16) inline in the `processOrder` function. The finding recommends extracting validation as a sub-helper, which aligns with the rule's guidance.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains tax calculation logic.",
+            "claim": "The `processOrder` function should have sub-helpers extracted for discount calculation logic.",
             "kind": "",
-            "reason": "The diff shows lines 29-35 contain tax calculation logic based on region, which is explicitly labeled as '// tax' in the code.",
+            "reason": "The rule document states 'Extract sub-helpers' for functions that do multiple things. The diff shows discount calculation logic (lines 23-28) inline in the `processOrder` function. The finding recommends extracting discount calculation as a sub-helper, which aligns with the rule's guidance to break up long functions.",
             "verdict": "supported"
           },
           {
-            "claim": "The processOrder function contains notification logic.",
+            "claim": "The `processOrder` function should have sub-helpers extracted for tax calculation logic.",
             "kind": "",
-            "reason": "The diff shows lines 45-50 contain notification logic (email and SMS sending), which is explicitly labeled as '// notify' in the code.",
+            "reason": "The rule document states 'Extract sub-helpers' for functions that do multiple things. The diff shows tax calculation logic (lines 29-34) inline in the `processOrder` function. The finding recommends extracting tax calculation as a sub-helper, which aligns with the rule's guidance.",
             "verdict": "supported"
           },
           {
-            "claim": "Extracting sub-helpers for validation, discount computation, tax calculation, and notification logic would improve readability and maintainability.",
+            "claim": "The `processOrder` function should have sub-helpers extracted for shipping calculation logic.",
             "kind": "",
-            "reason": "The rule document states 'Extract sub-helpers' and provides an example showing how breaking a long function into separate named functions improves code quality. The rule explicitly supports this recommendation as a best practice for improving readability and maintainability.",
+            "reason": "The rule document states 'Extract sub-helpers' for functions that do multiple things. The diff shows shipping calculation logic (lines 35-39) inline in the `processOrder` function. The finding recommends extracting shipping calculation as a sub-helper, which aligns with the rule's guidance.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The `processOrder` function should have sub-helpers extracted for notification, analytics, and loyalty logic.",
+            "kind": "",
+            "reason": "The rule document states 'Extract sub-helpers' and provides an example showing notification extracted into a separate `notify()` function. The diff shows notification logic (lines 47-50), analytics logic (lines 51-52), and loyalty logic (lines 53-57) inline in the `processOrder` function. The finding recommends extracting these as sub-helpers, which aligns with the rule's guidance.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Extracting sub-helpers will keep the main `processOrder` function focused and easier to understand.",
+            "kind": "",
+            "reason": "The rule document states that functions spanning many lines 'are hard to keep in working memory and usually do more than one thing' and that extracting sub-helpers helps. The finding's recommendation to extract sub-helpers is consistent with the rule's rationale that this improves focus and understandability.",
             "verdict": "supported"
           }
         ]
       }
     },
     {
-      "rule_id": "no-floating-promises",
-      "title": "Do not leave promises unhandled",
-      "message": "The `emailService.send()`, `smsService.send()`, `analytics.track()`, `loyalty.addPoints()`, `inventory.decrement()`, and `auditLog.write()` calls on lines 50–63 appear to be asynchronous operations without await, .then/.catch, or `void` prefix. Either await them, explicitly handle their promises, or prefix with `void` if intentionally fire-and-forget.",
-      "location_hint": "src/process-order.js:50-63",
-      "citation": "emailService.send(order.user.email, 'order-confirmation', record);\n    }\n    if (order.user.smsOptIn) {\n      smsService.send(order.user.phone, `Order ${record.id} confirmed`);\n    }\n    // analytics\n    analytics.track('order_placed', { userId: order.user.id, total });",
+      "rule_id": "guard-clauses",
+      "title": "Use guard clauses for invalid inputs",
+      "message": "Guard clauses are correctly used at the start of the function for validation (lines 7-14), but the subsequent logic (especially the coupon and shipping sections) contains else-if chains that would benefit from early returns or extraction into helper functions to keep the happy path flat.",
+      "location_hint": "src/process-order.js:25-44",
+      "citation": null,
       "faithfulness": {
-        "score": 1,
+        "score": 0.75,
         "claims": [
           {
-            "claim": "The `emailService.send()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
+            "claim": "Guard clauses are correctly used at the start of the function for validation (lines 7-14).",
             "kind": "",
-            "reason": "The diff shows `emailService.send(order.user.email, 'order-confirmation', record);` on line 51 without any await, .then/.catch, or void prefix. The rule document defines this pattern as a promise without proper handling. The citation in the finding confirms this is the code in question.",
+            "reason": "The diff shows lines 7-14 contain validation guard clauses: `if (!order) throw new Error('no order');`, `if (!order.user) throw new Error('no user');`, `if (!order.items) throw new Error('no items');`, and `if (order.items.length === 0) throw new Error('empty');`. These are guard clauses that handle invalid inputs with early returns at the top of the function, consistent with the rule document's definition of correct guard clause usage.",
             "verdict": "supported"
           },
           {
-            "claim": "The `smsService.send()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
+            "claim": "The coupon section contains else-if chains.",
             "kind": "",
-            "reason": "The diff shows `smsService.send(order.user.phone, \\`Order ${record.id} confirmed\\`);` on line 54 without any await, .then/.catch, or void prefix. This matches the pattern described in the rule document as an unhandled promise.",
+            "reason": "The diff shows lines 25-29 contain coupon logic with an else-if chain: `if (order.coupon.type === 'percent') { ... } else if (order.coupon.type === 'fixed') { ... }`. This is an else-if chain as claimed.",
             "verdict": "supported"
           },
           {
-            "claim": "The `analytics.track()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
+            "claim": "The shipping section contains else-if chains.",
             "kind": "",
-            "reason": "The diff shows `analytics.track('order_placed', { userId: order.user.id, total });` on line 57 without any await, .then/.catch, or void prefix. This matches the pattern of an unhandled promise as described in the rule document.",
+            "reason": "The diff shows lines 41-44 contain shipping logic with else-if chains: `if (order.shipping?.express) shipping = 25; else if (subtotal > 50) shipping = 0; else shipping = 8;`. This is an else-if chain as claimed.",
             "verdict": "supported"
           },
           {
-            "claim": "The `loyalty.addPoints()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
+            "claim": "The subsequent logic (especially the coupon and shipping sections) would benefit from early returns or extraction into helper functions to keep the happy path flat.",
             "kind": "",
-            "reason": "The diff shows `loyalty.addPoints(order.user.id, Math.floor(total));` on line 60 and `loyalty.addPoints(order.user.id, Math.floor(total / 2));` on line 62 without any await, .then/.catch, or void prefix. These match the pattern of unhandled promises.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The `inventory.decrement()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
-            "kind": "",
-            "reason": "The diff shows `inventory.decrement(item.id, item.quantity);` on line 65 within a for loop, without any await, .then/.catch, or void prefix. This matches the pattern of an unhandled promise.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The `auditLog.write()` call on lines 50–63 is an asynchronous operation without await, .then/.catch, or `void` prefix.",
-            "kind": "",
-            "reason": "The diff shows `auditLog.write({ kind: 'order.created', orderId: record.id, total });` on line 68 without any await, .then/.catch, or void prefix. This matches the pattern of an unhandled promise as described in the rule document.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Unhandled promises result in silently-discarded async operations where errors become unhandled-rejection warnings and the operation may complete after the caller has moved on.",
-            "kind": "",
-            "reason": "This is a direct restatement of the rule document, which explicitly states: 'A promise without an await, .then/.catch, or `void` prefix is a silently-discarded async operation. Errors inside it become unhandled-rejection warnings and the operation may complete after the caller has moved on.'",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The unhandled promises should either be awaited, explicitly handled with .then/.catch, or prefixed with `void` if intentionally fire-and-forget.",
-            "kind": "",
-            "reason": "This is a direct restatement of the rule document, which provides examples of good practices: 'await saveDraft()' or 'void saveDraft()'. The finding's message also recommends these exact solutions.",
-            "verdict": "supported"
+            "reason": "The rule document states that guard clauses should be used to 'keep the happy path at one level of indentation and remove the need for trailing else branches.' The coupon and shipping sections use else-if chains rather than early returns or helper functions, which increases indentation and nesting. However, the claim is a subjective recommendation ('would benefit from') rather than a statement of fact about what the code does. The rule document supports the principle that such refactoring would improve code structure, but the claim itself is a prescriptive recommendation rather than a descriptive statement about the code's current state.",
+            "verdict": "unclear"
           }
         ]
       }
@@ -136,7 +118,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "80878730eb1078d6de9e168103498e51f79470182b1e64046f24682bbfd9cd7b",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }

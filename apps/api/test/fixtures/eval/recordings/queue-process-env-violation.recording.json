@@ -1,62 +1,11 @@
 {
-  "status": "emitted",
+  "status": "threw",
   "fixtureId": "queue-process-env-violation",
-  "findings": [
-    {
-      "rule_id": "config-service-only",
-      "title": "All env access goes through ConfigService",
-      "message": "The code reads `process.env.SKIP_REDIS_PROBE` directly in the `QueueModule.forRoot()` method (line 98) instead of accessing it through ConfigService. Move the env parsing into ConfigService and inject the validated value. This ensures environment validation happens at boot time for all configuration, not scattered throughout the codebase.",
-      "location_hint": "apps/api/src/infrastructure/queue/queue.module.ts:98",
-      "citation": "const skip = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);",
-      "faithfulness": {
-        "score": 0.8,
-        "claims": [
-          {
-            "claim": "The code reads `process.env.SKIP_REDIS_PROBE` directly in the `QueueModule.forRoot()` method at line 98.",
-            "kind": "",
-            "reason": "The diff shows line 98 contains `const skip = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);`, which directly accesses `process.env.SKIP_REDIS_PROBE`. This is explicitly visible in the provided diff.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The env parsing should be moved into ConfigService instead of being accessed directly.",
-            "kind": "",
-            "reason": "The rule document states: 'Feature code must never read process.env directly. Add a typed property + validator on ConfigService and inject ConfigService where you need the value.' The finding's message aligns with this rule requirement. The rule is clear that env access should go through ConfigService.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The validated value should be injected into the code that needs it.",
-            "kind": "",
-            "reason": "The rule document explicitly states: 'Add a typed property + validator on ConfigService and inject ConfigService where you need the value.' The finding's message recommends injecting the validated value, which directly matches the rule's guidance.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Environment validation should happen at boot time for all configuration.",
-            "kind": "",
-            "reason": "The rule document states: 'ConfigService validates at construction so missing or malformed env vars fail at boot, not at first use.' The finding's message recommends this approach to ensure validation happens at boot time. This is directly supported by the rule.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Currently, environment validation is scattered throughout the codebase instead of centralized.",
-            "kind": "",
-            "reason": "The finding claims validation is 'scattered throughout the codebase,' but the diff only shows one file (queue.module.ts) with direct env access. The diff does not provide evidence of other scattered env accesses in the codebase. This claim cannot be verified from the provided evidence.",
-            "verdict": "unclear"
-          }
-        ]
-      }
-    }
-  ],
-  "ruleSet": [
-    "config-service-only",
-    "drizzle-schema-source-of-truth",
-    "guards-live-in-guards-dir",
-    "no-await-in-loop",
-    "no-empty-catch",
-    "no-mocks-for-the-db",
-    "no-non-null-assertion",
-    "no-throw-literal",
-    "repository-pattern",
-    "thin-controllers"
-  ],
+  "error": {
+    "errorCode": "credit_balance_too_low",
+    "turnCount": null,
+    "toolCalls": null
+  },
   "provenance": {
     "promptVersion": "v3",
     "model": "claude-haiku-4-5-20251001",
@@ -64,7 +13,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "356e1332859c67b307349123ba17c33d13db4ddf3ea2a6b85d992dfd0f79725f",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }

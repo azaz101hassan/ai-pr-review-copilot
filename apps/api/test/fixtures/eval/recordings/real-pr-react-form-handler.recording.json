@@ -1,104 +1,11 @@
 {
-  "status": "emitted",
+  "status": "threw",
   "fixtureId": "real-pr-react-form-handler",
-  "findings": [
-    {
-      "rule_id": "max-lines-per-function",
-      "title": "Keep functions short — under ~50 lines",
-      "message": "The handleSubmit function now spans 43 lines (counting the code block) and does validation, transformation, API calls, error handling, and state management all at once. This function needs to be broken into smaller helpers: a validation function, a submit handler, etc.",
-      "location_hint": "src/components/ContactForm.jsx:8-50",
-      "citation": "const handleSubmit = async (e) => {\n    e.preventDefault();\n    // ... 43 total lines including validation, API call, error handling, state reset",
-      "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "The handleSubmit function spans 43 lines (counting the code block).",
-            "kind": "",
-            "reason": "The diff shows the handleSubmit function starting at line 8 and ending at line 50 (inclusive of the closing brace and semicolon). Counting from the opening `const handleSubmit = async (e) => {` on line 8 to the closing `};` on line 50, this is 43 lines total. The finding's location hint (src/components/ContactForm.jsx:8-50) and the diff content confirm this span.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The handleSubmit function performs validation.",
-            "kind": "",
-            "reason": "The diff clearly shows validation logic within the handleSubmit function (lines 13-25), including checks for name, email, and message fields with error messages stored in validationErrors.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The handleSubmit function performs transformation.",
-            "kind": "",
-            "reason": "The diff shows transformation logic where the payload is constructed (lines 27-32) with transformations like name.trim() and email.toLowerCase(), indicating data transformation before API submission.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The handleSubmit function performs API calls.",
-            "kind": "",
-            "reason": "The diff shows an async fetch call to '/api/contact' (lines 34-40) with POST method and JSON body, which is an API call.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The handleSubmit function performs error handling.",
-            "kind": "",
-            "reason": "The diff shows a try-catch block (lines 33-50) that catches errors and sets error state via setErrors({ submit: errorMsg }), demonstrating error handling.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The handleSubmit function performs state management.",
-            "kind": "",
-            "reason": "The diff shows state management operations including setErrors() (line 26), setName('') (line 45), setEmail('') (line 46), and setMessage('') (line 47), all within the handleSubmit function.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The handleSubmit function needs to be broken into smaller helpers such as a validation function and a submit handler.",
-            "kind": "",
-            "reason": "The rule document states that functions doing multiple things should be extracted into sub-helpers, and provides an example of breaking a large processOrder function into validate(), persist(), and notify() helpers. The finding's claim that the function should be broken into smaller helpers (validation function, submit handler, etc.) is directly aligned with the rule's guidance to 'Extract sub-helpers' when functions do more than one thing.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    },
-    {
-      "rule_id": "guard-clauses",
-      "title": "Use guard clauses for invalid inputs",
-      "message": "The validation logic at the top of handleSubmit uses multiple nested if statements instead of guard clauses. Replace the nested validation block with early returns (guard clauses) to keep the happy path at the root indentation level.",
-      "location_hint": "src/components/ContactForm.jsx:13-24",
-      "citation": "let validationErrors = {};\n    if (!name || name.trim().length == 0) {\n      validationErrors.name = 'Name is required';\n    }\n    if (!email || !email.includes('@')) {\n      validationErrors.email = 'Valid email is required';\n    }\n    if (message.length == 0) {\n      validationErrors.message = 'Message is required';\n    }\n    if (Object.keys(validationErrors).length > 0) {\n      setErrors(validationErrors);\n      return;\n    }",
-      "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "The validation logic at the top of handleSubmit uses multiple nested if statements.",
-            "kind": "",
-            "reason": "The diff shows the validation logic in handleSubmit (lines 13-24) uses a series of sequential if statements that each check a condition and add to validationErrors, followed by a final if statement that checks if validationErrors has any keys. These are not nested if-else blocks, but rather sequential if statements. However, the citation provided shows the exact code structure, and while the if statements are not deeply nested in the traditional sense (no if-else chains), they do form a validation block with multiple conditions checked sequentially before proceeding.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The validation logic should be replaced with early returns (guard clauses) to keep the happy path at the root indentation level.",
-            "kind": "",
-            "reason": "The rule document explicitly states that guard clauses should be used to 'Handle invalid or unhappy inputs with early returns at the top of the function. This keeps the happy path at one level of indentation.' The current code accumulates validation errors and then checks if any exist before returning, which is the opposite of guard clause pattern. The rule document's 'Good' example shows early returns for invalid inputs, which is the recommended approach. The finding's recommendation aligns with the rule document's guidance.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The current validation approach does not keep the happy path at the root indentation level.",
-            "kind": "",
-            "reason": "The diff shows that after the validation block (lines 13-24), the happy path code (lines 26-51) is at the same indentation level as the validation block. However, the validation block itself uses sequential if statements that accumulate errors, which is not the guard clause pattern. The rule document's 'Good' example shows guard clauses at the top with early returns, leaving the happy path at the outer indent. The current code structure does not follow this pattern—the happy path is not elevated by using guard clauses.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    }
-  ],
-  "ruleSet": [
-    "guard-clauses",
-    "max-lines-per-function",
-    "no-deeply-nested-callbacks",
-    "no-explicit-any",
-    "no-floating-promises",
-    "no-param-reassign",
-    "prefer-async-await",
-    "prefer-destructuring",
-    "prefer-template",
-    "react-hooks-rules"
-  ],
+  "error": {
+    "errorCode": "credit_balance_too_low",
+    "turnCount": null,
+    "toolCalls": null
+  },
   "provenance": {
     "promptVersion": "v3",
     "model": "claude-haiku-4-5-20251001",
@@ -106,7 +13,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "ab2b9b0b37a7e0c2bd9cae6ede573705b7c962f216214876519c71ae9346a300",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }

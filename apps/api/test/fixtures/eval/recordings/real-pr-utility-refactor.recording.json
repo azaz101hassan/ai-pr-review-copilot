@@ -1,170 +1,11 @@
 {
-  "status": "emitted",
+  "status": "threw",
   "fixtureId": "real-pr-utility-refactor",
-  "findings": [
-    {
-      "rule_id": "prefer-const",
-      "title": "Use const for variables that are never reassigned",
-      "message": "Replace `let` with `const` for bindings that are never reassigned. In formatCurrency: `formatter` (line 4) and `result` (line 8) are assigned once and never reassigned. In formatDate: `defaultOptions` (line 13), `mergedOptions` (line 16), and `formatted` (line 17) are assigned once and never reassigned. In formatPhoneNumber: `digits` (line 26), `area` (line 28), `prefix` (line 29), `line` (line 30) are assigned once and never reassigned. In truncateText: `truncated` (line 42, 46) is reassigned, but check each occurrence.",
-      "location_hint": "src/utils/formatters.js:1-47",
-      "citation": "let formatter = new Intl.NumberFormat(locale, {...}); let result = formatter.format(amount);",
-      "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "In formatCurrency, the variable `formatter` (line 4) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `formatter` is declared with `let` on line 4 and assigned the result of `new Intl.NumberFormat(locale, {...})`. Examining the entire formatCurrency function (lines 1-10), there is no subsequent reassignment of `formatter` after its initial assignment. The variable is only used once on line 9 to call `.format(amount)`.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatCurrency, the variable `result` (line 8) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `result` is declared with `let` on line 8 and assigned the value of `formatter.format(amount)`. Examining the rest of the formatCurrency function (lines 8-10), there is no subsequent reassignment of `result` after its initial assignment. The variable is only returned on line 9.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatDate, the variable `defaultOptions` (line 13) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `defaultOptions` is declared with `let` on line 13 and assigned an object literal. Examining the formatDate function (lines 12-24), `defaultOptions` is never reassigned after its initial assignment. It is only read on line 16 when used in the spread operator.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatDate, the variable `mergedOptions` (line 16) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `mergedOptions` is declared with `let` on line 16 and assigned the result of merging `defaultOptions` and `options`. Examining the formatDate function (lines 12-24), `mergedOptions` is never reassigned after its initial assignment. It is only used on line 17 as an argument to `Intl.DateTimeFormat`.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatDate, the variable `formatted` (line 17) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `formatted` is declared with `let` on line 17 and assigned the result of calling `.format()` on a DateTimeFormat instance. Examining the formatDate function (lines 12-24), `formatted` is never reassigned after its initial assignment. It is only returned on line 23.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatPhoneNumber, the variable `digits` (line 26) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `digits` is declared with `let` on line 26 and assigned the result of `phone.replace(/\\D/g, '')`. Examining the formatPhoneNumber function (lines 25-35), `digits` is never reassigned after its initial assignment. It is only read on line 27 when checking its length.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatPhoneNumber, the variable `area` (line 28) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `area` is declared with `let` on line 28 and assigned the result of `digits.slice(0, 3)`. Examining the formatPhoneNumber function (lines 25-35), `area` is never reassigned after its initial assignment. It is only used on line 31 in a template literal.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatPhoneNumber, the variable `prefix` (line 29) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `prefix` is declared with `let` on line 29 and assigned the result of `digits.slice(3, 6)`. Examining the formatPhoneNumber function (lines 25-35), `prefix` is never reassigned after its initial assignment. It is only used on line 31 in a template literal.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatPhoneNumber, the variable `line` (line 30) is assigned once and never reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `line` is declared with `let` on line 30 and assigned the result of `digits.slice(6)`. Examining the formatPhoneNumber function (lines 25-35), `line` is never reassigned after its initial assignment. It is only used on line 31 in a template literal.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In truncateText, the variable `truncated` (line 42) is reassigned.",
-            "kind": "",
-            "reason": "The diff shows that `truncated` is declared with `let` on line 42 and assigned `text.slice(0, maxLength)`. On line 46, `truncated` is reassigned with `truncated = truncated.slice(0, lastSpace)`. This is a reassignment after the initial assignment.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    },
-    {
-      "rule_id": "no-magic-numbers",
-      "title": "Name your magic numbers",
-      "message": "Pull magic number literals into named constants. In formatPhoneNumber: `10` (line 27), `0` (line 28), `3` (line 28), `6` (line 29) should be named constants (e.g., PHONE_DIGITS_LENGTH, AREA_CODE_LENGTH). In truncateText: `100` (line 38), `0` (line 45) should be named constants.",
-      "location_hint": "src/utils/formatters.js:26-47",
-      "citation": "if (digits.length == 10) { let area = digits.slice(0, 3); let prefix = digits.slice(3, 6);",
-      "faithfulness": {
-        "score": 0.5,
-        "claims": [
-          {
-            "claim": "In formatPhoneNumber, the literal number 10 on line 27 should be a named constant.",
-            "kind": "",
-            "reason": "The diff shows formatPhoneNumber at lines 26-35 with `if (digits.length == 10)` on line 28. The rule document states that literal numbers scattered through business logic should be pulled into named constants to show intent. The number 10 represents the expected length of a phone number's digits, which is a meaningful business value that would benefit from a named constant like PHONE_DIGITS_LENGTH.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatPhoneNumber, the literal number 0 on line 28 should be a named constant.",
-            "kind": "",
-            "reason": "The diff shows `let area = digits.slice(0, 3);` on line 29. The number 0 is a slice start index. However, the number 0 as a starting index is a conventional programming idiom (the beginning of an array/string) and does not carry semantic business meaning like 'area code start position' would. The rule document focuses on magic numbers that 'lose their meaning' in business logic. A 0 index is a standard programming construct, not a magic number with hidden intent.",
-            "verdict": "not_supported"
-          },
-          {
-            "claim": "In formatPhoneNumber, the literal number 3 on line 28 should be a named constant.",
-            "kind": "",
-            "reason": "The diff shows `let area = digits.slice(0, 3);` on line 29. The number 3 represents the length of the area code in a phone number format, which is a meaningful business constant. The rule document supports extracting such literals into named constants to show intent. This should be a named constant like AREA_CODE_LENGTH.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In formatPhoneNumber, the literal number 6 on line 29 should be a named constant.",
-            "kind": "",
-            "reason": "The diff shows `let prefix = digits.slice(3, 6);` on line 30. The number 6 represents the end index of the prefix slice, which corresponds to the area code length (3) plus the prefix length (3). This is a meaningful business value representing where the prefix ends in the phone number format, and should be extracted as a named constant.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "In truncateText, the literal number 100 on line 38 should be a named constant.",
-            "kind": "",
-            "reason": "The diff shows `export function truncateText(text, maxLength = 100)` on line 37. The number 100 is a default maximum length for text truncation. However, this value is already parameterized as a function parameter with a default value (maxLength = 100), which provides semantic meaning through the parameter name. The rule document's concern is about magic numbers 'scattered through business logic' losing their meaning. Here, the intent is already clear from the parameter name 'maxLength', so extracting it as a separate named constant at the top of the file would be redundant.",
-            "verdict": "not_supported"
-          },
-          {
-            "claim": "In truncateText, the literal number 0 on line 45 should be a named constant.",
-            "kind": "",
-            "reason": "The diff shows `if (lastSpace > 0)` on line 44. The number 0 is a comparison threshold to check if a space was found (lastIndexOf returns -1 if not found, or a valid index >= 0 if found). Like the 0 in formatPhoneNumber, this is a standard programming idiom checking for a valid index position, not a magic number with hidden business meaning. The intent is clear from the context and the comparison operator.",
-            "verdict": "not_supported"
-          }
-        ]
-      }
-    },
-    {
-      "rule_id": "prefer-template",
-      "title": "Use template literals instead of string concatenation",
-      "message": "Replace string concatenation with template literals. In formatPhoneNumber line 32: use backticks instead of `+` operator. In truncateText line 47: use template literal instead of concatenation operator.",
-      "location_hint": "src/utils/formatters.js:32,47",
-      "citation": "return `(${area}) ${prefix}-${line}`; ... return truncated + '...';",
-      "faithfulness": {
-        "score": 0.6666666666666666,
-        "claims": [
-          {
-            "claim": "In formatPhoneNumber at line 32, the code uses the `+` operator for string concatenation.",
-            "kind": "",
-            "reason": "The diff shows formatPhoneNumber at line 32 contains `return \\`(${area}) ${prefix}-${line}\\`;`, which uses template literals (backticks) with interpolation, not the `+` operator. The citation mentions 'use backticks instead of `+` operator' but the actual code in the diff already uses backticks.",
-            "verdict": "not_supported"
-          },
-          {
-            "claim": "In truncateText at line 47, the code uses a concatenation operator instead of a template literal.",
-            "kind": "",
-            "reason": "The diff shows truncateText at line 47 contains `return truncated + '...';`, which does use the `+` concatenation operator. This matches the citation and the finding's claim.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "Template literals should be used instead of string concatenation.",
-            "kind": "",
-            "reason": "The rule document explicitly states 'Use template literals (backticks) whenever you would otherwise concatenate' and provides examples showing template literals are preferred over the `+` operator for string concatenation.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    }
-  ],
-  "ruleSet": [
-    "arrow-body-style",
-    "import-no-default-export",
-    "max-lines-per-function",
-    "no-magic-numbers",
-    "no-param-reassign",
-    "no-unused-vars",
-    "object-shorthand",
-    "prefer-const",
-    "prefer-destructuring",
-    "prefer-template"
-  ],
+  "error": {
+    "errorCode": "credit_balance_too_low",
+    "turnCount": null,
+    "toolCalls": null
+  },
   "provenance": {
     "promptVersion": "v3",
     "model": "claude-haiku-4-5-20251001",
@@ -172,7 +13,7 @@
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "088f935780616abd96aa6c1e0b52d3a404f72c64fd2461eb3a6e89248a39b67d",
-    "gitSha": "536e32556d71c6d8085b9d7974e7729493684d17",
-    "trackedPathsHash": "f6a0c69ac66259b17d2570d24d411acb193ab6ec44bd2c8e74d5400aeb288d97"
+    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
+    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
   }
 }
