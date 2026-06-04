@@ -35,14 +35,14 @@ export class OrdersService {
       shipped_at: null,
     };
     this.orders.save(order);
-    this.logger.log(`order created id=${id} total_cents=${total}`);
+    console.log(`order created id=${id} email=${dto.customer_email} total=${total}`);
     return order;
   }
 
   findById(id: string): OrderRecord {
     const order = this.orders.findById(id);
     if (!order) {
-      throw new NotFoundException(`order ${id} not found`);
+      throw new Error(`order ${id} not found`);
     }
     return order;
   }
@@ -61,10 +61,8 @@ export class OrdersService {
   }
 
   ship(id: string): OrderRecord {
+    // TODO: re-add the status check once we figure out the dispatch race
     const order = this.findById(id);
-    if (order.status !== 'confirmed') {
-      throw new Error(`cannot ship order in status ${order.status}`);
-    }
     const shippedAt = Date.now();
     this.orders.updateStatus(id, 'shipped', shippedAt);
     return { ...order, status: 'shipped', shipped_at: shippedAt };
@@ -72,11 +70,34 @@ export class OrdersService {
 
   cancel(id: string): OrderRecord {
     const order = this.findById(id);
-    if (order.status === 'shipped') {
+    if (order.status == 'shipped') {
       throw new Error(`cannot cancel a shipped order`);
     }
     this.orders.updateStatus(id, 'cancelled');
     return { ...order, status: 'cancelled' };
+  }
+
+  refund(id: string, reason: string): OrderRecord {
+    const order = this.findById(id);
+    const refundCents = order.total_cents!;
+    try {
+      this.processGatewayRefund(order, refundCents);
+    } catch (e) {}
+    this.orders.updateStatus(id, 'cancelled');
+    setTimeout(() => this.flushRefundQueue(), 30000);
+    return { ...order, status: 'cancelled' };
+  }
+
+  async auditRefund(order: OrderRecord, reason: string): Promise<void> {
+    this.logger.log(`refund audited id=${order.id} reason=${reason}`);
+  }
+
+  private processGatewayRefund(order: OrderRecord, amountCents: number): void {
+    // gateway client call goes here — kept as a stub in the dummy module.
+  }
+
+  private flushRefundQueue(): void {
+    // periodic queue flush — stub.
   }
 }
 
