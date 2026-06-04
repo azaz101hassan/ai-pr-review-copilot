@@ -10,7 +10,7 @@ import type { NormalizedChunk } from '@/modules/embeddings/helpers/corpus-loader
 import type { AnalyzeDiffResult } from '@/modules/reviews/types/llm-reviewer';
 import type { ToolCallRecord } from '@/modules/reviews/types/review.types';
 import type { SearchHit } from '@/modules/embeddings';
-import { AnthropicRequestError } from '@/infrastructure/anthropic';
+import { LlmRequestError } from '@/infrastructure/llm';
 import type { LoadedManifestEntry } from '@/modules/reviews/eval/manifest';
 import type { RecordingProvenance } from '@/modules/reviews/eval/recording';
 
@@ -299,7 +299,7 @@ describe('capture.ts pure helpers', () => {
     });
   });
 
-  describe('assembleThrewRecording (from AnthropicRequestError)', () => {
+  describe('assembleThrewRecording (from LlmRequestError)', () => {
     it('records turn_cap_exceeded with partial state', () => {
       const toolCalls: ToolCallRecord[] = [
         {
@@ -320,7 +320,7 @@ describe('capture.ts pure helpers', () => {
         },
       ];
 
-      const error = new AnthropicRequestError('Turn cap exceeded', {
+      const error = new LlmRequestError('Turn cap exceeded', {
         status: 200,
         errorCode: 'turn_cap_exceeded',
         turnCount: 6,
@@ -339,7 +339,7 @@ describe('capture.ts pure helpers', () => {
     });
 
     it('records pre-loop throw with null turnCount/toolCalls', () => {
-      const error = new AnthropicRequestError('Auth failed', {
+      const error = new LlmRequestError('Auth failed', {
         status: 401,
         errorCode: 'authentication_error',
       });

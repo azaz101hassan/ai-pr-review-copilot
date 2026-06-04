@@ -2,12 +2,13 @@ import {
   formatReviewBody,
   FindingWithSeverity,
 } from '@/modules/reviews/helpers/format-review-body';
+import { formatWalkthroughBody } from '@/modules/reviews/helpers/format-walkthrough-body';
 
 const VALID_UUID = '01234567-89ab-4cde-8fed-cba987654321';
 
 const passthroughSanitize = (s: string) => s;
 
-describe('formatReviewBody (slim shape)', () => {
+describe('formatReviewBody (pointer-only shape)', () => {
   describe('reviewId UUID validation', () => {
     it('throws on a non-UUID reviewId', () => {
       expect(() =>
@@ -54,8 +55,8 @@ describe('formatReviewBody (slim shape)', () => {
     });
   });
 
-  describe('header + marker', () => {
-    it('puts the header on line 1 and the v1 review-id marker on line 2', () => {
+  describe('marker', () => {
+    it('puts the v1 review-id marker on the first line', () => {
       const body = formatReviewBody({
         reviewId: VALID_UUID,
         counts: { error: 0, warning: 0, info: 0, total: 0 },
@@ -64,16 +65,13 @@ describe('formatReviewBody (slim shape)', () => {
       });
       const lines = body.split('\n');
       expect(lines[0]).toBe(
-        '**AI PR Review Copilot** — automated review',
-      );
-      expect(lines[1]).toBe(
         `<!-- ai-pr-review-copilot:v1:review-id=${VALID_UUID} -->`,
       );
     });
   });
 
-  describe('counts', () => {
-    it('renders zero-findings line when total === 0', () => {
+  describe('body content', () => {
+    it('renders the no-findings line when total === 0', () => {
       const body = formatReviewBody({
         reviewId: VALID_UUID,
         counts: { error: 0, warning: 0, info: 0, total: 0 },
@@ -83,45 +81,64 @@ describe('formatReviewBody (slim shape)', () => {
       expect(body).toContain('No findings');
     });
 
-    it('renders counts when findings exist', () => {
+    it('renders the pointer line when findings exist', () => {
       const body = formatReviewBody({
         reviewId: VALID_UUID,
         counts: { error: 1, warning: 2, info: 0, total: 3 },
         hasOutsideDiff: false,
         sanitize: passthroughSanitize,
       });
-      expect(body).toContain('🛑');
-      expect(body).toContain('1');
-      expect(body).toContain('⚠️');
-      expect(body).toContain('2');
+      expect(body).toMatch(/Inline comments below/);
+      expect(body).toMatch(/walkthrough comment/);
+    });
+
+    it('does NOT render the counts table (that lives in the walkthrough)', () => {
+      const body = formatReviewBody({
+        reviewId: VALID_UUID,
+        counts: { error: 1, warning: 2, info: 0, total: 3 },
+        hasOutsideDiff: false,
+        sanitize: passthroughSanitize,
+      });
+      expect(body).not.toContain('🛑');
+      expect(body).not.toContain('⚠️');
+      expect(body).not.toContain('| ---');
+      expect(body).not.toMatch(/\|\s*1\s*\|/);
+    });
+
+    it('does NOT render the bold header (that lives in the walkthrough)', () => {
+      const body = formatReviewBody({
+        reviewId: VALID_UUID,
+        counts: { error: 1, warning: 0, info: 0, total: 1 },
+        hasOutsideDiff: false,
+        sanitize: passthroughSanitize,
+      });
+      expect(body).not.toContain('**AI PR Review Copilot**');
     });
   });
 
   describe('walkthrough pointer', () => {
-    it('includes a pointer line when hasOutsideDiff is true', () => {
+    it('includes an outside-diff pointer line when hasOutsideDiff is true', () => {
       const body = formatReviewBody({
         reviewId: VALID_UUID,
         counts: { error: 0, warning: 1, info: 0, total: 1 },
         hasOutsideDiff: true,
         sanitize: passthroughSanitize,
       });
-      expect(body).toMatch(/Walkthrough/);
+      expect(body).toMatch(/outside this diff/);
     });
 
-    it('omits the pointer when hasOutsideDiff is false', () => {
+    it('omits the outside-diff pointer when hasOutsideDiff is false', () => {
       const body = formatReviewBody({
         reviewId: VALID_UUID,
         counts: { error: 0, warning: 1, info: 0, total: 1 },
         hasOutsideDiff: false,
         sanitize: passthroughSanitize,
       });
-      expect(body).not.toMatch(/Walkthrough/);
+      expect(body).not.toMatch(/outside this diff/);
     });
   });
 
   describe('does NOT include per-finding blocks', () => {
-    // Per-finding rendering moved to format-inline-comment and
-    // format-walkthrough-body. The Review body itself is slim.
     it('does not call the sanitizer (no per-finding text in body)', () => {
       const calls: string[] = [];
       const recordingSanitize = (s: string) => {
@@ -136,6 +153,51 @@ describe('formatReviewBody (slim shape)', () => {
       });
       expect(calls).toHaveLength(0);
     });
+  });
+});
+
+// Collision-guard against the bug that produced two visually-identical
+// posts on PR #29: the walkthrough comment and the review event landed
+// in the same conversation timeline within seconds and both rendered
+// the same `**AI PR Review Copilot** — automated review` header plus
+// the same `| 🛑 errors | ⚠️ warnings | 💡 info |` counts table.
+// Looked exactly like duplicate posts.
+//
+// Two-formatter unit tests in isolation can't catch this — each test
+// verifies its own body. This test pairs the formatters and asserts
+// the rendered bodies do not collide on the substrings GitHub renders
+// most prominently in the timeline.
+describe('walkthrough / review body collision guard', () => {
+  const counts = { error: 5, warning: 2, info: 0, total: 7 };
+
+  it('the two bodies share no significant rendered substring', () => {
+    const walkthrough = formatWalkthroughBody({
+      prNodeId: 'PR_node_id',
+      reviewId: VALID_UUID,
+      counts,
+      outsideDiff: [],
+      sanitize: passthroughSanitize,
+    });
+    const review = formatReviewBody({
+      reviewId: VALID_UUID,
+      counts,
+      hasOutsideDiff: false,
+      sanitize: passthroughSanitize,
+    });
+
+    // Bold header line is the walkthrough's identity in the timeline.
+    expect(walkthrough).toContain('**AI PR Review Copilot**');
+    expect(review).not.toContain('**AI PR Review Copilot**');
+
+    // Counts-table row is the walkthrough's most prominent rendering.
+    const tableHeader = '| 🛑 errors | ⚠️ warnings | 💡 info |';
+    expect(walkthrough).toContain(tableHeader);
+    expect(review).not.toContain(tableHeader);
+
+    // The numeric counts row likewise belongs only to the walkthrough.
+    const countsRow = `| ${counts.error} | ${counts.warning} | ${counts.info} |`;
+    expect(walkthrough).toContain(countsRow);
+    expect(review).not.toContain(countsRow);
   });
 });
 

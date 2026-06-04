@@ -1,4 +1,4 @@
-import { computePromptToolHash } from '../../../src/infrastructure/anthropic/anthropic-llm-reviewer';
+import { computePromptToolHash } from '../../../src/infrastructure/llm';
 import {
   PROMPT_AND_TOOL_VERSION,
   PROMPT_AND_TOOL_VERSION_HASH_MAP,

@@ -577,14 +577,14 @@ describe('ReviewsProcessor.process — Review POST failure', () => {
 });
 
 describe('ReviewsProcessor.process — Anthropic retry classification (F4)', () => {
-  // Pull AnthropicRequestError from the real impl — the spec only
+  // Pull LlmRequestError from the real impl — the spec only
   // cares about errorCode/retryAfterMs surface shapes.
   const {
-    AnthropicRequestError,
-  } = jest.requireActual('@/infrastructure/anthropic');
+    LlmRequestError,
+  } = jest.requireActual('@/infrastructure/llm');
 
   it('wraps credit_balance_too_low in UnrecoverableError (terminal — no retry)', async () => {
-    const err = new AnthropicRequestError('credit too low', {
+    const err = new LlmRequestError('credit too low', {
       status: 400,
       errorCode: 'credit_balance_too_low',
     });
@@ -598,7 +598,7 @@ describe('ReviewsProcessor.process — Anthropic retry classification (F4)', () 
   });
 
   it('wraps invalid_request_error in UnrecoverableError (terminal)', async () => {
-    const err = new AnthropicRequestError('bad request', {
+    const err = new LlmRequestError('bad request', {
       status: 400,
       errorCode: 'invalid_request_error',
     });
@@ -610,16 +610,16 @@ describe('ReviewsProcessor.process — Anthropic retry classification (F4)', () 
   });
 
   it('re-throws Anthropic 429 untouched so BullMQ honours retry-after via the custom backoff', async () => {
-    const err = new AnthropicRequestError('rate limited', {
+    const err = new LlmRequestError('rate limited', {
       status: 429,
       errorCode: 'rate_limit_error',
       retryAfterMs: 5000,
     });
     const parts = makeProcessor({ runRealReviewError: err });
     const { UnrecoverableError } = jest.requireActual('bullmq');
-    // Should be the original AnthropicRequestError, NOT UnrecoverableError.
+    // Should be the original LlmRequestError, NOT UnrecoverableError.
     await expect(parts.processor.process(makeJob())).rejects.toBeInstanceOf(
-      AnthropicRequestError,
+      LlmRequestError,
     );
     await expect(parts.processor.process(makeJob())).rejects.not.toBeInstanceOf(
       UnrecoverableError,
@@ -934,9 +934,9 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
 
   it('posts a "review failed" walkthrough with anthropic_error reason on a terminal Anthropic error', async () => {
     const {
-      AnthropicRequestError,
-    } = jest.requireActual('@/infrastructure/anthropic');
-    const err = new AnthropicRequestError('credit too low', {
+      LlmRequestError,
+    } = jest.requireActual('@/infrastructure/llm');
+    const err = new LlmRequestError('credit too low', {
       status: 400,
       errorCode: 'credit_balance_too_low',
     });

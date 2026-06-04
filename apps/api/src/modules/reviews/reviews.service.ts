@@ -10,7 +10,7 @@ import {
   UsageStats,
 } from './types/llm-reviewer';
 import { IRepoContextProvider } from './types/repo-context-provider';
-import { AnthropicRequestError } from '@/infrastructure/anthropic/anthropic-request.error';
+import { LlmRequestError } from '@/infrastructure/llm';
 import {
   IReviewRepository,
   REVIEW_REPOSITORY,
@@ -98,7 +98,15 @@ export class ReviewsServiceError extends Error {
   }
 }
 
-const DEFAULT_K = 10;
+// Default top-K for the embeddings search that feeds the LLM with
+// candidate rules. The api-conventions seed enlarged the corpus from
+// ~43 to ~73 chunks; at K=10 it dominated retrieval on domain-themed
+// diffs, pushing classic airbnb syntax rules (eqeqeq, no-var,
+// no-magic-numbers) out of the candidate window. K=25 keeps both rule
+// families in scope without ballooning input tokens — a deliberate
+// climb-down from a brief K=40 experiment where the marginal recall
+// gain didn't justify the ~2× input-token cost per agent loop.
+const DEFAULT_K = 25;
 // Cutoff used by the startup sweep AND the per-PR worker guard.
 // 10 minutes is safely above the worst-case 6-turn agent loop with
 // file fetches (~6 minutes wall clock) while still surfacing real
@@ -209,7 +217,9 @@ export class ReviewsService implements OnModuleInit {
       pr_node_id: prNodeId,
       created_by: null,
       diff_length: diffLength,
-      model: this.config.anthropicModel,
+      // Best-effort placeholder — overwritten with the real model id
+      // from the SDK response in the markCompleted call below.
+      model: this.config.activeModel(),
       prompt_version: PROMPT_AND_TOOL_VERSION,
       top_k: k,
       retrieved_chunk_ids: JSON.stringify(retrievedChunkIds),
@@ -281,12 +291,12 @@ export class ReviewsService implements OnModuleInit {
         }
       };
 
-      if (err instanceof AnthropicRequestError) {
+      if (err instanceof LlmRequestError) {
         const failedAt = new Date();
         markFailedSafely({
           completed_at: failedAt,
           error_status: err.status,
-          error_code: err.errorCode ?? 'anthropic_error',
+          error_code: err.errorCode ?? 'llm_error',
           // turn_cap_exceeded and malformed_emit_finding carry partial
           // loop state on the error so it lands in the reviews row
           // alongside the failure. Pre-loop failures (auth, network)
@@ -359,6 +369,12 @@ export class ReviewsService implements OnModuleInit {
         tool_calls: result.toolCalls,
         hallucinated_finding_count: result.hallucinatedFindingCount,
         cache_hit_count: result.cacheHitCount,
+        // Overwrite the placeholder model inserted before the LLM call with
+        // the actual model id echoed back by the provider SDK. This is the
+        // canonical fix for the multi-provider model display bug: the insert
+        // stores config.activeModel() as a best-effort placeholder; this
+        // write locks in the real value from the response.
+        model: result.model,
       });
       this.findings.insertMany(findingInserts);
     });

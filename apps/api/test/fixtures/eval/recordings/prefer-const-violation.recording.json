@@ -83,6 +83,7 @@
     "seedCorpusVersion": "v1",
     "expectedSetHash": "8b23736974a133716f445ef67189c24dd50dab1bd7d74e75970afa51f788f06f",
     "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "a5e649c5d130f9ef52affa4ce6b2455028b8c9e05b92c3bb92bc633f359aaadb"
+    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
+    "llmProvider": "anthropic"
   }
 }

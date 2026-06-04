@@ -4,19 +4,31 @@
  *
  * Pure utility, NO Nest/ConfigService imports.
  *
- * Tracked paths (changes to any of these make recordings stale):
- *   - apps/api/src/infrastructure/anthropic/**
- *   - apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts
- *   - apps/api/seeds/**
+ * Provider-aware tracked paths (changes to any of these mark the
+ * corresponding recordings stale):
+ *
+ *   Shared baseline (every recording tracks these):
+ *     - apps/api/src/infrastructure/llm/**
+ *     - apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts
+ *     - apps/api/seeds/**
+ *
+ *   Anthropic recordings additionally track:
+ *     - apps/api/src/infrastructure/anthropic/**
+ *
+ *   OpenRouter recordings additionally track:
+ *     - apps/api/src/infrastructure/openrouter/**
+ *
+ * Recordings without an explicit `provenance.llmProvider` are treated
+ * as Anthropic (every recording captured before multi-provider support
+ * existed ran against Anthropic).
  *
  * Comparison strategy, in order of preference:
  *
  *   1. `trackedPathsHash` equality. The recording stores a deterministic
  *      hash of the tracked-paths tree at capture time; the checker
- *      computes the same hash at HEAD and compares. This works even when
- *      the recording's gitSha is unreachable in a fresh clone, which is
- *      the common case after a feature branch gets squash-merged and
- *      deleted on the remote.
+ *      computes the same hash at HEAD using the SAME provider-aware
+ *      path slice and compares. This works even when the recording's
+ *      gitSha is unreachable in a fresh clone.
  *
  *   2. Legacy gitSha path — used when the recording predates the hash
  *      field. Layered as:
@@ -32,14 +44,55 @@
 
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import type { LlmProvider } from '@/infrastructure/llm';
 import type { Recording } from '@/modules/reviews/eval/recording';
 
 // ── Tracked paths ──────────────────────────────────────────────────
 
-export const STALENESS_TRACKED_PATHS = [
-  'apps/api/src/infrastructure/anthropic/',
+/**
+ * Paths every recording tracks regardless of provider. The shared LLM
+ * surface lives here (system prompt, tool schemas, agent-loop helpers,
+ * constants); a change to any of these affects every provider's
+ * recordings equally.
+ */
+export const SHARED_TRACKED_PATHS = [
+  'apps/api/src/infrastructure/llm/',
   'apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts',
   'apps/api/seeds/',
+];
+
+/**
+ * Per-provider supplemental paths. A recording captured with provider
+ * X invalidates only when the shared paths OR `PROVIDER_TRACKED_PATHS[X]`
+ * change. A change to the unused provider's folder is irrelevant to
+ * recordings from the active one.
+ */
+export const PROVIDER_TRACKED_PATHS: Record<LlmProvider, string[]> = {
+  anthropic: ['apps/api/src/infrastructure/anthropic/'],
+  openrouter: ['apps/api/src/infrastructure/openrouter/'],
+};
+
+/**
+ * Resolve the full tracked-paths set for a given provider. Anthropic is
+ * the default fallback for pre-multi-provider recordings.
+ */
+export function getTrackedPathsForProvider(
+  provider: LlmProvider | undefined,
+): string[] {
+  const effective = provider ?? 'anthropic';
+  return [...SHARED_TRACKED_PATHS, ...PROVIDER_TRACKED_PATHS[effective]];
+}
+
+/**
+ * Back-compat union — every path that any recording could track. The
+ * backfill / capture scripts use this when they need to scan everything
+ * regardless of which provider's recording they're handling. Avoid in
+ * staleness comparison logic; use the provider-aware resolver instead.
+ */
+export const STALENESS_TRACKED_PATHS = [
+  ...SHARED_TRACKED_PATHS,
+  ...PROVIDER_TRACKED_PATHS.anthropic,
+  ...PROVIDER_TRACKED_PATHS.openrouter,
 ];
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -71,12 +124,13 @@ export interface StalenessResult {
  * Get the latest commit SHA that touched any of the tracked paths.
  *
  * @param repoRoot - Absolute path to the git repo root.
- * @param trackedPaths - Paths to check (defaults to STALENESS_TRACKED_PATHS).
+ * @param trackedPaths - Paths to check.
  */
 export function getLatestTrackedCommit(
   repoRoot: string,
-  trackedPaths: string[] = STALENESS_TRACKED_PATHS,
+  trackedPaths: string[],
 ): string {
+  if (trackedPaths.length === 0) return '';
   try {
     const sha = execSync(
       `git log -1 --format=%H -- ${trackedPaths.map((p) => `"${p}"`).join(' ')}`,
@@ -104,14 +158,14 @@ export function getLatestTrackedCommit(
  *
  * @param repoRoot - Absolute path to the git repo root.
  * @param ref - Commit, tag, branch, or `HEAD` (default).
- * @param trackedPaths - Paths to hash (defaults to STALENESS_TRACKED_PATHS).
+ * @param trackedPaths - Paths to hash.
  */
 export function computeTrackedPathsHash(
   repoRoot: string,
   ref: string = 'HEAD',
   trackedPaths: string[] = STALENESS_TRACKED_PATHS,
 ): string {
-  if (ref === '') return '';
+  if (ref === '' || trackedPaths.length === 0) return '';
   try {
     const lsTree = execSync(
       `git ls-tree -r ${ref} -- ${trackedPaths.map((p) => `"${p}"`).join(' ')}`,
@@ -132,24 +186,31 @@ export function computeTrackedPathsHash(
 /**
  * Check staleness of a single recording.
  *
- * Prefers the recording's `trackedPathsHash` when present (commit-graph-
- * independent), and otherwise falls back to the legacy gitSha path.
+ * Uses the recording's provider to pick the right tracked-paths slice,
+ * then prefers `trackedPathsHash` when present (commit-graph-
+ * independent) and falls back to the legacy gitSha path.
  *
  * @param recording - The recording to check.
- * @param latestTrackedSha - Latest commit touching tracked paths (legacy fallback).
+ * @param latestTrackedSha - Latest commit touching the recording's
+ *   provider's tracked paths.
  * @param repoRoot - Absolute path to the git repo root.
- * @param trackedPaths - Override tracked paths (for testing).
- * @param currentTrackedPathsHash - Optional pre-computed HEAD hash. When
- *   omitted, computed lazily — pass it in `checkAllStaleness` to avoid
- *   per-recording recomputation.
+ * @param trackedPathsOverride - Override tracked paths (testing only).
+ *   When omitted the recording's provider determines the path slice.
+ * @param currentTrackedPathsHash - Optional pre-computed HEAD hash for
+ *   the recording's provider's path slice. When omitted, computed
+ *   lazily — pass it in `checkAllStaleness` to avoid per-recording
+ *   recomputation.
  */
 export function checkStaleness(
   recording: Recording,
   latestTrackedSha: string,
   repoRoot: string,
-  trackedPaths: string[] = STALENESS_TRACKED_PATHS,
+  trackedPathsOverride?: string[],
   currentTrackedPathsHash?: string,
 ): StalenessResult {
+  const trackedPaths =
+    trackedPathsOverride ??
+    getTrackedPathsForProvider(recording.provenance.llmProvider);
   const recordingSha = recording.provenance.gitSha;
   const recordingHash = recording.provenance.trackedPathsHash;
   const currentHash =
@@ -241,24 +302,50 @@ function trackedPathsContentEqual(
 }
 
 /**
- * Check staleness of all recordings against the latest tracked commit.
+ * Check staleness of all recordings against the latest tracked commit
+ * for each recording's provider. Pre-computes per-provider HEAD hashes
+ * and latest-SHA lookups once and reuses them across recordings sharing
+ * a provider.
  *
  * @param recordings - All recordings to check.
  * @param repoRoot - Absolute path to the git repo root.
- * @param trackedPaths - Override tracked paths (for testing).
+ * @param trackedPathsOverride - Optional override for ALL recordings
+ *   (testing only). When omitted the provider-aware slice is used per
+ *   recording.
  */
 export function checkAllStaleness(
   recordings: Recording[],
   repoRoot: string,
-  trackedPaths?: string[],
+  trackedPathsOverride?: string[],
 ): StalenessResult[] {
-  const paths = trackedPaths ?? STALENESS_TRACKED_PATHS;
-  const latestSha = getLatestTrackedCommit(repoRoot, paths);
-  const currentHash = computeTrackedPathsHash(repoRoot, 'HEAD', paths);
+  // Per-provider memoisation. When an override is passed (specs do
+  // this), every recording uses the same slice — keyed under a sentinel.
+  const overrideKey = '__override__';
+  const headHashByKey = new Map<string, string>();
+  const latestShaByKey = new Map<string, string>();
 
-  return recordings.map((r) =>
-    checkStaleness(r, latestSha, repoRoot, paths, currentHash),
-  );
+  function pathsForRecording(r: Recording): { key: string; paths: string[] } {
+    if (trackedPathsOverride) {
+      return { key: overrideKey, paths: trackedPathsOverride };
+    }
+    const provider = r.provenance.llmProvider ?? 'anthropic';
+    return { key: provider, paths: getTrackedPathsForProvider(provider) };
+  }
+
+  return recordings.map((r) => {
+    const { key, paths } = pathsForRecording(r);
+    if (!headHashByKey.has(key)) {
+      headHashByKey.set(key, computeTrackedPathsHash(repoRoot, 'HEAD', paths));
+      latestShaByKey.set(key, getLatestTrackedCommit(repoRoot, paths));
+    }
+    return checkStaleness(
+      r,
+      latestShaByKey.get(key) ?? '',
+      repoRoot,
+      trackedPathsOverride,
+      headHashByKey.get(key),
+    );
+  });
 }
 
 /**

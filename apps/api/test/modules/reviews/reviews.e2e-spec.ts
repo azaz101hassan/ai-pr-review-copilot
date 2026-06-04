@@ -32,7 +32,7 @@ import {
   REVIEW_REPOSITORY,
   REVIEW_FINDING_REPOSITORY,
 } from '@/modules/reviews/types';
-import { AnthropicRequestError } from '@/infrastructure/anthropic';
+import { LlmRequestError } from '@/infrastructure/llm';
 import { FilesystemRepoContextProvider } from '@/infrastructure/repo-context';
 import { ReviewsService } from '@/modules/reviews';
 import { ReviewsModule } from '@/modules/reviews/reviews.module';
@@ -202,13 +202,13 @@ class StubLlmReviewer implements ILlmReviewer {
   async analyzeDiff(input: AnalyzeDiffInput): Promise<AnalyzeDiffResult> {
     this.lastInput = input;
     if (this.mode === 'throw-rate-limit') {
-      throw new AnthropicRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
+      throw new LlmRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
         status: 429,
         errorCode: 'rate_limit_error',
       });
     }
     if (this.mode === 'throw-turn-cap-exceeded') {
-      throw new AnthropicRequestError(
+      throw new LlmRequestError(
         'Agent loop exceeded 6 turns without emit_finding',
         {
           status: 200,
@@ -614,14 +614,14 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
       const diff = loadFixture('silent-signature-change.patch');
       const service = app.get(ReviewsService);
 
-      let caught: AnthropicRequestError | undefined;
+      let caught: LlmRequestError | undefined;
       try {
         await service.runDryRun({
           diff,
           repoContext: repoFixture('silent-signature-change.repo'),
         });
       } catch (err) {
-        caught = err as AnthropicRequestError;
+        caught = err as LlmRequestError;
       }
 
       expect(caught).toBeDefined();
@@ -637,7 +637,7 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
       expect(failed?.turn_count).toBe(6);
 
       // The partial loop trace (6 tool calls from
-      // AnthropicRequestError.toolCalls) must round-trip through
+      // LlmRequestError.toolCalls) must round-trip through
       // markFailed and land in tool_calls_json — eval needs to see
       // how far the loop got and which tools were called before
       // the cap.
@@ -829,7 +829,7 @@ describe('Reviews dry-run (e2e — ENABLE_DRY_RUN=true)', () => {
   });
 
   describe('failure persistence', () => {
-    it('stub LLM throws AnthropicRequestError → 5xx + persisted row with status="failed"', async () => {
+    it('stub LLM throws LlmRequestError → 5xx + persisted row with status="failed"', async () => {
       stubLlm.mode = 'throw-rate-limit';
       const diff = loadFixture('no-var-violation.patch');
 

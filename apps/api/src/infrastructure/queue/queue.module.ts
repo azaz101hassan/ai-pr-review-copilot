@@ -133,7 +133,7 @@ export class QueueModule {
             // lives on the @Processor decorator (see
             // `reviews.processor.ts:reviewBackoffStrategy`) so it has
             // access to the thrown error and can honour
-            // AnthropicRequestError.retryAfterMs. Falls back to a
+            // LlmRequestError.retryAfterMs. Falls back to a
             // 1s/2s/4s exponential for errors without a retry-after.
             defaultJobOptions: {
               attempts: 3,

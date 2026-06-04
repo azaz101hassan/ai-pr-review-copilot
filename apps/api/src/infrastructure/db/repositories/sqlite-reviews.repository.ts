@@ -108,6 +108,12 @@ export class SqliteReviewsRepository implements IReviewRepository {
         ...(patch.cache_hit_count !== undefined
           ? { cache_hit_count: patch.cache_hit_count }
           : {}),
+        // Overwrite the placeholder model stored at insert time with the
+        // actual model id echoed back by the provider SDK. Omit when not
+        // provided so older callers that don't pass this field are unaffected.
+        ...(patch.model !== undefined && patch.model !== ''
+          ? { model: patch.model }
+          : {}),
       })
       .where(eq(reviews.id, id))
       .run();

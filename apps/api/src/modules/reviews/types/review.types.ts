@@ -31,7 +31,8 @@ import type { reviews } from '@/infrastructure/db/schema';
 //     - permission_error
 //     - not_found_error
 //     - credit_balance_too_low
-//     - anthropic_error      (catchall when raw was unknown)
+//     - anthropic_error      (legacy alias of llm_error, retained for back-compat reads)
+//     - llm_error             (provider-neutral catchall when raw was unknown)
 //   Agent-loop terminal:
 //     - turn_cap_exceeded
 //     - malformed_emit_finding
@@ -52,6 +53,7 @@ export type KnownReviewErrorCode =
   | 'not_found_error'
   | 'credit_balance_too_low'
   | 'anthropic_error'
+  | 'llm_error'
   | 'turn_cap_exceeded'
   | 'malformed_emit_finding'
   | 'unexpected_response_shape'
@@ -77,6 +79,7 @@ const KNOWN_REVIEW_ERROR_CODES = new Set<KnownReviewErrorCode>([
   'not_found_error',
   'credit_balance_too_low',
   'anthropic_error',
+  'llm_error',
   'turn_cap_exceeded',
   'malformed_emit_finding',
   'unexpected_response_shape',
@@ -127,8 +130,8 @@ export type ToolCallRecord = {
 // Patch shape passed to IReviewRepository.markCompleted — the columns
 // that get populated on the successful terminal flip from `in_progress`
 // to `completed`. `error_status` / `error_code` stay null on this path;
-// they belong to `markFailed`. `turn_count` and `tool_calls` are
-// optional so historical / partial callers stay valid; the typical
+// they belong to `markFailed`. `turn_count`, `tool_calls`, and `model`
+// are optional so historical / partial callers stay valid; the typical
 // path populates them from the reviewer's AnalyzeDiffResult.
 export type ReviewCompletionPatch = {
   completed_at: Date;
@@ -143,6 +146,11 @@ export type ReviewCompletionPatch = {
   // populates them from the reviewer's AnalyzeDiffResult.
   hallucinated_finding_count?: number;
   cache_hit_count?: number;
+  // The actual model id echoed back by the provider SDK. When set,
+  // markCompleted overwrites the placeholder inserted before the
+  // analyzeDiff call. Optional for backward-compat with callers
+  // that pre-date the multi-provider switch.
+  model?: string;
 };
 
 // Patch shape passed to IReviewRepository.markFailed. Token columns stay

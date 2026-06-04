@@ -143,9 +143,13 @@ function makeDashboardService(db: DatabaseService): {
     sourceRepo,
     {
       anthropicModel: 'claude-haiku-4-5',
+      llmProvider: 'anthropic',
       embeddingModel: 'voyage-code-3',
       chromaCollection: 'code-style-rules',
-    } as ConfigService,
+      activeModel() {
+        return 'claude-haiku-4-5';
+      },
+    } as unknown as ConfigService,
   );
 
   return { service, reviewRepo, prRepo, chunkRepo, sourceRepo, findingRepo };

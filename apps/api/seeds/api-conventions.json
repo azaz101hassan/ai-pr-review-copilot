@@ -1,0 +1,369 @@
+{
+  "source": {
+    "id": "api-conventions",
+    "name": "API + TypeScript Conventions",
+    "description": "Backend conventions that the team applies on top of the project-specific rules in team-standards.json. Covers NestJS dependency injection, async/error handling, HTTP API design, TypeScript type safety, and security basics. Each rule is actionable on a small diff — no architecture-scale guidance."
+  },
+  "rules": [
+    {
+      "id": "dto-class-validator",
+      "severity": "error",
+      "language": "typescript",
+      "category": "validation",
+      "title": "Inbound HTTP DTOs must carry class-validator decorators",
+      "description": "Any class used as the type of a controller method's `@Body()`, `@Query()`, or `@Param()` payload must declare each accepted field with a class-validator decorator (@IsString, @IsInt, @IsEmail, @ValidateNested + @Type for nested arrays, etc.). The global ValidationPipe strips unknown keys and rejects malformed values only when the decorators are present — an undecorated DTO accepts arbitrary input silently.",
+      "examples": {
+        "bad": "export class CreateOrderDto {\n  customer_email!: string;\n  currency!: string;\n  items!: OrderLineItemDto[];\n}",
+        "good": "export class CreateOrderDto {\n  @IsEmail()\n  @MaxLength(200)\n  customer_email!: string;\n\n  @IsString()\n  @IsIn(['USD', 'EUR', 'GBP'])\n  currency!: string;\n\n  @IsArray()\n  @ArrayMinSize(1)\n  @ValidateNested({ each: true })\n  @Type(() => OrderLineItemDto)\n  items!: OrderLineItemDto[];\n}"
+      }
+    },
+    {
+      "id": "no-business-logic-in-controllers",
+      "severity": "error",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "Controllers must delegate; business logic belongs in the service",
+      "description": "A controller method is HTTP shape and DI; everything else moves to the service. No domain branching (`if (order.status === 'shipped') throw …`), no persistence calls (no direct repository injection), no enrichment (no Date.now, no UUID generation). The controller's job is parse, delegate, return.",
+      "examples": {
+        "bad": "@Post()\nasync create(@Body() dto: CreateOrderDto) {\n  if (dto.items.length === 0) throw new BadRequestException('empty cart');\n  const id = randomUUID();\n  const total = dto.items.reduce((s, i) => s + i.unit_price_cents * i.quantity, 0);\n  await this.orders.save({ id, total_cents: total, ...dto });\n  return { id };\n}",
+        "good": "@Post()\ncreate(@Body() dto: CreateOrderDto): OrderRecord {\n  return this.orders.create(dto);\n}"
+      }
+    },
+    {
+      "id": "inject-via-interface-token",
+      "severity": "error",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "Inject repositories via @Inject(SYMBOL_TOKEN) and the interface type",
+      "description": "Consumers of a repository must inject the Symbol token, typed as the repository interface — never the concrete class. This keeps the consumer decoupled from the persistence engine. The module wiring binds `provide: TOKEN, useClass: Sqlite…Repository` (or InMemory…, etc.), and a future swap is one line.",
+      "examples": {
+        "bad": "constructor(\n  private readonly orders: SqliteOrdersRepository,\n) {}",
+        "good": "constructor(\n  @Inject(ORDER_REPOSITORY)\n  private readonly orders: IOrderRepository,\n) {}"
+      }
+    },
+    {
+      "id": "no-floating-promises",
+      "severity": "error",
+      "language": "typescript",
+      "category": "async",
+      "title": "Always await Promises or attach a catch handler",
+      "description": "An async function call whose Promise is neither awaited nor handled silently swallows errors and races other code paths. Either `await` the call, return the Promise to the caller, or attach `.catch(err => logger.error(…))` for fire-and-forget paths.",
+      "examples": {
+        "bad": "async handle(payload: WebhookPayload) {\n  this.queue.add('review', payload);\n  return { accepted: true };\n}",
+        "good": "async handle(payload: WebhookPayload) {\n  await this.queue.add('review', payload);\n  return { accepted: true };\n}"
+      }
+    },
+    {
+      "id": "no-await-in-loop",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "performance",
+      "title": "Avoid await inside a for/while loop when the iterations are independent",
+      "description": "Sequential awaits over an array of independent operations serialises them needlessly. Use `Promise.all(items.map(…))` (or `Promise.allSettled` when failure isolation matters) to parallelise. Only keep the sequential form when each iteration genuinely depends on the previous one's resolved value.",
+      "examples": {
+        "bad": "for (const id of ids) {\n  const order = await this.orders.fetch(id);\n  results.push(order);\n}",
+        "good": "const results = await Promise.all(ids.map((id) => this.orders.fetch(id)));"
+      }
+    },
+    {
+      "id": "throw-nest-http-exceptions",
+      "severity": "error",
+      "language": "typescript",
+      "category": "error-handling",
+      "title": "Throw the typed @nestjs/common HttpException subclass, not a raw Error",
+      "description": "Inside a controller or service that bubbles up to HTTP, prefer the typed exceptions Nest ships with — `NotFoundException`, `BadRequestException`, `ConflictException`, `ForbiddenException` — over `throw new Error(…)`. The Nest exception filter renders typed exceptions with the right status code and a structured body; raw Errors collapse to a 500.",
+      "examples": {
+        "bad": "findById(id: string) {\n  const order = this.orders.findById(id);\n  if (!order) throw new Error(`order ${id} not found`);\n  return order;\n}",
+        "good": "findById(id: string) {\n  const order = this.orders.findById(id);\n  if (!order) throw new NotFoundException(`order ${id} not found`);\n  return order;\n}"
+      }
+    },
+    {
+      "id": "no-non-null-assertion",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "type-safety",
+      "title": "Avoid the non-null assertion operator (!)",
+      "description": "`value!` overrides the type system's nullability check; if the value IS null at runtime the program crashes with an opaque TypeError. Prefer a typed guard (`if (!value) throw …`) or a defaulting expression (`value ?? fallback`). Reserve `!` for cases where you've proved (and commented) the runtime invariant.",
+      "examples": {
+        "bad": "const order = this.orders.findById(id)!;\nreturn order.total_cents;",
+        "good": "const order = this.orders.findById(id);\nif (!order) throw new NotFoundException(`order ${id} not found`);\nreturn order.total_cents;"
+      }
+    },
+    {
+      "id": "no-explicit-any",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "type-safety",
+      "title": "Avoid `any`; prefer `unknown` plus a narrowing check",
+      "description": "`any` disables type checking inside its scope and propagates silently to callers. When the type is genuinely unknown (parsed JSON, external API response), use `unknown` and narrow with a guard before use. Reserve `any` for `// eslint-disable-next-line` with a commented justification.",
+      "examples": {
+        "bad": "function parsePayload(raw: string): any {\n  return JSON.parse(raw);\n}",
+        "good": "function parsePayload(raw: string): unknown {\n  return JSON.parse(raw);\n}\n\n// at the call site:\nconst data = parsePayload(raw);\nif (!isOrderShape(data)) throw new BadRequestException('invalid payload');\n// data is OrderRecord here"
+      }
+    },
+    {
+      "id": "no-console-in-app-code",
+      "severity": "error",
+      "language": "typescript",
+      "category": "logging",
+      "title": "Use the Nest Logger, not console.log",
+      "description": "`console.log` bypasses Nest's logger and breaks structured log output, log-level filtering, and the test-runner's quiet mode. Construct a Logger with the class name (`private readonly logger = new Logger(MyService.name);`) and use it. Scripts under `scripts/` are the exception — they have no Nest context and can use console.",
+      "examples": {
+        "bad": "console.log(`order created id=${id}`);",
+        "good": "private readonly logger = new Logger(OrdersService.name);\n// ...\nthis.logger.log(`order created id=${id}`);"
+      }
+    },
+    {
+      "id": "no-magic-numbers",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "readability",
+      "title": "Name magic numbers via a const",
+      "description": "Hard-coded numeric constants that carry meaning (timeouts, limits, retry counts, port numbers) should be named. The single exception: 0 and 1 in obvious counting contexts. The named const documents intent and centralises the value if it needs to change.",
+      "examples": {
+        "bad": "setTimeout(() => this.flushQueue(), 30000);",
+        "good": "const QUEUE_FLUSH_INTERVAL_MS = 30_000;\n// ...\nsetTimeout(() => this.flushQueue(), QUEUE_FLUSH_INTERVAL_MS);"
+      }
+    },
+    {
+      "id": "no-process-env-outside-config",
+      "severity": "error",
+      "language": "typescript",
+      "category": "configuration",
+      "title": "Never read process.env outside ConfigService or main.ts",
+      "description": "Direct `process.env.X` access in feature code bypasses the typed gateway, defeats fail-fast validation, and creates duplicate parsing logic. Add a typed property + validator on ConfigService and inject ConfigService where you need the value. The only exceptions are `main.ts` (before the DI container is up) and `*.module.ts` files using a `parse*` helper exported from `@/config`.",
+      "examples": {
+        "bad": "@Injectable()\nexport class StripeClient {\n  private readonly apiKey = process.env.STRIPE_KEY;\n}",
+        "good": "@Injectable()\nexport class StripeClient {\n  constructor(private readonly config: ConfigService) {}\n  private get apiKey() {\n    return this.config.stripeKey;\n  }\n}"
+      }
+    },
+    {
+      "id": "no-secret-in-log",
+      "severity": "error",
+      "language": "typescript",
+      "category": "security",
+      "title": "Never log a secret, token, full request body, or full diff",
+      "description": "API keys, GitHub App private keys, OAuth tokens, webhook signatures, and full request bodies must not appear in any log statement. They land in CloudWatch / Sentry / shared log files. Log a stable identifier (request id, user id, PR node id) or a hash, never the secret. If you must log a key for debug, redact to the last 4 characters.",
+      "examples": {
+        "bad": "this.logger.debug(`auth header: ${request.headers.authorization}`);",
+        "good": "this.logger.debug(`auth header present: ${Boolean(request.headers.authorization)}`);"
+      }
+    },
+    {
+      "id": "no-unsafe-shell-interpolation",
+      "severity": "error",
+      "language": "typescript",
+      "category": "security",
+      "title": "Never interpolate untrusted input into a shell command",
+      "description": "`child_process.exec` with template interpolation against user input is command injection. Use `child_process.execFile` (or `spawn`) with an args array, OR shell-escape every input. The same rule applies to SQL — use parameterised queries, never string concatenation against user input.",
+      "examples": {
+        "bad": "exec(`git checkout ${branch}`, (err, stdout) => { /* ... */ });",
+        "good": "execFile('git', ['checkout', branch], (err, stdout) => { /* ... */ });"
+      }
+    },
+    {
+      "id": "validate-input-at-system-boundary",
+      "severity": "error",
+      "language": "typescript",
+      "category": "validation",
+      "title": "Validate untrusted input at the system boundary, not deep inside",
+      "description": "Trust internal code; validate at the edge. The boundaries are HTTP controllers, queue consumers, file readers, and external-API responses. Internal-only helpers should assume types match — duplicating validation deep in the call graph creates inconsistent rejection and dead defensive code.",
+      "examples": {
+        "bad": "// orders.service.ts\ncreate(dto: CreateOrderDto): OrderRecord {\n  if (!dto || typeof dto.customer_email !== 'string') {\n    throw new Error('bad dto');\n  }\n  // ...\n}",
+        "good": "// validation lives in the DTO + ValidationPipe at the controller.\n// orders.service.ts trusts the DTO shape:\ncreate(dto: CreateOrderDto): OrderRecord {\n  const total = computeOrderTotalCents(dto.items);\n  // ...\n}"
+      }
+    },
+    {
+      "id": "consistent-async-await",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "async",
+      "title": "Pick async/await OR raw Promises in one function, not both",
+      "description": "Mixing `await someAsync()` with `someOtherAsync().then(…)` in the same function reads as two different control-flow models stitched together. Use async/await throughout when one of the calls needs awaiting; reserve raw Promise chains for fire-and-forget paths or library code.",
+      "examples": {
+        "bad": "async function process(order: OrderRecord) {\n  const confirmed = await charge(order);\n  audit(confirmed).then(() => notify(order)).catch(logErr);\n}",
+        "good": "async function process(order: OrderRecord) {\n  const confirmed = await charge(order);\n  try {\n    await audit(confirmed);\n    await notify(order);\n  } catch (err) {\n    logErr(err);\n  }\n}"
+      }
+    },
+    {
+      "id": "no-empty-catch",
+      "severity": "error",
+      "language": "typescript",
+      "category": "error-handling",
+      "title": "An empty catch block swallows the error silently",
+      "description": "`catch (err) {}` swallows every failure with no log, no metric, and no propagation. If the error is genuinely safe to ignore (cleanup path, optional feature flag check), at minimum log it at debug level. If the error path is unreachable, omit the try/catch entirely.",
+      "examples": {
+        "bad": "try {\n  await fetchExternal();\n} catch (err) {}",
+        "good": "try {\n  await fetchExternal();\n} catch (err) {\n  this.logger.debug(`fetchExternal failed: ${err instanceof Error ? err.message : err}`);\n}"
+      }
+    },
+    {
+      "id": "explicit-public-return-type",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "type-safety",
+      "title": "Public methods should declare an explicit return type",
+      "description": "An exported method or public class member with inferred return type lets a future implementation change silently widen the public surface (e.g. accidentally returning `any` from a refactor). Explicit return types document intent and trip the typechecker when an implementation diverges. Private helpers can rely on inference.",
+      "examples": {
+        "bad": "@Get(':id')\nfindById(@Param('id') id: string) {\n  return this.orders.findById(id);\n}",
+        "good": "@Get(':id')\nfindById(@Param('id') id: string): OrderRecord {\n  return this.orders.findById(id);\n}"
+      }
+    },
+    {
+      "id": "readonly-injected-deps",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "type-safety",
+      "title": "Constructor-injected dependencies should be marked readonly",
+      "description": "A constructor-injected dependency that's reassigned somewhere in the class is almost always a bug. Marking it `readonly` documents the invariant and lets the typechecker enforce it. Applies to repositories, services, Logger, ConfigService.",
+      "examples": {
+        "bad": "constructor(\n  @Inject(ORDER_REPOSITORY)\n  private orders: IOrderRepository,\n) {}",
+        "good": "constructor(\n  @Inject(ORDER_REPOSITORY)\n  private readonly orders: IOrderRepository,\n) {}"
+      }
+    },
+    {
+      "id": "currency-amounts-in-cents",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "domain-modeling",
+      "title": "Represent monetary values in the smallest currency unit (cents), not floats",
+      "description": "JS floats lose precision (`0.1 + 0.2 === 0.30000000000000004`). For prices, totals, and any persisted amount, use an integer in the smallest currency unit (cents for USD/EUR, satoshi for BTC) and name the field accordingly (`total_cents`, not `total`). Format to decimals only at the presentation boundary.",
+      "examples": {
+        "bad": "interface OrderRecord {\n  total: number;  // dollars as float\n}",
+        "good": "interface OrderRecord {\n  total_cents: number;  // integer minor units\n}"
+      }
+    },
+    {
+      "id": "epoch-ms-timestamps",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "domain-modeling",
+      "title": "Persist timestamps as epoch milliseconds (integers), not Date strings",
+      "description": "Date.toISOString() at write time + Date parsing at read time costs CPU, locale ambiguity, and silent timezone drift. Store epoch ms as an integer column (matches Drizzle's `mode: 'timestamp_ms'`). Format to ISO/local time only at the presentation boundary.",
+      "examples": {
+        "bad": "interface OrderRecord {\n  created_at: string;  // ISO-8601\n}",
+        "good": "interface OrderRecord {\n  created_at: number;  // epoch ms\n}"
+      }
+    },
+    {
+      "id": "no-default-status-code-mismatch",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "http-design",
+      "title": "Use @HttpCode to set the response status for non-200 success paths",
+      "description": "Nest defaults to 200 OK on every controller method except POST (which defaults to 201). A POST that doesn't create a resource should override to 200; a method that returns nothing should use 204. Make the status explicit so the HTTP semantics match the method.",
+      "examples": {
+        "bad": "@Post(':id/cancel')\ncancel(@Param('id') id: string) {\n  return this.orders.cancel(id);\n}",
+        "good": "@Post(':id/cancel')\n@HttpCode(200)\ncancel(@Param('id') id: string): OrderRecord {\n  return this.orders.cancel(id);\n}"
+      }
+    },
+    {
+      "id": "bound-query-pagination",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "http-design",
+      "title": "Bound `?limit=` and `?offset=` query parameters",
+      "description": "An unbounded `?limit=` lets a caller pull the entire table in one request. Validate via class-validator (`@Min(1) @Max(100)`) or clamp in the controller before passing to the service. Default to a small value (25 is typical) when the param is absent.",
+      "examples": {
+        "bad": "@Get()\nlist(@Query('limit') limit: number) {\n  return this.orders.list(limit);\n}",
+        "good": "@Get()\nlist(@Query('limit') limit?: string): OrderRecord[] {\n  const parsed = Number(limit);\n  const bounded =\n    Number.isFinite(parsed) && parsed > 0 && parsed <= 100 ? parsed : 25;\n  return this.orders.list(bounded);\n}"
+      }
+    },
+    {
+      "id": "snake-case-json-keys",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "http-design",
+      "title": "API JSON keys use snake_case; TypeScript locals use camelCase",
+      "description": "Public JSON keys are snake_case (matches GitHub, Stripe, most public APIs). Internal TypeScript identifiers are camelCase. Map at the controller boundary if needed. Don't expose camelCase keys to API consumers — it's an inconsistency they shouldn't have to remember.",
+      "examples": {
+        "bad": "interface OrderRecord {\n  customerEmail: string;\n  totalCents: number;\n}\n// returned verbatim to clients",
+        "good": "interface OrderRecord {\n  customer_email: string;\n  total_cents: number;\n}\n// matches the API contract; TS variable names like `customerEmail` are fine."
+      }
+    },
+    {
+      "id": "controller-input-shape-immutable",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "architecture",
+      "title": "Don't mutate DTO fields inside the controller or service",
+      "description": "The DTO is the inbound contract. Mutating its fields (`dto.currency = dto.currency.toUpperCase()`) couples the storage shape to the wire shape and confuses readers. Build a new domain object instead.",
+      "examples": {
+        "bad": "create(dto: CreateOrderDto) {\n  dto.currency = dto.currency.toUpperCase();\n  return this.orders.save(dto);\n}",
+        "good": "create(dto: CreateOrderDto): OrderRecord {\n  const order: OrderRecord = {\n    id: randomUUID(),\n    customer_email: dto.customer_email,\n    currency: dto.currency.toUpperCase(),\n    // ...\n  };\n  this.orders.save(order);\n  return order;\n}"
+      }
+    },
+    {
+      "id": "guard-status-transitions",
+      "severity": "error",
+      "language": "typescript",
+      "category": "domain-modeling",
+      "title": "Validate state machine transitions before mutating",
+      "description": "A status field with a fixed transition graph (pending → confirmed → shipped, etc.) needs an explicit guard before each transition. Mutating without the check lets a caller ship a cancelled order or confirm a shipped one. Throw a typed exception when the transition is illegal.",
+      "examples": {
+        "bad": "ship(id: string) {\n  const order = this.findById(id);\n  this.orders.updateStatus(id, 'shipped');\n  return order;\n}",
+        "good": "ship(id: string): OrderRecord {\n  const order = this.findById(id);\n  if (order.status !== 'confirmed') {\n    throw new ConflictException(`cannot ship order in status ${order.status}`);\n  }\n  this.orders.updateStatus(id, 'shipped', Date.now());\n  return { ...order, status: 'shipped' };\n}"
+      }
+    },
+    {
+      "id": "prefer-uuid-over-incrementing-id",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "security",
+      "title": "Public-facing IDs should be UUIDs or opaque tokens, not sequential integers",
+      "description": "An incrementing integer ID exposed in a public URL leaks the row count (`GET /orders/42` → you have 42 orders) and enables enumeration attacks (`GET /orders/43`, `/44`, …). Use `crypto.randomUUID()` for the public identifier; keep the integer as an internal-only primary key if you need one.",
+      "examples": {
+        "bad": "@Column({ autoIncrement: true })\nid!: number;",
+        "good": "@Column({ type: 'text' })\nid: string = randomUUID();"
+      }
+    },
+    {
+      "id": "no-leak-internal-errors",
+      "severity": "error",
+      "language": "typescript",
+      "category": "security",
+      "title": "Don't leak internal error details in HTTP responses",
+      "description": "A 500 response that echoes the stack trace or raw exception message leaks file paths, library versions, and sometimes secret values to anyone hitting the endpoint. Use the Nest exception filter to map untyped errors to a generic body; log the detail server-side via the Logger.",
+      "examples": {
+        "bad": "@Catch()\nexport class AllExceptionsFilter implements ExceptionFilter {\n  catch(exception: any, host: ArgumentsHost) {\n    const ctx = host.switchToHttp();\n    ctx.getResponse().status(500).json({ message: exception.stack });\n  }\n}",
+        "good": "@Catch()\nexport class AllExceptionsFilter implements ExceptionFilter {\n  private readonly logger = new Logger(AllExceptionsFilter.name);\n  catch(exception: unknown, host: ArgumentsHost) {\n    const ctx = host.switchToHttp();\n    this.logger.error(exception);\n    ctx.getResponse().status(500).json({ message: 'internal server error' });\n  }\n}"
+      }
+    },
+    {
+      "id": "service-method-naming",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "readability",
+      "title": "Service method names are verbs in the imperative; controllers mirror them",
+      "description": "Service methods name an action (`create`, `cancel`, `ship`, `confirm`). Avoid noun-only names (`creation`, `cancellation`) or noun+verb compounds (`processOrderCancel`). The controller uses the same verb where possible so a reader can trace the verb through the layers.",
+      "examples": {
+        "bad": "this.orders.orderCancellation(id);",
+        "good": "this.orders.cancel(id);"
+      }
+    },
+    {
+      "id": "no-redundant-async",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "async",
+      "title": "Don't mark a function async when it never awaits and never returns a Promise from outside",
+      "description": "An `async` keyword on a function that never awaits adds a microtask hop and wraps every return value in a Promise unnecessarily. Drop `async` when the body is purely synchronous. Keep `async` when the function returns a Promise (even if it doesn't await within itself) to make the return type explicit at the declaration.",
+      "examples": {
+        "bad": "async findById(id: string): Promise<OrderRecord> {\n  const order = this.store.get(id);\n  if (!order) throw new NotFoundException();\n  return order;\n}",
+        "good": "findById(id: string): OrderRecord {\n  const order = this.store.get(id);\n  if (!order) throw new NotFoundException();\n  return order;\n}"
+      }
+    },
+    {
+      "id": "no-todo-without-issue",
+      "severity": "warning",
+      "language": "typescript",
+      "category": "code-hygiene",
+      "title": "TODO/FIXME comments must reference a tracked issue",
+      "description": "A `// TODO: handle the cancellation race` comment has no owner, no priority, and no calendar pressure. Either fix it now, file an issue and reference it (`// TODO(#234): handle the cancellation race`), or delete the comment. The same rule applies to FIXME, XXX, HACK, KLUDGE.",
+      "examples": {
+        "bad": "// TODO: handle the cancellation race",
+        "good": "// TODO(#234): handle the cancellation race"
+      }
+    }
+  ]
+}

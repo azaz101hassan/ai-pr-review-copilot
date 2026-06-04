@@ -31,7 +31,8 @@ import type {
   ILlmReviewer,
 } from '@/modules/reviews/types/llm-reviewer';
 import { PROMPT_AND_TOOL_VERSION } from '@/modules/reviews/types/llm-reviewer';
-import { AnthropicRequestError, SessionRateLimitGuard } from '@/infrastructure/anthropic';
+import { SessionRateLimitGuard } from '@/infrastructure/anthropic';
+import { LlmRequestError } from '@/infrastructure/llm';
 import { FilesystemRepoContextProvider } from '@/infrastructure/repo-context';
 import { VoyageRequestError } from '@/infrastructure/voyage/voyage-embedding.provider';
 import { CorpusLoader } from '@/modules/embeddings/helpers/corpus-loader';
@@ -51,12 +52,26 @@ import type {
 import { judgeFinding } from './faithfulness-judge';
 import { FAITHFULNESS_JUDGE_VERSION } from './faithfulness-judge.prompt';
 import { EvalCaptureModule } from './eval-capture.module';
-import { computeTrackedPathsHash } from './staleness';
+import {
+  computeTrackedPathsHash,
+  getTrackedPathsForProvider,
+} from './staleness';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
 /** Pinned seed corpus version. 43 chunks = 33 airbnb + 10 team-standards. */
 export const SEED_CORPUS_VERSION = 'v1';
+
+/**
+ * Returns the configured model id for the active LLM provider.
+ * Used to populate provenance on failure / pre-result paths where no
+ * SDK response is available yet. Once `analyzeDiff` returns, always
+ * prefer `result.model` (the id the provider actually used) over this.
+ */
+export function resolveActiveModel(config: ConfigService): string {
+  return config.activeModel();
+}
+
 export const EXPECTED_CHUNK_COUNT = 43;
 
 /** Sentinel in manifest's injectedRules that means "use the full corpus". */
@@ -193,18 +208,18 @@ export function assembleEmittedRecording(
 }
 
 /**
- * Assemble a threw recording from an AnthropicRequestError.
+ * Assemble a threw recording from an LlmRequestError.
  */
 export function assembleThrewRecording(
   fixtureId: string,
-  error: AnthropicRequestError,
+  error: LlmRequestError,
   provenance: RecordingProvenance,
 ): ThrewRecording {
   return {
     status: 'threw',
     fixtureId,
     error: {
-      errorCode: error.errorCode ?? 'anthropic_error',
+      errorCode: error.errorCode ?? 'llm_error',
       turnCount: error.turnCount ?? null,
       toolCalls: error.toolCalls ?? null,
     },
@@ -408,7 +423,7 @@ async function main(): Promise<void> {
     const config = app.get(ConfigService);
 
     // eslint-disable-next-line no-console
-    console.log(`[eval:capture] model: ${config.anthropicModel}`);
+    console.log(`[eval:capture] model: ${resolveActiveModel(config)}`);
 
     // ── 2. Preflight checks ────────────────────────────────────────
 
@@ -438,15 +453,21 @@ async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     console.log('[eval:capture] preflight: no rule_id collisions');
 
-    // 2d. Git SHA + tracked-paths content hash
+    // 2d. Git SHA + provider-aware tracked-paths content hash
     const gitSha = getGitSha();
     // eslint-disable-next-line no-console
     console.log(`[eval:capture] gitSha: ${gitSha}`);
     const repoRoot = path.resolve(apiRoot, '..', '..');
-    const trackedPathsHash = computeTrackedPathsHash(repoRoot, 'HEAD');
+    const activeProvider = config.llmProvider;
+    const providerTrackedPaths = getTrackedPathsForProvider(activeProvider);
+    const trackedPathsHash = computeTrackedPathsHash(
+      repoRoot,
+      'HEAD',
+      providerTrackedPaths,
+    );
     // eslint-disable-next-line no-console
     console.log(
-      `[eval:capture] trackedPathsHash: ${trackedPathsHash || '(unavailable)'}`,
+      `[eval:capture] llmProvider=${activeProvider} trackedPathsHash: ${trackedPathsHash || '(unavailable)'}`,
     );
 
     // ── 3. Load manifest ───────────────────────────────────────────
@@ -522,15 +543,20 @@ async function main(): Promise<void> {
       const fixturePath = resolveFixturePath(entry, apiRoot);
       const diff = fs.readFileSync(fixturePath, 'utf-8');
 
+      // The provenance model is a best-effort placeholder for the failure
+      // path (assembleThrewRecording) where no SDK response is available.
+      // For successful runs, assembleEmittedRecording spreads the actual
+      // model id from result.model over this value before writing.
       const provenance: RecordingProvenance = {
         promptVersion: PROMPT_AND_TOOL_VERSION,
-        model: config.anthropicModel,
+        model: resolveActiveModel(config),
         judgeModel: DEFAULT_JUDGE_MODEL,
         judgePromptVersion: FAITHFULNESS_JUDGE_VERSION,
         seedCorpusVersion: SEED_CORPUS_VERSION,
         expectedSetHash: computeExpectedSetHash(entry.expected),
         gitSha,
         ...(trackedPathsHash ? { trackedPathsHash } : {}),
+        llmProvider: activeProvider,
       };
 
       if (entry.category === 'clean') {
@@ -656,7 +682,9 @@ async function captureFixture(
       result,
       judgments,
       ruleSet,
-      provenance,
+      // Stamp the actual model id echoed by the provider SDK so the
+      // recording captures what really ran, not the config placeholder.
+      { ...provenance, model: result.model },
       { priorReviewSnapshot },
     );
 
@@ -665,7 +693,7 @@ async function captureFixture(
     // eslint-disable-next-line no-console
     console.log(`  -> ${path.relative(apiRoot, filePath)}`);
   } catch (err) {
-    if (err instanceof AnthropicRequestError) {
+    if (err instanceof LlmRequestError) {
       // eslint-disable-next-line no-console
       console.log(
         `  THREW: ${err.errorCode ?? 'unknown'} (turnCount=${err.turnCount ?? 'n/a'})`,
@@ -733,7 +761,7 @@ async function captureCleanFixture(
       resultA,
       judgmentsA,
       fullCorpusRuleSet,
-      provenance,
+      { ...provenance, model: resultA.model },
     );
 
     const filePathA = writeRecording(evalFixturesDir, recordingA);
@@ -741,7 +769,7 @@ async function captureCleanFixture(
     // eslint-disable-next-line no-console
     console.log(`  [A] -> ${path.relative(apiRoot, filePathA)}`);
   } catch (err) {
-    if (err instanceof AnthropicRequestError) {
+    if (err instanceof LlmRequestError) {
       // eslint-disable-next-line no-console
       console.log(`  [A] THREW: ${err.errorCode ?? 'unknown'}`);
       const recording = assembleThrewRecording(
@@ -796,7 +824,7 @@ async function captureCleanFixture(
       resultB,
       judgmentsB,
       retrievalRuleSet,
-      abProvenance,
+      { ...abProvenance, model: resultB.model },
     );
 
     const filePathB = writeRecording(evalFixturesDir, recordingB);
@@ -804,7 +832,7 @@ async function captureCleanFixture(
     // eslint-disable-next-line no-console
     console.log(`  [B] -> ${path.relative(apiRoot, filePathB)}`);
   } catch (err) {
-    if (err instanceof AnthropicRequestError) {
+    if (err instanceof LlmRequestError) {
       // eslint-disable-next-line no-console
       console.log(`  [B] THREW: ${err.errorCode ?? 'unknown'}`);
       const recording = assembleThrewRecording(
