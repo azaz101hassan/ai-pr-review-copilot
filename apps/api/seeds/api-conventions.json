@@ -55,7 +55,7 @@
     },
     {
       "id": "no-await-in-loop",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "performance",
       "title": "Avoid await inside a for/while loop when the iterations are independent",
@@ -79,7 +79,7 @@
     },
     {
       "id": "no-non-null-assertion",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "type-safety",
       "title": "Avoid the non-null assertion operator (!)",
@@ -91,7 +91,7 @@
     },
     {
       "id": "no-explicit-any",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "type-safety",
       "title": "Avoid `any`; prefer `unknown` plus a narrowing check",
@@ -115,7 +115,7 @@
     },
     {
       "id": "no-magic-numbers",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "readability",
       "title": "Name magic numbers via a const",
@@ -175,7 +175,7 @@
     },
     {
       "id": "consistent-async-await",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "async",
       "title": "Pick async/await OR raw Promises in one function, not both",
@@ -199,7 +199,7 @@
     },
     {
       "id": "explicit-public-return-type",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "type-safety",
       "title": "Public methods should declare an explicit return type",
@@ -211,7 +211,7 @@
     },
     {
       "id": "readonly-injected-deps",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "type-safety",
       "title": "Constructor-injected dependencies should be marked readonly",
@@ -223,7 +223,7 @@
     },
     {
       "id": "currency-amounts-in-cents",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "domain-modeling",
       "title": "Represent monetary values in the smallest currency unit (cents), not floats",
@@ -235,7 +235,7 @@
     },
     {
       "id": "epoch-ms-timestamps",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "domain-modeling",
       "title": "Persist timestamps as epoch milliseconds (integers), not Date strings",
@@ -247,7 +247,7 @@
     },
     {
       "id": "no-default-status-code-mismatch",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "http-design",
       "title": "Use @HttpCode to set the response status for non-200 success paths",
@@ -259,7 +259,7 @@
     },
     {
       "id": "bound-query-pagination",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "http-design",
       "title": "Bound `?limit=` and `?offset=` query parameters",
@@ -271,7 +271,7 @@
     },
     {
       "id": "snake-case-json-keys",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "http-design",
       "title": "API JSON keys use snake_case; TypeScript locals use camelCase",
@@ -283,7 +283,7 @@
     },
     {
       "id": "controller-input-shape-immutable",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "architecture",
       "title": "Don't mutate DTO fields inside the controller or service",
@@ -307,7 +307,7 @@
     },
     {
       "id": "prefer-uuid-over-incrementing-id",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "security",
       "title": "Public-facing IDs should be UUIDs or opaque tokens, not sequential integers",
@@ -331,7 +331,7 @@
     },
     {
       "id": "service-method-naming",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "readability",
       "title": "Service method names are verbs in the imperative; controllers mirror them",
@@ -343,7 +343,7 @@
     },
     {
       "id": "no-redundant-async",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "async",
       "title": "Don't mark a function async when it never awaits and never returns a Promise from outside",
@@ -355,7 +355,7 @@
     },
     {
       "id": "no-todo-without-issue",
-      "severity": "warn",
+      "severity": "warning",
       "language": "typescript",
       "category": "code-hygiene",
       "title": "TODO/FIXME comments must reference a tracked issue",
