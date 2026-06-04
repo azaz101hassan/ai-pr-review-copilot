@@ -305,8 +305,8 @@ describe('ReviewsService (pure-mock cases)', () => {
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
-      expect((embeddings.search as jest.Mock).mock.calls[0][1]).toEqual({ k: 20 });
-      expect((reviews.insert.mock.calls[0][0] as ReviewInsert).top_k).toBe(20);
+      expect((embeddings.search as jest.Mock).mock.calls[0][1]).toEqual({ k: 40 });
+      expect((reviews.insert.mock.calls[0][0] as ReviewInsert).top_k).toBe(40);
 
       reviews.insert.mockClear();
       (embeddings.search as jest.Mock).mockClear();
@@ -583,7 +583,7 @@ describe('ReviewsService (pure-mock cases)', () => {
       await service.runDryRun({ diff: REAL_DIFF });
       const call = (embeddings.search as jest.Mock).mock.calls[0];
       expect(call[0]).toBe(REAL_DIFF);
-      expect(call[1]).toEqual({ k: 20 });
+      expect(call[1]).toEqual({ k: 40 });
     });
   });
 
