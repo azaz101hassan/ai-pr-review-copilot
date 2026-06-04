@@ -462,9 +462,9 @@ describe('ConfigService', () => {
   });
 
   describe('MAX_REVIEW_DIFF_LINES', () => {
-    it('defaults to 500 when unset (small-PR copilot threshold)', () => {
+    it('defaults to 1000 when unset (broader corpus + dummy-module probe)', () => {
       setEnv(HAPPY_ENV);
-      expect(new ConfigService().maxReviewDiffLines).toBe(500);
+      expect(new ConfigService().maxReviewDiffLines).toBe(1000);
     });
 
     it('honours an explicit value within bounds', () => {

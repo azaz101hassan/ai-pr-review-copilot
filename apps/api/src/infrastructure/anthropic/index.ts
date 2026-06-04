@@ -2,6 +2,8 @@ export { AnthropicModule } from './anthropic.module';
 export {
   AnthropicLlmReviewer,
   SYSTEM_PROMPT,
+  buildSystemPrompt,
+  DEFAULT_TURN_CAP,
   FETCH_FILE_TOOL,
   FETCH_FUNCTION_TOOL,
   FETCH_PRIOR_REVIEW_TOOL,

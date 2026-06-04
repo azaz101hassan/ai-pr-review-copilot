@@ -4,7 +4,7 @@ import {
   parseEnableDryRun,
   parseSkipRedisProbe,
 } from '@/config';
-import { AnthropicModule } from '@/infrastructure/anthropic';
+import { LlmProviderModule } from '@/infrastructure/llm-provider.module';
 import { GithubModule } from '@/infrastructure/github';
 import { QueueModule } from '@/infrastructure/queue';
 import { RepoContextModule } from '@/infrastructure/repo-context';
@@ -63,7 +63,11 @@ export class ReviewsModule {
       imports: [
         ConfigModule,
         EmbeddingsModule,
-        AnthropicModule,
+        // LLM-provider seam — picks AnthropicModule or
+        // OpenAICompatibleModule at module-eval time based on
+        // LLM_PROVIDER. Both children bind LLM_REVIEWER; ReviewsService
+        // injects the interface, so the swap is transparent here.
+        LlmProviderModule.forRoot(),
         // The HTTP path resolves `REPO_CONTEXT_PROVIDER` to
         // `NullRepoContextProvider` (deterministic-degraded). The
         // CLI bypasses this and constructs a

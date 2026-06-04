@@ -31,6 +31,22 @@ export class ConfigService {
   readonly anthropicApiKey: string;
   readonly anthropicModel: string;
 
+  // LLM provider selection. Default 'anthropic' keeps existing
+  // behaviour untouched. Setting LLM_PROVIDER=openrouter activates
+  // the OpenAI-compatible reviewer pointed at OpenRouter (or any
+  // OpenAI-compatible host). The openrouter* fields are validated
+  // only when that provider is selected; an anthropic boot ignores
+  // them entirely so a partially-filled .env doesn't refuse to
+  // start on the existing path.
+  readonly llmProvider: 'anthropic' | 'openrouter';
+  readonly openrouterApiKey: string;
+  readonly openrouterModel: string;
+  readonly openrouterBaseUrl: string;
+  // Per-turn raw-request/response logging in the OpenAI-compatible
+  // reviewer. Off by default; flip on for the LLM-provider-swap
+  // spike to capture tool-call parse behaviour without redeploying.
+  readonly llmSpikeVerbose: boolean;
+
   // Gates registration of POST /reviews/dry-run. Defaults to true
   // in dev (NODE_ENV=development) and false everywhere else —
   // forecloses the accidental-deploy-to-prod denial-of-wallet path
@@ -63,9 +79,10 @@ export class ConfigService {
   // this threshold are skipped with a friendly walkthrough comment
   // instead of running the agent loop. Distinct from `maxDiffBytes`
   // which is the hard system-safety ceiling (silent failure path).
-  // Default 500 = evidence-based "small PR" threshold; the reviewer's
-  // quality holds on focused diffs and degrades on large ones, so the
-  // gate keeps the cost/quality contract honest.
+  // Default 1000 — raised from 500 to accommodate the broader rule
+  // corpus and the dummy-module probe diffs. The reviewer's quality
+  // is reliable on focused diffs and degrades on large ones; 1000 is
+  // the new "small PR" threshold pending fresh real-world calibration.
   readonly maxReviewDiffLines: number;
 
   // Test-only escape hatches. When true, the corresponding boot
@@ -103,6 +120,36 @@ export class ConfigService {
     this.anthropicModel = this.resolveAnthropicModel(
       process.env.ANTHROPIC_MODEL,
       process.env.NODE_ENV,
+    );
+    this.llmProvider = parseLlmProvider(process.env.LLM_PROVIDER);
+    // OpenRouter validation is gated on the active provider so an
+    // anthropic boot doesn't require these vars (and so a half-filled
+    // .env on the openrouter path fails with a specific message, not
+    // the generic ANTHROPIC_* one).
+    if (this.llmProvider === 'openrouter') {
+      this.openrouterApiKey = this.requireSecret(
+        'OPENROUTER_API_KEY',
+        process.env.OPENROUTER_API_KEY,
+      );
+      this.openrouterModel = this.requireNonEmptyToken(
+        'OPENROUTER_MODEL',
+        process.env.OPENROUTER_MODEL ?? '',
+      );
+      this.openrouterBaseUrl = this.validateOpenrouterBaseUrl(
+        process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
+      );
+    } else {
+      // Sentinel empties — fields stay declared so consumers can read
+      // them without optional-chaining, but a stray injection while
+      // LLM_PROVIDER=anthropic surfaces obviously rather than silently
+      // hitting OpenRouter with no key.
+      this.openrouterApiKey = '';
+      this.openrouterModel = '';
+      this.openrouterBaseUrl = '';
+    }
+    this.llmSpikeVerbose = parseBooleanFlag(
+      process.env.LLM_SPIKE_VERBOSE,
+      false,
     );
     this.enableDryRun = this.resolveEnableDryRun(
       process.env.ENABLE_DRY_RUN,
@@ -149,7 +196,7 @@ export class ConfigService {
     this.maxReviewDiffLines = this.requireBoundedInteger(
       'MAX_REVIEW_DIFF_LINES',
       process.env.MAX_REVIEW_DIFF_LINES,
-      500,
+      1000,
       1,
       100_000,
     );
@@ -162,7 +209,34 @@ export class ConfigService {
       false,
     );
 
-    ConfigService.logger.log(`Resolved model: ${this.anthropicModel}`);
+    if (this.llmProvider === 'openrouter') {
+      ConfigService.logger.log(
+        `Resolved LLM provider: openrouter (model=${this.openrouterModel}, base=${this.openrouterBaseUrl})`,
+      );
+    } else {
+      ConfigService.logger.log(`Resolved model: ${this.anthropicModel}`);
+    }
+  }
+
+  // Match the redis/chroma URL validators — reject anything that
+  // doesn't parse as a URL with an http(s) scheme. Catches the typo'd
+  // OPENROUTER_BASE_URL at boot rather than on the first agent loop
+  // request.
+  private validateOpenrouterBaseUrl(value: string): string {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new Error(
+        `OPENROUTER_BASE_URL must be a valid URL (got "${value}"). Example: https://openrouter.ai/api/v1`,
+      );
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(
+        `OPENROUTER_BASE_URL must use http or https (got "${parsed.protocol}").`,
+      );
+    }
+    return value;
   }
 
   // Reject the truthy-but-broken cases too: literal "undefined"/"null"
@@ -399,6 +473,20 @@ export function parseSkipRedisProbe(
   fallback: boolean,
 ): boolean {
   return parseBooleanFlag(explicit, fallback);
+}
+
+// Module-definition-time parser for LLM_PROVIDER. The
+// LlmProviderModule.forRoot() wrapper branches on this flag to import
+// either the Anthropic or the OpenAI-compatible adapter. Mirrors the
+// `parseSkipRedisProbe` pattern so the no-bare-env discipline holds
+// even at module-eval time. Unknown values silently fall back to
+// 'anthropic' — the strict gate (typed property + log) lives in
+// ConfigService.
+export function parseLlmProvider(
+  explicit: string | undefined,
+): 'anthropic' | 'openrouter' {
+  if (explicit === 'openrouter') return 'openrouter';
+  return 'anthropic';
 }
 
 // Generic boolean-flag parser modelled on parseEnableDryRun but
