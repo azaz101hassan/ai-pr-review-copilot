@@ -53,6 +53,18 @@ export class ConfigService {
    * PRs that need more exploration turns. Bounded 1–70.
    */
   readonly agentTurnCap: number;
+
+  /**
+   * Default top-K for the hybrid (dense + sparse) retrieval that feeds
+   * the LLM with candidate rules. Default 25 — the climb-down from a
+   * brief K=40 experiment where the marginal recall gain didn't
+   * justify the ~2× input-token cost. Tuned via `RETRIEVAL_DEFAULT_K`
+   * so operators can sweep K against the eval gate without redeploying.
+   * Bounded 1–200; above 100 starts pushing into the per-prompt token
+   * budget for some providers.
+   */
+  readonly retrievalDefaultK: number;
+
   readonly workerConcurrency: number;
   readonly shutdownDrainTimeoutMs: number;
   readonly maxDiffBytes: number;
@@ -145,6 +157,13 @@ export class ConfigService {
       6,
       1,
       70,
+    );
+    this.retrievalDefaultK = this.requireBoundedInteger(
+      'RETRIEVAL_DEFAULT_K',
+      process.env.RETRIEVAL_DEFAULT_K,
+      25,
+      1,
+      200,
     );
     this.workerConcurrency = this.requirePositiveInteger(
       'WORKER_CONCURRENCY',

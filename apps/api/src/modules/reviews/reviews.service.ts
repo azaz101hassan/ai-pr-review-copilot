@@ -98,15 +98,15 @@ export class ReviewsServiceError extends Error {
   }
 }
 
-// Default top-K for the embeddings search that feeds the LLM with
-// candidate rules. The api-conventions seed enlarged the corpus from
-// ~43 to ~73 chunks; at K=10 it dominated retrieval on domain-themed
-// diffs, pushing classic airbnb syntax rules (eqeqeq, no-var,
-// no-magic-numbers) out of the candidate window. K=25 keeps both rule
-// families in scope without ballooning input tokens — a deliberate
-// climb-down from a brief K=40 experiment where the marginal recall
-// gain didn't justify the ~2× input-token cost per agent loop.
-const DEFAULT_K = 25;
+// Configuration knob for top-K is `RETRIEVAL_DEFAULT_K`, surfaced via
+// ConfigService.retrievalDefaultK. The previous hard-coded constant
+// lived here; making it tunable lets operators sweep K against the
+// eval gate without redeploying. The history note: at K=10 the
+// post-seed-expansion corpus dominated retrieval on domain-themed
+// diffs, pushing classic airbnb syntax rules out of the candidate
+// window; K=25 keeps both rule families in scope without ballooning
+// input tokens. Anything above 100 starts hitting per-prompt token
+// budgets on some providers — ConfigService bounds at 200 regardless.
 // Cutoff used by the startup sweep AND the per-PR worker guard.
 // 10 minutes is safely above the worst-case 6-turn agent loop with
 // file fetches (~6 minutes wall clock) while still surfacing real
@@ -169,7 +169,7 @@ export class ReviewsService implements OnModuleInit {
       throw new ReviewsServiceError('diff is empty');
     }
 
-    const k = input.k ?? DEFAULT_K;
+    const k = input.k ?? this.config.retrievalDefaultK;
     const diffLength = input.diff.length;
     const prNodeId = input.prNodeId ?? null;
     // attempt_id is the handle used in pre-insert log lines so log

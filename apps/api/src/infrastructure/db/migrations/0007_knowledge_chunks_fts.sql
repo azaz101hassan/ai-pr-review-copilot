@@ -1,0 +1,5 @@
+CREATE VIRTUAL TABLE `knowledge_chunks_fts` USING fts5(rule_id, title, body, content='knowledge_chunks', content_rowid='rowid', tokenize='unicode61 remove_diacritics 1');--> statement-breakpoint
+CREATE TRIGGER `knowledge_chunks_ai` AFTER INSERT ON `knowledge_chunks` BEGIN INSERT INTO `knowledge_chunks_fts`(rowid, rule_id, title, body) VALUES (new.rowid, new.rule_id, new.title, new.body); END;--> statement-breakpoint
+CREATE TRIGGER `knowledge_chunks_ad` AFTER DELETE ON `knowledge_chunks` BEGIN INSERT INTO `knowledge_chunks_fts`(`knowledge_chunks_fts`, rowid, rule_id, title, body) VALUES ('delete', old.rowid, old.rule_id, old.title, old.body); END;--> statement-breakpoint
+CREATE TRIGGER `knowledge_chunks_au` AFTER UPDATE ON `knowledge_chunks` BEGIN INSERT INTO `knowledge_chunks_fts`(`knowledge_chunks_fts`, rowid, rule_id, title, body) VALUES ('delete', old.rowid, old.rule_id, old.title, old.body); INSERT INTO `knowledge_chunks_fts`(rowid, rule_id, title, body) VALUES (new.rowid, new.rule_id, new.title, new.body); END;--> statement-breakpoint
+INSERT INTO `knowledge_chunks_fts`(`knowledge_chunks_fts`) VALUES ('rebuild');

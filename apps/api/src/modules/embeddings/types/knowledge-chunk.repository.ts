@@ -2,6 +2,16 @@ import { KnowledgeChunkRecord, KnowledgeChunkInsert } from './knowledge-chunk.ty
 
 export const KNOWLEDGE_CHUNK_REPOSITORY = Symbol('KnowledgeChunkRepository');
 
+// A single keyword-search hit. Returned in ranked order (best first) by
+// `searchByKeyword`. The `bm25Score` is whatever the underlying engine
+// scores it as — for SQLite FTS5 that's a NEGATIVE float (more negative
+// = better), but consumers should only rely on the ordering, not the
+// absolute value.
+export interface KeywordSearchHit {
+  id: string;
+  bm25Score: number;
+}
+
 export interface IKnowledgeChunkRepository {
   // Bulk write path for seeding — single transaction keeps the table in
   // a coherent state if a batch is interrupted mid-flight.
@@ -17,4 +27,11 @@ export interface IKnowledgeChunkRepository {
   // a single source before re-seeding to clear stale rules. Returns the
   // count deleted so callers can report progress.
   deleteBySourceId(sourceId: string): number;
+  // Keyword (lexical) search over chunk bodies via the FTS5 index. The
+  // engine ranks by BM25. Returns up to `k` ids in best-first order, or
+  // an empty array when the query reduces to no usable tokens (e.g. a
+  // diff that's only punctuation). This is the sparse-retrieval leg of
+  // the hybrid search seam — the dense (Voyage+Chroma) leg handles
+  // semantic matches that share no surface tokens.
+  searchByKeyword(query: string, k: number): KeywordSearchHit[];
 }
