@@ -16,6 +16,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 
 import type { ToolCallRecord, ReviewErrorCode } from '@/modules/reviews/types/review.types';
+import type { LlmProvider } from '@/infrastructure/llm';
 
 // ── Faithfulness verdict on a single claim ──────────────────────────
 
@@ -74,6 +75,19 @@ export interface RecordingProvenance {
    * gitSha-based logic.
    */
   trackedPathsHash?: string;
+  /**
+   * Which LLM adapter captured this recording. Determines which
+   * provider-folder is included in the staleness tracked-paths slice
+   * (Anthropic recordings only invalidate when Anthropic-relevant code
+   * changes; OpenRouter recordings only when OpenRouter-relevant code
+   * changes; both invalidate when the shared `infrastructure/llm/`
+   * surface changes).
+   *
+   * Optional for back-compat with pre-multi-provider recordings —
+   * missing defaults to 'anthropic' at every read site, since every
+   * recording captured before this field existed ran against Anthropic.
+   */
+  llmProvider?: LlmProvider;
 }
 
 // ── Threw branch ────────────────────────────────────────────────────

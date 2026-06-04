@@ -4,6 +4,7 @@ import {
   hasStaleRecordings,
   getLatestTrackedCommit,
   computeTrackedPathsHash,
+  getTrackedPathsForProvider,
 } from '@/modules/reviews/eval/staleness';
 import type { StalenessResult } from '@/modules/reviews/eval/staleness';
 import type { Recording, RecordingProvenance } from '@/modules/reviews/eval/recording';
@@ -293,7 +294,14 @@ describe('checkStaleness — trackedPathsHash path', () => {
     // stale because git diff threw. With the hash present, the check
     // short-circuits to fresh regardless of SHA reachability.
     const orphan = '0000000000000000000000000000000000000000';
-    const realHash = computeTrackedPathsHash(repoRoot, 'HEAD');
+    // Recording defaults to anthropic (llmProvider undefined), so the
+    // staleness comparison uses the anthropic-aware tracked-paths slice.
+    // Hash the same slice here so the equality check fires.
+    const realHash = computeTrackedPathsHash(
+      repoRoot,
+      'HEAD',
+      getTrackedPathsForProvider('anthropic'),
+    );
     if (realHash === '') return; // skip if HEAD has no tracked content
 
     const recording = makeRecording(orphan, 'fix-e');
