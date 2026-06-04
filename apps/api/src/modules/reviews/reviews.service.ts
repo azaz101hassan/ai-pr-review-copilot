@@ -98,7 +98,11 @@ export class ReviewsServiceError extends Error {
   }
 }
 
-const DEFAULT_K = 10;
+// Raised from 10 → 20 alongside the corpus expansion (api-conventions
+// adds ~30 rules; top-10 was no longer enough to keep specific rules
+// in the retrieval set across mixed-domain diffs). Higher K costs more
+// input tokens per agent loop; revisit if real-PR cost climbs.
+const DEFAULT_K = 20;
 // Cutoff used by the startup sweep AND the per-PR worker guard.
 // 10 minutes is safely above the worst-case 6-turn agent loop with
 // file fetches (~6 minutes wall clock) while still surfacing real

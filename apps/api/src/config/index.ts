@@ -6,4 +6,5 @@ export {
   parseDogfoodRepos,
   parseWorkerConcurrency,
   parseSkipRedisProbe,
+  parseLlmProvider,
 } from './config.service';
