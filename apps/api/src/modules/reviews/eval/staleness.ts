@@ -5,7 +5,9 @@
  * Pure utility, NO Nest/ConfigService imports.
  *
  * Tracked paths (changes to any of these make recordings stale):
+ *   - apps/api/src/infrastructure/llm/**
  *   - apps/api/src/infrastructure/anthropic/**
+ *   - apps/api/src/infrastructure/openrouter/**
  *   - apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts
  *   - apps/api/seeds/**
  *
@@ -37,7 +39,9 @@ import type { Recording } from '@/modules/reviews/eval/recording';
 // ── Tracked paths ──────────────────────────────────────────────────
 
 export const STALENESS_TRACKED_PATHS = [
+  'apps/api/src/infrastructure/llm/',
   'apps/api/src/infrastructure/anthropic/',
+  'apps/api/src/infrastructure/openrouter/',
   'apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts',
   'apps/api/seeds/',
 ];

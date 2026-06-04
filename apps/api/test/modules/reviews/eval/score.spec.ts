@@ -144,7 +144,9 @@ function getLatestTrackedSha(): string {
     return require('child_process')
       .execSync(
         'git log -1 --format=%H -- ' +
+          '"apps/api/src/infrastructure/llm/" ' +
           '"apps/api/src/infrastructure/anthropic/" ' +
+          '"apps/api/src/infrastructure/openrouter/" ' +
           '"apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts" ' +
           '"apps/api/seeds/"',
         { cwd: getRepoRoot(), encoding: 'utf-8' },

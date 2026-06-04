@@ -202,7 +202,7 @@ describe('Embeddings (e2e)', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  describe('hit@10 against known violation fixtures', () => {
+  describe('hit@20 against known violation fixtures', () => {
     const cases = [
       { fixture: 'eqeqeq-violation.patch', expectedRuleId: 'eqeqeq' },
       { fixture: 'no-var-violation.patch', expectedRuleId: 'no-var' },

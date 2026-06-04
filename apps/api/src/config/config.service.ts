@@ -1,12 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
+import {
+  DEFAULT_LLM_PROVIDER,
+  isLlmProvider,
+  LLM_PROVIDERS,
+  type LlmProvider,
+} from '@/infrastructure/llm/llm-provider.types';
 
-// Single typed gateway to process.env. Read once at boot, fail fast
-// on misconfig, hand strongly-typed values to consumers. The
-// hand-rolled gateway (rather than @nestjs/config) keeps inline
-// validation next to the consumer's mental model — the guard's
-// "16+ chars" rule lives here, not in a separate Joi schema. We can
-// move to @nestjs/config + Joi when the surface grows past ~10 vars
-// or we need per-environment .env layering.
+/**
+ * Single typed gateway to process.env. Read once at boot, fail fast
+ * on misconfig, hand strongly-typed values to consumers. Inline
+ * validators sit next to the consumer's mental model — we can move to
+ * @nestjs/config + Joi when the surface grows past ~10 vars or needs
+ * per-environment .env layering.
+ */
 @Injectable()
 export class ConfigService {
   private static readonly logger = new Logger(ConfigService.name);
@@ -15,80 +21,52 @@ export class ConfigService {
   readonly databasePath: string;
   readonly port: number;
 
-  // RAG foundation. Voyage = embedding provider, Chroma = vector
-  // index. Voyage key is required and fails fast like the webhook
-  // secret; the other three carry sensible defaults so a fresh
-  // `.env` only needs VOYAGE_API_KEY filled in.
   readonly voyageApiKey: string;
   readonly chromaUrl: string;
   readonly chromaCollection: string;
   readonly embeddingModel: string;
 
-  // Claude integration. Key is required (fails fast). Model default
-  // is Haiku in every environment; explicit ANTHROPIC_MODEL always
-  // wins. The resolved model is logged at boot so a misconfig
-  // surfaces immediately.
   readonly anthropicApiKey: string;
   readonly anthropicModel: string;
 
-  // LLM provider selection. Default 'anthropic' keeps existing
-  // behaviour untouched. Setting LLM_PROVIDER=openrouter activates
-  // the OpenAI-compatible reviewer pointed at OpenRouter (or any
-  // OpenAI-compatible host). The openrouter* fields are validated
-  // only when that provider is selected; an anthropic boot ignores
-  // them entirely so a partially-filled .env doesn't refuse to
-  // start on the existing path.
-  readonly llmProvider: 'anthropic' | 'openrouter';
+  /** Active LLM provider. Set via `LLM_PROVIDER`. Defaults to anthropic. */
+  readonly llmProvider: LlmProvider;
+
   readonly openrouterApiKey: string;
   readonly openrouterModel: string;
   readonly openrouterBaseUrl: string;
-  // Per-turn raw-request/response logging in the OpenAI-compatible
-  // reviewer. Off by default; flip on for the LLM-provider-swap
-  // spike to capture tool-call parse behaviour without redeploying.
+
+  /** Per-turn raw request/response logging for the active reviewer. */
   readonly llmSpikeVerbose: boolean;
 
-  // Gates registration of POST /reviews/dry-run. Defaults to true
-  // in dev (NODE_ENV=development) and false everywhere else —
-  // forecloses the accidental-deploy-to-prod denial-of-wallet path
-  // on an unauthenticated review endpoint. The CLI path is unaffected
-  // (no HTTP).
   readonly enableDryRun: boolean;
 
-  // Real-PR integration. App credentials authenticate Octokit via
-  // @octokit/auth-app; Redis backs the BullMQ review queue;
-  // DOGFOOD_REPOS is the allowlist + kill switch for which repos
-  // the bot reviews; the remaining knobs bound the agent loop's
-  // runtime and cost surface.
   readonly appId: string;
   readonly appPrivateKey: string;
   readonly redisUrl: string;
   readonly dogfoodRepos: ReadonlySet<string>;
   readonly anthropicUseZeroRetention: boolean;
-  // Hard ceiling on agent-loop turns per review. Reaching the cap
-  // without `emit_finding` marks the row failed/turn_cap_exceeded.
-  // Default 6 keeps the worst-case Anthropic spend bounded; bump for
-  // larger PRs that need more exploration turns. Bound 1–20 — values
-  // above 20 indicate a misconfig (any real review converges well
-  // before then, and unbounded loops are the wallet-protection failure
-  // mode this cap exists to prevent).
-  readonly anthropicAgentTurnCap: number;
+
+  /**
+   * Hard ceiling on agent-loop turns per review. Default 6 keeps the
+   * worst-case spend bounded across both providers; bump for larger
+   * PRs that need more exploration turns. Bounded 1–70.
+   */
+  readonly agentTurnCap: number;
   readonly workerConcurrency: number;
   readonly shutdownDrainTimeoutMs: number;
   readonly maxDiffBytes: number;
-  // Soft size gate: changed lines (additions + deletions). PRs above
-  // this threshold are skipped with a friendly walkthrough comment
-  // instead of running the agent loop. Distinct from `maxDiffBytes`
-  // which is the hard system-safety ceiling (silent failure path).
-  // Default 1000 — raised from 500 to accommodate the broader rule
-  // corpus and the dummy-module probe diffs. The reviewer's quality
-  // is reliable on focused diffs and degrades on large ones; 1000 is
-  // the new "small PR" threshold pending fresh real-world calibration.
+
+  /**
+   * Soft size gate on changed lines (additions + deletions). PRs above
+   * this threshold skip the agent loop and post a friendly walkthrough
+   * comment instead. Distinct from `maxDiffBytes` (hard system-safety
+   * ceiling, silent failure path).
+   */
   readonly maxReviewDiffLines: number;
 
-  // Test-only escape hatches. When true, the corresponding boot
-  // probe is skipped so AppModule-bootstrapping specs don't need real
-  // upstream dependencies (GitHub API, Redis). Always false in
-  // production / dev. Set via jest.setup.ts.
+  // Test-only escape hatches; AppModule-bootstrapping specs flip these
+  // to skip GitHub/Redis boot probes. Always false outside test.
   readonly skipGithubAppProbe: boolean;
   readonly skipRedisProbe: boolean;
 
@@ -113,20 +91,25 @@ export class ConfigService {
       process.env.EMBEDDING_MODEL ?? 'voyage-code-3',
     );
 
-    this.anthropicApiKey = this.requireSecret(
-      'ANTHROPIC_API_KEY',
-      process.env.ANTHROPIC_API_KEY,
-    );
-    this.anthropicModel = this.resolveAnthropicModel(
-      process.env.ANTHROPIC_MODEL,
-      process.env.NODE_ENV,
-    );
     this.llmProvider = parseLlmProvider(process.env.LLM_PROVIDER);
-    // OpenRouter validation is gated on the active provider so an
-    // anthropic boot doesn't require these vars (and so a half-filled
-    // .env on the openrouter path fails with a specific message, not
-    // the generic ANTHROPIC_* one).
-    if (this.llmProvider === 'openrouter') {
+
+    // Per-provider validation is gated on the active provider — the
+    // inactive side gets sentinel empties so consumers can read fields
+    // without optional-chaining, but a stray injection while the wrong
+    // provider is active surfaces obviously rather than silently
+    // hitting the upstream with empty creds.
+    if (this.llmProvider === 'anthropic') {
+      this.anthropicApiKey = this.requireSecret(
+        'ANTHROPIC_API_KEY',
+        process.env.ANTHROPIC_API_KEY,
+      );
+      this.anthropicModel = this.resolveAnthropicModel(process.env.ANTHROPIC_MODEL);
+      this.openrouterApiKey = '';
+      this.openrouterModel = '';
+      this.openrouterBaseUrl = '';
+    } else {
+      this.anthropicApiKey = '';
+      this.anthropicModel = '';
       this.openrouterApiKey = this.requireSecret(
         'OPENROUTER_API_KEY',
         process.env.OPENROUTER_API_KEY,
@@ -138,19 +121,8 @@ export class ConfigService {
       this.openrouterBaseUrl = this.validateOpenrouterBaseUrl(
         process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
       );
-    } else {
-      // Sentinel empties — fields stay declared so consumers can read
-      // them without optional-chaining, but a stray injection while
-      // LLM_PROVIDER=anthropic surfaces obviously rather than silently
-      // hitting OpenRouter with no key.
-      this.openrouterApiKey = '';
-      this.openrouterModel = '';
-      this.openrouterBaseUrl = '';
     }
-    this.llmSpikeVerbose = parseBooleanFlag(
-      process.env.LLM_SPIKE_VERBOSE,
-      false,
-    );
+    this.llmSpikeVerbose = parseBooleanFlag(process.env.LLM_SPIKE_VERBOSE, false);
     this.enableDryRun = this.resolveEnableDryRun(
       process.env.ENABLE_DRY_RUN,
       process.env.NODE_ENV,
@@ -167,9 +139,9 @@ export class ConfigService {
       process.env.ANTHROPIC_USE_ZERO_RETENTION,
       false,
     );
-    this.anthropicAgentTurnCap = this.requireBoundedInteger(
-      'ANTHROPIC_AGENT_TURN_CAP',
-      process.env.ANTHROPIC_AGENT_TURN_CAP,
+    this.agentTurnCap = this.requireBoundedInteger(
+      'AGENT_TURN_CAP',
+      process.env.AGENT_TURN_CAP,
       6,
       1,
       70,
@@ -180,9 +152,7 @@ export class ConfigService {
       1,
     );
     // 15s default leaves 15s margin under k8s's default
-    // terminationGracePeriodSeconds: 30 for Nest's own shutdown
-    // (database close, queue shutdown, etc.). Operators with a
-    // longer platform grace can raise this.
+    // terminationGracePeriodSeconds: 30 for Nest's own shutdown.
     this.shutdownDrainTimeoutMs = this.requirePositiveInteger(
       'SHUTDOWN_DRAIN_TIMEOUT_MS',
       process.env.SHUTDOWN_DRAIN_TIMEOUT_MS,
@@ -200,28 +170,20 @@ export class ConfigService {
       1,
       100_000,
     );
-    this.skipGithubAppProbe = parseBooleanFlag(
-      process.env.SKIP_GITHUB_APP_PROBE,
-      false,
-    );
-    this.skipRedisProbe = parseBooleanFlag(
-      process.env.SKIP_REDIS_PROBE,
-      false,
-    );
+    this.skipGithubAppProbe = parseBooleanFlag(process.env.SKIP_GITHUB_APP_PROBE, false);
+    this.skipRedisProbe = parseBooleanFlag(process.env.SKIP_REDIS_PROBE, false);
 
     if (this.llmProvider === 'openrouter') {
       ConfigService.logger.log(
         `Resolved LLM provider: openrouter (model=${this.openrouterModel}, base=${this.openrouterBaseUrl})`,
       );
     } else {
-      ConfigService.logger.log(`Resolved model: ${this.anthropicModel}`);
+      ConfigService.logger.log(
+        `Resolved LLM provider: anthropic (model=${this.anthropicModel})`,
+      );
     }
   }
 
-  // Match the redis/chroma URL validators — reject anything that
-  // doesn't parse as a URL with an http(s) scheme. Catches the typo'd
-  // OPENROUTER_BASE_URL at boot rather than on the first agent loop
-  // request.
   private validateOpenrouterBaseUrl(value: string): string {
     let parsed: URL;
     try {
@@ -239,11 +201,9 @@ export class ConfigService {
     return value;
   }
 
-  // Reject the truthy-but-broken cases too: literal "undefined"/"null"
-  // (common from `${VAR:-undefined}` templating or `String(undef)`),
-  // and anything shorter than 16 chars (`openssl rand -hex 32`
-  // produces 64). The bar isn't strong-secret enforcement; it's
-  // catching obvious misconfigs before they authenticate strangers.
+  // Reject placeholders ("undefined"/"null") and anything shorter than
+  // 16 chars (openssl rand -hex 32 produces 64). Catches obvious
+  // misconfigs before they authenticate strangers.
   private requireSecret(name: string, value: string | undefined): string {
     if (!value || value === 'undefined' || value === 'null' || value.length < 16) {
       throw new Error(
@@ -253,9 +213,6 @@ export class ConfigService {
     return value;
   }
 
-  // Chroma's compose-hosted server listens on http://host:port. Reject
-  // anything that doesn't parse as a URL with an http(s) scheme so a
-  // typo'd CHROMA_URL fails at boot, not on the first vector upsert.
   private validateChromaUrl(value: string): string {
     let parsed: URL;
     try {
@@ -273,11 +230,8 @@ export class ConfigService {
     return value;
   }
 
-  // CHROMA_COLLECTION and EMBEDDING_MODEL are passed verbatim into the
-  // Chroma API and the Voyage API respectively. Reject empty strings,
-  // whitespace-only values, and embedded whitespace — those almost
-  // always indicate a `.env` parsing accident (e.g., `EMBEDDING_MODEL=
-  // voyage-code-3` with a stray newline).
+  // Reject empty / whitespace-only / embedded-whitespace tokens — those
+  // almost always indicate a .env parsing accident.
   private requireNonEmptyToken(name: string, value: string): string {
     if (!value || value.trim() !== value || /\s/.test(value)) {
       throw new Error(
@@ -287,19 +241,7 @@ export class ConfigService {
     return value;
   }
 
-  // ANTHROPIC_MODEL resolution order:
-  //   1. Explicit ANTHROPIC_MODEL value in process.env (validated as a
-  //      non-empty token).
-  //   2. Otherwise → claude-haiku-4-5-20251001 in every environment.
-  // Haiku is the deliberate default: the reviewer targets small
-  // focused diffs (MAX_REVIEW_DIFF_LINES), where empirically Haiku's
-  // quality holds and per-review cost is ~$0.02-0.05. Operators who
-  // want the marginal precision gain of Sonnet on a small subset of
-  // repos can opt in by setting ANTHROPIC_MODEL explicitly.
-  private resolveAnthropicModel(
-    explicit: string | undefined,
-    _nodeEnv: string | undefined,
-  ): string {
+  private resolveAnthropicModel(explicit: string | undefined): string {
     if (explicit !== undefined && explicit !== '') {
       return this.requireNonEmptyToken('ANTHROPIC_MODEL', explicit);
     }
@@ -313,9 +255,6 @@ export class ConfigService {
     return parseEnableDryRun(explicit, nodeEnv);
   }
 
-  // GitHub App IDs from the App settings page are a positive integer
-  // (typically 6–7 digits). We accept the string form because env
-  // values are strings; reject anything non-numeric or non-positive.
   private requireAppId(name: string, value: string | undefined): string {
     if (!value || value === 'undefined' || value === 'null') {
       throw new Error(
@@ -331,12 +270,10 @@ export class ConfigService {
     return trimmed;
   }
 
-  // PEM private keys are stored in .env with literal "\n" escape
-  // sequences (real newlines break dotenv parsing). We normalise them
-  // back to real newlines so @octokit/auth-app — which parses the PEM
-  // with node's crypto — accepts the value. The "-----BEGIN" prefix
-  // check catches the obvious misconfig of pasting a fingerprint or a
-  // SSH key instead of the App's downloaded PEM.
+  // PEM keys are stored with literal "\n" escape sequences (real
+  // newlines break dotenv); normalise back to real newlines for
+  // @octokit/auth-app. The "-----BEGIN" probe catches the obvious
+  // misconfig of pasting a fingerprint or SSH key instead of the PEM.
   private requireAppPrivateKey(name: string, value: string | undefined): string {
     if (!value || value === 'undefined' || value === 'null') {
       throw new Error(
@@ -352,10 +289,6 @@ export class ConfigService {
     return normalized;
   }
 
-  // BullMQ's connection field accepts a URL with redis:// or
-  // rediss:// scheme. We parse to surface typos at boot rather than
-  // at first queue.add. Loopback-only enforcement and TLS policy
-  // live in the setup docs.
   private validateRedisUrl(name: string, value: string | undefined): string {
     if (!value) {
       throw new Error(
@@ -376,9 +309,6 @@ export class ConfigService {
     return value;
   }
 
-  // Positive-integer parser with a default. `undefined`/empty → default;
-  // non-numeric, zero, negative, or non-finite → throw. Used for the
-  // worker concurrency knob, shutdown drain budget, and the diff cap.
   private requirePositiveInteger(
     name: string,
     value: string | undefined,
@@ -387,23 +317,15 @@ export class ConfigService {
     if (value === undefined || value === '') return fallback;
     const trimmed = value.trim();
     if (!/^[1-9]\d*$/.test(trimmed)) {
-      throw new Error(
-        `${name} must be a positive integer (got "${value}").`,
-      );
+      throw new Error(`${name} must be a positive integer (got "${value}").`);
     }
     const parsed = Number(trimmed);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error(
-        `${name} must be a positive finite integer (got "${value}").`,
-      );
+      throw new Error(`${name} must be a positive finite integer (got "${value}").`);
     }
     return parsed;
   }
 
-  // Bounded positive-integer parser. Layered on requirePositiveInteger
-  // with a closed [min, max] check. Used for knobs where an unbounded
-  // upper limit would itself be a misconfig (e.g., agent turn cap —
-  // unbounded loops are the wallet-protection failure mode).
   private requireBoundedInteger(
     name: string,
     value: string | undefined,
@@ -421,16 +343,11 @@ export class ConfigService {
   }
 }
 
-// ENABLE_DRY_RUN parser exported as a pure function so module-definition-
-// time code (notably ReviewsModule.forRoot in app.module.ts) can decide
-// whether to register the dry-run route WITHOUT constructing a full
-// ConfigService at file-load time. Centralising the parse rule here keeps
-// the "single gateway for env values" discipline intact:
-//   - explicit value: parse 'true'/'1'/'yes' (case-insensitive) → true,
-//     anything else → false.
-//   - unset: NODE_ENV=development → true, anything else → false.
-// The dev default makes the surface ergonomic for local work; the
-// non-dev default forecloses accidental-deploy denial-of-wallet.
+// Module-definition-time parsers — used where consumers (forRoot
+// wrappers, @Processor decorators) need an env value before
+// ConfigService is constructible. Centralising the parse rules keeps
+// the no-bare-env discipline intact.
+
 export function parseEnableDryRun(
   explicit: string | undefined,
   nodeEnv: string | undefined,
@@ -442,15 +359,6 @@ export function parseEnableDryRun(
   return nodeEnv === 'development';
 }
 
-// Module-definition-time parser for WORKER_CONCURRENCY. Mirrors the
-// `parseEnableDryRun` / `parseBooleanFlag` pattern so the @Processor
-// decorator on ReviewsProcessor can read the env at class-eval time
-// without constructing a ConfigService (which would fail-fast on
-// any unrelated missing env var). Returns `fallback` for unset /
-// empty values. Invalid values (non-numeric, zero, negative,
-// non-finite) fall back to `fallback` with no throw — module-eval
-// must not crash; ConfigService.requirePositiveInteger is still the
-// strict gate for runtime values surfaced to consumers.
 export function parseWorkerConcurrency(
   explicit: string | undefined,
   fallback: number,
@@ -462,12 +370,6 @@ export function parseWorkerConcurrency(
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-// Module-definition-time parser for SKIP_REDIS_PROBE. The QueueModule
-// and ReviewsModule both branch on this flag at forRoot()-time to
-// decide whether to wire BullMQ or fall back to the no-op queue.
-// Replaces direct `process.env.SKIP_REDIS_PROBE` reads in those
-// modules (CLAUDE.md pitfall #3 — no bare env reads outside
-// ConfigService or the parse helpers in @/config).
 export function parseSkipRedisProbe(
   explicit: string | undefined,
   fallback: boolean,
@@ -475,25 +377,19 @@ export function parseSkipRedisProbe(
   return parseBooleanFlag(explicit, fallback);
 }
 
-// Module-definition-time parser for LLM_PROVIDER. The
-// LlmProviderModule.forRoot() wrapper branches on this flag to import
-// either the Anthropic or the OpenAI-compatible adapter. Mirrors the
-// `parseSkipRedisProbe` pattern so the no-bare-env discipline holds
-// even at module-eval time. Unknown values silently fall back to
-// 'anthropic' — the strict gate (typed property + log) lives in
-// ConfigService.
-export function parseLlmProvider(
-  explicit: string | undefined,
-): 'anthropic' | 'openrouter' {
-  if (explicit === 'openrouter') return 'openrouter';
-  return 'anthropic';
+export function parseLlmProvider(explicit: string | undefined): LlmProvider {
+  if (explicit === undefined || explicit.trim() === '') {
+    return DEFAULT_LLM_PROVIDER;
+  }
+  const normalized = explicit.trim().toLowerCase();
+  if (isLlmProvider(normalized)) {
+    return normalized;
+  }
+  throw new Error(
+    `LLM_PROVIDER must be one of ${LLM_PROVIDERS.join(', ')} (got "${explicit}").`,
+  );
 }
 
-// Generic boolean-flag parser modelled on parseEnableDryRun but
-// without the NODE_ENV branch. Used for ANTHROPIC_USE_ZERO_RETENTION
-// and any future feature flag with a fixed default rather than a
-// per-environment one. Truthy tokens (case-insensitive): 'true', '1',
-// 'yes'. Empty / unset → fallback. Anything else → false.
 export function parseBooleanFlag(
   explicit: string | undefined,
   fallback: boolean,
@@ -503,12 +399,9 @@ export function parseBooleanFlag(
   return normalized === 'true' || normalized === '1' || normalized === 'yes';
 }
 
-// DOGFOOD_REPOS parsing. Comma-separated list of GitHub `repo_full_name`
-// values ("owner/repo"). Whitespace around tokens is trimmed; empty
-// tokens (e.g., a trailing comma) are dropped. A whitespace-bearing
-// token (e.g., "owner / repo") is the smoking gun for a .env parse
-// accident and we refuse to start. Empty/unset input → empty Set,
-// which silently disables the bot (operator kill switch).
+// DOGFOOD_REPOS = comma-separated "owner/repo" tokens. Embedded
+// whitespace fails fast (smoking gun for a .env parse accident).
+// Empty/unset → empty Set, which silently disables the bot.
 export function parseDogfoodRepos(raw: string | undefined): ReadonlySet<string> {
   if (raw === undefined || raw.trim() === '') return new Set();
   const tokens = raw.split(',').map((t) => t.trim()).filter((t) => t.length > 0);

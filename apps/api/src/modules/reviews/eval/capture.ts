@@ -31,7 +31,8 @@ import type {
   ILlmReviewer,
 } from '@/modules/reviews/types/llm-reviewer';
 import { PROMPT_AND_TOOL_VERSION } from '@/modules/reviews/types/llm-reviewer';
-import { AnthropicRequestError, SessionRateLimitGuard } from '@/infrastructure/anthropic';
+import { SessionRateLimitGuard } from '@/infrastructure/anthropic';
+import { LlmRequestError } from '@/infrastructure/llm';
 import { FilesystemRepoContextProvider } from '@/infrastructure/repo-context';
 import { VoyageRequestError } from '@/infrastructure/voyage/voyage-embedding.provider';
 import { CorpusLoader } from '@/modules/embeddings/helpers/corpus-loader';
@@ -193,11 +194,11 @@ export function assembleEmittedRecording(
 }
 
 /**
- * Assemble a threw recording from an AnthropicRequestError.
+ * Assemble a threw recording from an LlmRequestError.
  */
 export function assembleThrewRecording(
   fixtureId: string,
-  error: AnthropicRequestError,
+  error: LlmRequestError,
   provenance: RecordingProvenance,
 ): ThrewRecording {
   return {
@@ -665,7 +666,7 @@ async function captureFixture(
     // eslint-disable-next-line no-console
     console.log(`  -> ${path.relative(apiRoot, filePath)}`);
   } catch (err) {
-    if (err instanceof AnthropicRequestError) {
+    if (err instanceof LlmRequestError) {
       // eslint-disable-next-line no-console
       console.log(
         `  THREW: ${err.errorCode ?? 'unknown'} (turnCount=${err.turnCount ?? 'n/a'})`,
@@ -741,7 +742,7 @@ async function captureCleanFixture(
     // eslint-disable-next-line no-console
     console.log(`  [A] -> ${path.relative(apiRoot, filePathA)}`);
   } catch (err) {
-    if (err instanceof AnthropicRequestError) {
+    if (err instanceof LlmRequestError) {
       // eslint-disable-next-line no-console
       console.log(`  [A] THREW: ${err.errorCode ?? 'unknown'}`);
       const recording = assembleThrewRecording(
@@ -804,7 +805,7 @@ async function captureCleanFixture(
     // eslint-disable-next-line no-console
     console.log(`  [B] -> ${path.relative(apiRoot, filePathB)}`);
   } catch (err) {
-    if (err instanceof AnthropicRequestError) {
+    if (err instanceof LlmRequestError) {
       // eslint-disable-next-line no-console
       console.log(`  [B] THREW: ${err.errorCode ?? 'unknown'}`);
       const recording = assembleThrewRecording(

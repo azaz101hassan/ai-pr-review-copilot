@@ -1,5 +1,5 @@
 // Typed error wrapping any Octokit/GitHub API failure. Mirrors
-// `AnthropicRequestError` so call sites in `ReviewsProcessor` and
+// `LlmRequestError` so call sites in `ReviewsProcessor` and
 // `GitHubRepoContextProvider` can branch on `status` + `errorCode`
 // without stringifying the message.
 //

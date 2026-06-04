@@ -4,7 +4,7 @@ import {
   parseEnableDryRun,
   parseSkipRedisProbe,
 } from '@/config';
-import { LlmProviderModule } from '@/infrastructure/llm-provider.module';
+import { LlmProviderModule } from '@/infrastructure/llm';
 import { GithubModule } from '@/infrastructure/github';
 import { QueueModule } from '@/infrastructure/queue';
 import { RepoContextModule } from '@/infrastructure/repo-context';
@@ -14,27 +14,12 @@ import { ReviewsController } from './reviews.controller';
 import { ReviewsProcessor } from './reviews.processor';
 import { ReviewEventsModule } from './events/review-events.module';
 
-// ReviewsModule.forRoot() is a DynamicModule so it can branch on
-// ENABLE_DRY_RUN at module construction time:
-//
-//   - When ENABLE_DRY_RUN is true (dev default, off elsewhere): the
-//     controller is included and `POST /reviews/dry-run` is exposed.
-//   - When false: the controller is omitted entirely — the route is
-//     never registered in the Nest router. ReviewsService is still
-//     provided and exported so internal callers can use it; only the
-//     HTTP surface is gated.
-//
-// This forecloses the accidental-deploy-to-prod denial-of-wallet path
-// for an unauthenticated review endpoint.
-//
-// We read ENABLE_DRY_RUN here via the shared `parseEnableDryRun` helper
-// rather than constructing a ConfigService. Reason: forRoot() is invoked
-// at module-definition time (when AppModule's @Module decorator is
-// evaluated) — constructing a ConfigService there would fail-fast on
-// any unrelated missing env var (e.g., during a test that only cares
-// about a subset of the surface). The parse helper preserves the
-// "single source of parsing logic" discipline that the no-bare-env rule
-// is trying to enforce.
+// ReviewsModule.forRoot() branches on ENABLE_DRY_RUN at module
+// construction so the dry-run HTTP surface stays out of non-dev
+// deployments (denial-of-wallet defense for an unauthenticated route).
+// The parse helpers read process.env directly so this code doesn't
+// instantiate ConfigService at module-eval time — that would fail-fast
+// on any unrelated missing env var.
 @Module({})
 export class ReviewsModule {
   private static readonly logger = new Logger(ReviewsModule.name);
@@ -51,6 +36,9 @@ export class ReviewsModule {
     // @Processor() metadata would also trigger @nestjs/bullmq's
     // explorer to try to construct a Worker against a non-existent
     // queue.
+    // Skip the BullMQ processor when SKIP_REDIS_PROBE is on; otherwise
+    // the @Processor decorator would have @nestjs/bullmq's explorer
+    // construct a Worker against the no-op queue.
     const skipRedis = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);
 
     ReviewsModule.logger.log(
@@ -63,40 +51,16 @@ export class ReviewsModule {
       imports: [
         ConfigModule,
         EmbeddingsModule,
-        // LLM-provider seam — picks AnthropicModule or
-        // OpenAICompatibleModule at module-eval time based on
-        // LLM_PROVIDER. Both children bind LLM_REVIEWER; ReviewsService
-        // injects the interface, so the swap is transparent here.
         LlmProviderModule.forRoot(),
-        // The HTTP path resolves `REPO_CONTEXT_PROVIDER` to
-        // `NullRepoContextProvider` (deterministic-degraded). The
-        // CLI bypasses this and constructs a
-        // `FilesystemRepoContextProvider` directly with the resolved
-        // `--repo` path. The real-PR worker constructs a
-        // `GitHubRepoContextProvider` per-job, independent of this
-        // DI binding.
         RepoContextModule,
-        // Real-PR worker dependencies. GithubModule provides
-        // GITHUB_AUTH_PROVIDER (Octokit factory); QueueModule provides
-        // the REVIEW_QUEUE token + BullMQ wiring the processor
-        // consumes. Both are imported regardless of the skipRedis
-        // flag — the QueueModule itself decides whether to load real
-        // BullMQ or the no-op fallback.
         GithubModule,
         QueueModule.forRoot(),
-        // ReviewEventsModule is @Global() and provides the singleton
-        // ReviewEventsService. Imported here so ReviewsService can
-        // inject it; DashboardModule imports it too without triggering
-        // the double-instantiation that would occur if it imported the
-        // heavyweight ReviewsModule.forRoot() directly.
         ReviewEventsModule,
       ],
       controllers: enableDryRun ? [ReviewsController] : [],
       providers: skipRedis
         ? [ReviewsService]
         : [ReviewsService, ReviewsProcessor],
-      // Export ReviewEventsService (via ReviewEventsModule's global scope)
-      // so callers that import ReviewsModule.forRoot() can also inject it.
       exports: [ReviewsService, ReviewEventsModule],
     };
   }

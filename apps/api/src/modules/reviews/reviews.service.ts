@@ -10,7 +10,7 @@ import {
   UsageStats,
 } from './types/llm-reviewer';
 import { IRepoContextProvider } from './types/repo-context-provider';
-import { AnthropicRequestError } from '@/infrastructure/anthropic/anthropic-request.error';
+import { LlmRequestError } from '@/infrastructure/llm';
 import {
   IReviewRepository,
   REVIEW_REPOSITORY,
@@ -103,7 +103,7 @@ export class ReviewsServiceError extends Error {
 // (eqeqeq, no-var, no-magic-numbers, etc.) out of the top-K window for
 // domain-themed diffs. 40 keeps both families in the candidate set at
 // the cost of ~2× input tokens per agent loop.
-const DEFAULT_K = 40;
+const DEFAULT_K = 25;
 // Cutoff used by the startup sweep AND the per-PR worker guard.
 // 10 minutes is safely above the worst-case 6-turn agent loop with
 // file fetches (~6 minutes wall clock) while still surfacing real
@@ -286,7 +286,7 @@ export class ReviewsService implements OnModuleInit {
         }
       };
 
-      if (err instanceof AnthropicRequestError) {
+      if (err instanceof LlmRequestError) {
         const failedAt = new Date();
         markFailedSafely({
           completed_at: failedAt,

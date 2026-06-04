@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { APIError } from '@anthropic-ai/sdk';
+import { AnthropicLlmReviewer } from '../../../src/infrastructure/anthropic/anthropic-llm-reviewer';
 import {
-  AnthropicLlmReviewer,
   SYSTEM_PROMPT,
   REGISTERED_TOOLS,
   FETCH_FILE_TOOL,
@@ -12,8 +12,8 @@ import {
   FETCH_FUNCTION_TOOL_NAME,
   FETCH_PRIOR_REVIEW_TOOL_NAME,
   EMIT_FINDING_TOOL_NAME,
-} from '../../../src/infrastructure/anthropic/anthropic-llm-reviewer';
-import { AnthropicRequestError } from '../../../src/infrastructure/anthropic/anthropic-request.error';
+  LlmRequestError,
+} from '../../../src/infrastructure/llm';
 import { PROMPT_AND_TOOL_VERSION } from '../../../src/modules/reviews/types/llm-reviewer';
 import { ConfigService } from '@/config';
 import { IRepoContextProvider } from '@/modules/reviews/types/repo-context-provider';
@@ -53,7 +53,7 @@ function makeConfig(overrides: Partial<ConfigService> = {}): ConfigService {
   return {
     anthropicApiKey: 'sk-ant-test-key-0123456789abcdef',
     anthropicModel: 'claude-haiku-4-5-20251001',
-    anthropicAgentTurnCap: 6,
+    agentTurnCap: 6,
     ...overrides,
   } as ConfigService;
 }
@@ -705,7 +705,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
       }
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      let caught: AnthropicRequestError | undefined;
+      let caught: LlmRequestError | undefined;
       try {
         await reviewer.analyzeDiff({
           diff: REAL_DIFF,
@@ -713,7 +713,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
           repoContext: makeRepoContextProvider(),
         });
       } catch (err) {
-        caught = err as AnthropicRequestError;
+        caught = err as LlmRequestError;
       }
 
       expect(caught).toBeDefined();
@@ -865,7 +865,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
           repoContext: makeRepoContextProvider(),
         }),
       ).rejects.toMatchObject({
-        name: 'AnthropicRequestError',
+        name: 'LlmRequestError',
         errorCode: 'malformed_emit_finding',
       });
     });
@@ -904,7 +904,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
         });
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      let caught: AnthropicRequestError | undefined;
+      let caught: LlmRequestError | undefined;
       try {
         await reviewer.analyzeDiff({
           diff: REAL_DIFF,
@@ -912,7 +912,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
           repoContext: makeRepoContextProvider(),
         });
       } catch (err) {
-        caught = err as AnthropicRequestError;
+        caught = err as LlmRequestError;
       }
 
       expect(caught?.errorCode).toBe('malformed_emit_finding');
@@ -1216,7 +1216,7 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
           repoContext: makeRepoContextProvider(),
         }),
       ).rejects.toMatchObject({
-        name: 'AnthropicRequestError',
+        name: 'LlmRequestError',
         errorCode: 'unexpected_response_shape',
       });
     });
@@ -1241,11 +1241,11 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
       } as Partial<ConfigService>);
       const reviewer = new TestableAnthropicLlmReviewer(config, client);
 
-      let caught: AnthropicRequestError | undefined;
+      let caught: LlmRequestError | undefined;
       try {
         await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
       } catch (err) {
-        caught = err as AnthropicRequestError;
+        caught = err as LlmRequestError;
       }
 
       expect(caught?.status).toBe(401);
@@ -1287,11 +1287,11 @@ describe('AnthropicLlmReviewer (multi-turn loop)', () => {
       client.messages.create.mockRejectedValueOnce(transportError);
       const reviewer = new TestableAnthropicLlmReviewer(makeConfig(), client);
 
-      let caught: AnthropicRequestError | undefined;
+      let caught: LlmRequestError | undefined;
       try {
         await reviewer.analyzeDiff({ diff: REAL_DIFF, rules: REAL_RULES });
       } catch (err) {
-        caught = err as AnthropicRequestError;
+        caught = err as LlmRequestError;
       }
 
       expect(caught?.status).toBe(0);

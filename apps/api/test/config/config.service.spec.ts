@@ -27,7 +27,7 @@ describe('ConfigService', () => {
     REDIS_URL: process.env.REDIS_URL,
     DOGFOOD_REPOS: process.env.DOGFOOD_REPOS,
     ANTHROPIC_USE_ZERO_RETENTION: process.env.ANTHROPIC_USE_ZERO_RETENTION,
-    ANTHROPIC_AGENT_TURN_CAP: process.env.ANTHROPIC_AGENT_TURN_CAP,
+    AGENT_TURN_CAP: process.env.AGENT_TURN_CAP,
     WORKER_CONCURRENCY: process.env.WORKER_CONCURRENCY,
     SHUTDOWN_DRAIN_TIMEOUT_MS: process.env.SHUTDOWN_DRAIN_TIMEOUT_MS,
     MAX_DIFF_BYTES: process.env.MAX_DIFF_BYTES,
@@ -222,16 +222,17 @@ describe('ConfigService', () => {
       expect(() => new ConfigService()).toThrow(/ANTHROPIC_MODEL/);
     });
 
-    it('logs the resolved model at construction', () => {
+    it('logs the resolved provider and model at construction', () => {
       const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
       setEnv(HAPPY_ENV);
 
       new ConfigService();
 
       const resolvedLog = logSpy.mock.calls.find((args) =>
-        typeof args[0] === 'string' && /^Resolved model:\s/.test(args[0] as string),
+        typeof args[0] === 'string' && /^Resolved LLM provider:\s/.test(args[0] as string),
       );
       expect(resolvedLog).toBeDefined();
+      expect(resolvedLog![0]).toContain('anthropic');
       expect(resolvedLog![0]).toContain('claude-haiku-4-5-20251001');
       logSpy.mockRestore();
     });
@@ -429,35 +430,35 @@ describe('ConfigService', () => {
     });
   });
 
-  describe('ANTHROPIC_AGENT_TURN_CAP', () => {
+  describe('AGENT_TURN_CAP', () => {
     it('defaults to 6 when unset', () => {
       setEnv(HAPPY_ENV);
-      expect(new ConfigService().anthropicAgentTurnCap).toBe(6);
+      expect(new ConfigService().agentTurnCap).toBe(6);
     });
 
     it('honours an explicit value within bounds', () => {
-      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '15' });
-      expect(new ConfigService().anthropicAgentTurnCap).toBe(15);
+      setEnv({ ...HAPPY_ENV, AGENT_TURN_CAP: '15' });
+      expect(new ConfigService().agentTurnCap).toBe(15);
     });
 
     it('accepts the upper bound of 70', () => {
-      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '70' });
-      expect(new ConfigService().anthropicAgentTurnCap).toBe(70);
+      setEnv({ ...HAPPY_ENV, AGENT_TURN_CAP: '70' });
+      expect(new ConfigService().agentTurnCap).toBe(70);
     });
 
     it('throws when the value is zero', () => {
-      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '0' });
-      expect(() => new ConfigService()).toThrow(/ANTHROPIC_AGENT_TURN_CAP/);
+      setEnv({ ...HAPPY_ENV, AGENT_TURN_CAP: '0' });
+      expect(() => new ConfigService()).toThrow(/AGENT_TURN_CAP/);
     });
 
     it('throws when the value exceeds the upper bound', () => {
-      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: '71' });
-      expect(() => new ConfigService()).toThrow(/ANTHROPIC_AGENT_TURN_CAP/);
+      setEnv({ ...HAPPY_ENV, AGENT_TURN_CAP: '71' });
+      expect(() => new ConfigService()).toThrow(/AGENT_TURN_CAP/);
     });
 
     it('throws when the value is non-numeric', () => {
-      setEnv({ ...HAPPY_ENV, ANTHROPIC_AGENT_TURN_CAP: 'fifteen' });
-      expect(() => new ConfigService()).toThrow(/ANTHROPIC_AGENT_TURN_CAP/);
+      setEnv({ ...HAPPY_ENV, AGENT_TURN_CAP: 'fifteen' });
+      expect(() => new ConfigService()).toThrow(/AGENT_TURN_CAP/);
     });
   });
 

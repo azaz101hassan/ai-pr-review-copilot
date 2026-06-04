@@ -1,6 +1,6 @@
 import { ReviewsController } from '@/modules/reviews/reviews.controller';
 import { ReviewsService, RunDryRunResult } from '@/modules/reviews/reviews.service';
-import { AnthropicRequestError } from '@/infrastructure/anthropic/anthropic-request.error';
+import { LlmRequestError } from '@/infrastructure/llm';
 import { IRepoContextProvider } from '@/modules/reviews/types/repo-context-provider';
 
 // Unit spec — the service is mocked so this test owns only the
@@ -92,8 +92,8 @@ describe('ReviewsController', () => {
     expect(response).toBe(result);
   });
 
-  it('does not swallow AnthropicRequestError — propagates to the caller', async () => {
-    const err = new AnthropicRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
+  it('does not swallow LlmRequestError — propagates to the caller', async () => {
+    const err = new LlmRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
       status: 429,
       errorCode: 'rate_limit_error',
     });

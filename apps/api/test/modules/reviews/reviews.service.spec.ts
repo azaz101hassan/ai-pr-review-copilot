@@ -5,7 +5,7 @@ import { firstValueFrom, take } from 'rxjs';
 import { Logger } from '@nestjs/common';
 import { ReviewsService, ReviewsServiceError } from '@/modules/reviews/reviews.service';
 import { ReviewEventsService, TerminalReviewEvent } from '@/modules/reviews/events/review-events.service';
-import { AnthropicRequestError } from '@/infrastructure/anthropic/anthropic-request.error';
+import { LlmRequestError } from '@/infrastructure/llm';
 import { DatabaseService } from '@/infrastructure/db';
 import { SqliteReviewsRepository } from '@/infrastructure/db/repositories/sqlite-reviews.repository';
 import { SqliteReviewFindingsRepository } from '@/infrastructure/db/repositories/sqlite-review-findings.repository';
@@ -287,7 +287,7 @@ describe('ReviewsService (pure-mock cases)', () => {
       expect(insertedRow.retrieved_chunk_ids_hash).toMatch(/^[a-f0-9]{64}$/);
     });
 
-    it('default k is 10, override k flows through to embeddings.search AND the inserted row', async () => {
+    it('default k is 25, override k flows through to embeddings.search AND the inserted row', async () => {
       const hit = makeSearchHit();
       const embeddings = makeEmbeddings([hit]);
       const llm = makeLlm(happyAnalyzeResult());
@@ -305,8 +305,8 @@ describe('ReviewsService (pure-mock cases)', () => {
       );
 
       await service.runDryRun({ diff: REAL_DIFF });
-      expect((embeddings.search as jest.Mock).mock.calls[0][1]).toEqual({ k: 40 });
-      expect((reviews.insert.mock.calls[0][0] as ReviewInsert).top_k).toBe(40);
+      expect((embeddings.search as jest.Mock).mock.calls[0][1]).toEqual({ k: 25 });
+      expect((reviews.insert.mock.calls[0][0] as ReviewInsert).top_k).toBe(25);
 
       reviews.insert.mockClear();
       (embeddings.search as jest.Mock).mockClear();
@@ -583,14 +583,14 @@ describe('ReviewsService (pure-mock cases)', () => {
       await service.runDryRun({ diff: REAL_DIFF });
       const call = (embeddings.search as jest.Mock).mock.calls[0];
       expect(call[0]).toBe(REAL_DIFF);
-      expect(call[1]).toEqual({ k: 40 });
+      expect(call[1]).toEqual({ k: 25 });
     });
   });
 
   describe('runDryRun — failure paths', () => {
-    it('AnthropicRequestError → markFailed with status/code, re-throw the error', async () => {
+    it('LlmRequestError → markFailed with status/code, re-throw the error', async () => {
       const embeddings = makeEmbeddings([makeSearchHit()]);
-      const err = new AnthropicRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
+      const err = new LlmRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
         status: 429,
         errorCode: 'rate_limit_error',
       });
@@ -659,7 +659,7 @@ describe('ReviewsService (pure-mock cases)', () => {
           stop_reason: 'tool_use',
         },
       ];
-      const err = new AnthropicRequestError(
+      const err = new LlmRequestError(
         'Agent loop exceeded 6 turns without emit_finding',
         {
           status: 200,
@@ -904,10 +904,10 @@ describe('ReviewsService — real SQLite cases', () => {
     expect(findingsRepo.findByReviewId(all[0].id)).toEqual([]);
   });
 
-  it('failure path: AnthropicRequestError persists status=failed with error fields, no findings', async () => {
+  it('failure path: LlmRequestError persists status=failed with error fields, no findings', async () => {
     const embeddings = makeEmbeddings([makeSearchHit()]);
     const llm = makeLlm(
-      new AnthropicRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
+      new LlmRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
         status: 429,
         errorCode: 'rate_limit_error',
       }),
@@ -924,7 +924,7 @@ describe('ReviewsService — real SQLite cases', () => {
     );
 
     await expect(service.runDryRun({ diff: REAL_DIFF })).rejects.toMatchObject({
-      name: 'AnthropicRequestError',
+      name: 'LlmRequestError',
       status: 429,
       errorCode: 'rate_limit_error',
     });
@@ -1329,12 +1329,12 @@ describe('ReviewsService — SSE terminal-state emit', () => {
     expect(received[0].finding_counts.error).toBe(1);
   });
 
-  it('failure path (AnthropicRequestError) emits exactly one event with status: failed, zero counts, null tokens', async () => {
+  it('failure path (LlmRequestError) emits exactly one event with status: failed, zero counts, null tokens', async () => {
     const events = new ReviewEventsService();
     const received: TerminalReviewEvent[] = [];
     const sub = events.stream().subscribe((ev) => received.push(ev));
 
-    const err = new AnthropicRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
+    const err = new LlmRequestError('Anthropic API error: HTTP 429 (rate_limit_error)', {
       status: 429,
       errorCode: 'rate_limit_error',
     });

@@ -12,7 +12,7 @@ import {
   ConfigService,
   parseWorkerConcurrency,
 } from '@/config';
-import { AnthropicRequestError } from '@/infrastructure/anthropic';
+import { LlmRequestError } from '@/infrastructure/llm';
 import { GitHubRepoContextProvider } from '@/infrastructure/github/github-repo-context.provider';
 import { formatBriefError, readStatus } from '@/types';
 import {
@@ -901,7 +901,7 @@ function countBySeverity(findings: { severity: 'error' | 'warning' | 'info' }[])
 
 // Terminal Anthropic error codes — codes for which a retry would be
 // guaranteed to fail (the same way) or unsafe (cost alert). When the
-// agent loop emits any of these via AnthropicRequestError, the worker
+// agent loop emits any of these via LlmRequestError, the worker
 // wraps it in UnrecoverableError so BullMQ skips the remaining
 // attempts.
 const TERMINAL_ANTHROPIC_CODES = new Set([
@@ -917,12 +917,12 @@ const TERMINAL_ANTHROPIC_CODES = new Set([
   'unexpected_response_shape',
 ]);
 
-// Returns true when the AnthropicRequestError is one we should not
+// Returns true when the LlmRequestError is one we should not
 // retry. Anthropic 429s, 5xx, and transport errors fall through to
 // the BullMQ retry path with the custom backoff (see
 // reviewBackoffStrategy).
 export function isTerminalAnthropicError(err: unknown): boolean {
-  if (!(err instanceof AnthropicRequestError)) return false;
+  if (!(err instanceof LlmRequestError)) return false;
   return Boolean(err.errorCode && TERMINAL_ANTHROPIC_CODES.has(err.errorCode));
 }
 
@@ -932,7 +932,7 @@ export function isTerminalAnthropicError(err: unknown): boolean {
 // hint: Anthropic-shaped failures get the model-side copy; everything
 // else falls back to the generic internal-error copy.
 export function isAnthropicErrorLike(err: unknown): boolean {
-  return err instanceof AnthropicRequestError;
+  return err instanceof LlmRequestError;
 }
 
 // Paired with QueueModule's `backoff: { type: 'custom' }`. Honour
