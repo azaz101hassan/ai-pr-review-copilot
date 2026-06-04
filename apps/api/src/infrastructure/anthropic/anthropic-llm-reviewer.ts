@@ -28,6 +28,7 @@ import {
   REGISTERED_TOOLS,
   runToolCall,
   SDK_MAX_RETRIES,
+  summarizeEmitInput,
   SYSTEM_PROMPT,
   truncateForLog,
 } from '@/infrastructure/llm';
@@ -301,8 +302,14 @@ export class AnthropicLlmReviewer implements ILlmReviewer {
       usage: args.usage,
     };
     if (args.is_terminal) {
+      // Terminal turns carry the full emit_finding payload as tool_input —
+      // dumping that into logs would echo private code excerpts (rule
+      // messages, citations). Log a hash + findings count instead.
       this.logger.log(
-        `agent-turn: ${JSON.stringify({ ...baseFields, tool_input: args.tool_input })}`,
+        `agent-turn: ${JSON.stringify({
+          ...baseFields,
+          ...summarizeEmitInput(args.tool_input),
+        })}`,
       );
     } else {
       this.logger.log(

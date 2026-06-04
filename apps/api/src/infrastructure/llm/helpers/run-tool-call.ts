@@ -35,10 +35,19 @@ export async function runToolCall(
   if (!repoContext) {
     return { ok: false, text: 'tool unavailable: no repo context configured' };
   }
+  // Models occasionally emit `tool_calls[i].input` as a string, number,
+  // or null instead of an object. Without this narrowing the
+  // `as { ... }` cast below is a lie and the first property read throws —
+  // landing in the catch block as a generic `tool_invocation_error`.
+  // Surface a deterministic `invalid_input` instead so the agent can
+  // recover on the next turn.
+  const input = asRecord(call.input);
+  if (!input) {
+    return { ok: false, text: 'invalid_input: object expected' };
+  }
   try {
     switch (call.name) {
       case FETCH_FILE_TOOL_NAME: {
-        const input = call.input as { path?: unknown };
         if (typeof input.path !== 'string' || input.path.length === 0) {
           return { ok: false, text: 'invalid_input: `path` expected string' };
         }
@@ -50,7 +59,6 @@ export async function runToolCall(
       }
 
       case FETCH_FUNCTION_TOOL_NAME: {
-        const input = call.input as { name?: unknown; file?: unknown };
         if (typeof input.name !== 'string' || input.name.length === 0) {
           return { ok: false, text: 'invalid_input: `name` expected string' };
         }
@@ -68,11 +76,6 @@ export async function runToolCall(
       }
 
       case FETCH_PRIOR_REVIEW_TOOL_NAME: {
-        const input = call.input as {
-          pr_node_id?: unknown;
-          file_path?: unknown;
-          rule_id?: unknown;
-        };
         const query: Parameters<IRepoContextProvider['fetchPriorReview']>[0] = {};
         if (input.pr_node_id !== undefined) {
           if (typeof input.pr_node_id !== 'string') {
@@ -106,4 +109,11 @@ export async function runToolCall(
     const msg = err instanceof Error ? err.message : 'unknown error';
     return { ok: false, text: `tool_invocation_error: ${msg}` };
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }

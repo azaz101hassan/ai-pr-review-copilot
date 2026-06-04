@@ -24,6 +24,7 @@ export { approximateBytes } from './helpers/approximate-bytes';
 export { formatProviderError } from './helpers/format-provider-error';
 export { parseRetryAfterMs } from './helpers/parse-retry-after';
 export { buildDedupHintText } from './helpers/dedup-hint';
+export { summarizeEmitInput } from './helpers/summarize-emit-input';
 export { runToolCall } from './helpers/run-tool-call';
 export type { RunToolCallInput, RunToolCallResult } from './helpers/run-tool-call';
 export {
