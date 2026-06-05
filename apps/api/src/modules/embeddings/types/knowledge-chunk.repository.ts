@@ -3,10 +3,10 @@ import { KnowledgeChunkRecord, KnowledgeChunkInsert } from './knowledge-chunk.ty
 export const KNOWLEDGE_CHUNK_REPOSITORY = Symbol('KnowledgeChunkRepository');
 
 // A single keyword-search hit. Returned in ranked order (best first) by
-// `searchByKeyword`. The `bm25Score` is whatever the underlying engine
-// scores it as — for SQLite FTS5 that's a NEGATIVE float (more negative
-// = better), but consumers should only rely on the ordering, not the
-// absolute value.
+// `searchByKeyword`. The `bm25Score` is the chunk's per-token rank under
+// the implementation's ranking scheme: a positive integer where SMALLER
+// (closer to 1) means better. Consumers should rely on the ordering,
+// not the absolute value.
 export interface KeywordSearchHit {
   id: string;
   bm25Score: number;

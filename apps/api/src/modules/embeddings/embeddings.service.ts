@@ -195,14 +195,15 @@ export class EmbeddingsService {
     if (denseHits.length === 0 && filteredSparse.length === 0) return [];
 
     // Annotate sparse hits with their explicit per-token rank — the
-    // repo packs the rank as `bm25Score = -rank` so multiple chunks
-    // can share a tied rank (every chunk that was top-1 for ANY single
-    // diff token has rank 1). Without this, RRF would treat each
-    // sparse-list position as a serial rank and unfairly demote the
-    // tied chunks past the first few positions.
+    // repo returns rank directly via `bm25Score` (positive, smaller =
+    // better), so multiple chunks can share a tied rank (every chunk
+    // that was top-1 for ANY single diff token has rank 1). Without
+    // this explicit field, RRF would treat each sparse-list position
+    // as a serial rank and unfairly demote the tied chunks past the
+    // first few positions.
     const sparseWithRank = filteredSparse.map((h) => ({
       id: h.id,
-      rank: -h.bm25Score,
+      rank: h.bm25Score,
     }));
 
     // kFusion=10 (vs the Cormack default of 60) intentionally amplifies
