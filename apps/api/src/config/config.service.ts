@@ -56,12 +56,15 @@ export class ConfigService {
 
   /**
    * Default top-K for the hybrid (dense + sparse) retrieval that feeds
-   * the LLM with candidate rules. Default 25 — the climb-down from a
-   * brief K=40 experiment where the marginal recall gain didn't
-   * justify the ~2× input-token cost. Tuned via `RETRIEVAL_DEFAULT_K`
-   * so operators can sweep K against the eval gate without redeploying.
-   * Bounded 1–200; above 100 starts pushing into the per-prompt token
-   * budget for some providers.
+   * the LLM with candidate rules. Default 40 — a re-measurement against
+   * project-flavoured fixtures showed K=40 brought one extra
+   * deliberately-violated rule into emission range with no regressions
+   * vs K=25, at ~20% higher input-token cost. An earlier K=40 trial
+   * climbed back to 25 because of the prior prompt's over-suppression
+   * under longer context; the current prompt is more robust to that.
+   * Tuned via `RETRIEVAL_DEFAULT_K` so operators can sweep K against
+   * the eval gate without redeploying. Bounded 1–200; above 100 starts
+   * pushing into the per-prompt token budget for some providers.
    */
   readonly retrievalDefaultK: number;
 
@@ -161,7 +164,7 @@ export class ConfigService {
     this.retrievalDefaultK = this.requireBoundedInteger(
       'RETRIEVAL_DEFAULT_K',
       process.env.RETRIEVAL_DEFAULT_K,
-      25,
+      40,
       1,
       200,
     );
