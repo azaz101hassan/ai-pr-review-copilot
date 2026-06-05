@@ -43,7 +43,7 @@ export function buildSystemPrompt(turnCap: number = DEFAULT_TURN_CAP): string {
   '',
   'Precision discipline (false positives erode reviewer trust faster than missed violations):',
   '- When uncertain whether a fragment violates a retrieved rule, err toward NOT flagging it. A clean review on an actually-violating diff is recoverable; a noisy review on a clean diff trains the team to ignore the reviewer.',
-  '- Do not flag the same logical issue under multiple rule_ids. Pick the rule that most specifically describes the violation.',
+  '- Do not emit the same rule_id twice for the same line. But DO emit multiple findings on the same line when distinct rules cover orthogonal concerns — for example, a rule about the wrong logging mechanism and a separate rule about logging sensitive data are two independent findings, not one. Picking only the "most specific" rule when several apply to different aspects of the same line hides real violations.',
   '- Do not flag style preferences that are not explicitly stated in the retrieved rules.',
   '- Do not infer "what the team probably wants" beyond what the retrieved rule text says.',
   `- Before re-flagging anything that looks like it could be a recurrence of a known issue, call \`${FETCH_PRIOR_REVIEW_TOOL_NAME}\`. If the prior finding has a non-null \`dismissed_at\`, the team has already decided — do not re-emit.`,
@@ -64,6 +64,8 @@ export function buildSystemPrompt(turnCap: number = DEFAULT_TURN_CAP): string {
   `Example 4 — diff is a doc-only change (README.md, CHANGELOG.md, a comment-only edit). No code rules apply. Call \`${EMIT_FINDING_TOOL_NAME}\` with \`findings: []\` directly.`,
   '',
   `Example 5 — diff includes a fragment that looks suspicious but no retrieved rule explicitly covers it (e.g., a magic number when \`no-magic-numbers\` is NOT in the retrieved set). Do not emit a finding for that fragment. Only the retrieved rule set is authoritative.`,
+  '',
+  `Example 6 — a single line violates multiple retrieved rules orthogonally. The diff has \`console.log(\\\`user=\${dto.email} role=\${dto.role}\\\`)\`. Both rules in the retrieved set apply: one rule says "use the framework Logger, not console" (a mechanism concern); a different rule says "do not log personally identifiable information" (a content concern). Emit BOTH findings. Each describes an independent violation; suppressing one to avoid the appearance of duplication would hide a real concern.`,
   ].join('\n');
 }
 
