@@ -214,11 +214,11 @@
       "severity": "warning",
       "language": "typescript",
       "category": "type-safety",
-      "title": "Constructor-injected dependencies should be marked readonly",
-      "description": "A constructor-injected dependency that's reassigned somewhere in the class is almost always a bug. Marking it `readonly` documents the invariant and lets the typechecker enforce it. Applies to repositories, services, Logger, ConfigService.",
+      "title": "Constructor-injected dependencies and private class fields should be marked readonly",
+      "description": "Any constructor-injected dependency that's reassigned somewhere in the class is almost always a bug. Marking it `readonly` documents the invariant and lets the typechecker enforce it. The same applies to private class fields holding service instances like `private logger = new Logger(...)`, repositories, services, ConfigService, or any DI'd token — they should all be `private readonly`. Look for `private foo:` or `private foo =` in any `@Injectable` service or `@Controller` constructor or class body — every one of those should be `private readonly` unless the field is genuinely mutable internal state.",
       "examples": {
-        "bad": "constructor(\n  @Inject(ORDER_REPOSITORY)\n  private orders: IOrderRepository,\n) {}",
-        "good": "constructor(\n  @Inject(ORDER_REPOSITORY)\n  private readonly orders: IOrderRepository,\n) {}"
+        "bad": "@Injectable()\nexport class OrdersService {\n  private logger = new Logger(OrdersService.name);\n\n  constructor(\n    private ordersRepo: IOrdersRepository,\n    @Inject(NOTIFY_TOKEN) private notifier: INotifier,\n  ) {}\n}\n\n@Controller('orders')\nexport class OrdersController {\n  constructor(private ordersService: OrdersService) {}\n}",
+        "good": "@Injectable()\nexport class OrdersService {\n  private readonly logger = new Logger(OrdersService.name);\n\n  constructor(\n    private readonly ordersRepo: IOrdersRepository,\n    @Inject(NOTIFY_TOKEN) private readonly notifier: INotifier,\n  ) {}\n}\n\n@Controller('orders')\nexport class OrdersController {\n  constructor(private readonly ordersService: OrdersService) {}\n}"
       }
     },
     {
@@ -262,11 +262,11 @@
       "severity": "warning",
       "language": "typescript",
       "category": "http-design",
-      "title": "Bound `?limit=` and `?offset=` query parameters",
-      "description": "An unbounded `?limit=` lets a caller pull the entire table in one request. Validate via class-validator (`@Min(1) @Max(100)`) or clamp in the controller before passing to the service. Default to a small value (25 is typical) when the param is absent.",
+      "title": "Bound `?limit=` and `?offset=` query parameters on list endpoints",
+      "description": "Every list/index endpoint must enforce a maximum result size. A `@Get()` handler that returns a collection with NO `?limit=` query parameter at all lets a caller pull the entire table in one request. The same problem applies when `?limit=` IS accepted but passed straight through without an upper bound. Either validate via class-validator (`@Min(1) @Max(100)`) on a DTO, clamp in the controller before passing to the service, or default to a small value (25 is typical) when the param is absent. Pair `?limit=` with `?offset=` so callers can page through.",
       "examples": {
-        "bad": "@Get()\nlist(@Query('limit') limit: number) {\n  return this.orders.list(limit);\n}",
-        "good": "@Get()\nlist(@Query('limit') limit?: string): OrderRecord[] {\n  const parsed = Number(limit);\n  const bounded =\n    Number.isFinite(parsed) && parsed > 0 && parsed <= 100 ? parsed : 25;\n  return this.orders.list(bounded);\n}"
+        "bad": "@Get()\nlist(@Query('status') status?: string) {\n  return this.ordersService.listByStatus(status);\n}\n\n@Get()\nlistItems(@Query('limit') limit: number) {\n  return this.itemsService.list(limit);\n}",
+        "good": "@Get()\nlist(\n  @Query('status') status?: string,\n  @Query('limit') limit?: string,\n  @Query('offset') offset?: string,\n): OrderRecord[] {\n  const parsedLimit = Number(limit);\n  const bounded =\n    Number.isFinite(parsedLimit) && parsedLimit > 0 && parsedLimit <= 100\n      ? parsedLimit\n      : 25;\n  const parsedOffset = Math.max(0, Number(offset) || 0);\n  return this.ordersService.list({ status, limit: bounded, offset: parsedOffset });\n}"
       }
     },
     {

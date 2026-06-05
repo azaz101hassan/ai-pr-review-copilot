@@ -203,10 +203,10 @@
       "language": "javascript",
       "category": "readability",
       "title": "Name your magic numbers",
-      "description": "Literal numbers scattered through business logic lose their meaning. Pull them into named constants at the top of the file (or a shared constants module) so the reader sees the intent, not the value.",
+      "description": "Literal numbers scattered through business logic lose their meaning. Any numeric literal that encodes a domain threshold, timeout, batch size, retry count, port, fee, or currency amount should be a named const at the top of the file (or in a shared constants module). The exception: 0, 1, and -1 in obvious counting or boundary contexts. Look in service methods for patterns like `> 100`, `> 3600`, `>= 1024`, `setTimeout(..., 30000)`, `for (let i = 0; i < 128; i++)`, or `if (price > 1000)` — every one of those numbers should be replaced with a named const.",
       "examples": {
-        "bad": "if (user.age >= 18 && session.duration > 3600) { ... }",
-        "good": "const MIN_AGE = 18;\nconst SESSION_LIMIT_SECONDS = 3600;\nif (user.age >= MIN_AGE && session.duration > SESSION_LIMIT_SECONDS) { ... }"
+        "bad": "if (order.totalCents > 100) {\n  this.logger.log('eligible for refund');\n}\n\nfor (let i = 0; i < 128; i++) {\n  await this.processChunk(items[i]);\n}\n\nif (Date.now() - order.createdAt.getTime() > 86400000) {\n  throw new BadRequestException('refund window expired');\n}",
+        "good": "const REFUND_ELIGIBILITY_THRESHOLD_CENTS = 100;\nconst EMBEDDING_BATCH_SIZE = 128;\nconst REFUND_WINDOW_MS = 24 * 60 * 60 * 1000;\n\nif (order.totalCents > REFUND_ELIGIBILITY_THRESHOLD_CENTS) {\n  this.logger.log('eligible for refund');\n}\n\nfor (let i = 0; i < EMBEDDING_BATCH_SIZE; i++) {\n  await this.processChunk(items[i]);\n}\n\nif (Date.now() - order.createdAt.getTime() > REFUND_WINDOW_MS) {\n  throw new BadRequestException('refund window expired');\n}"
       }
     },
     {

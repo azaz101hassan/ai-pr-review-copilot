@@ -83,10 +83,10 @@
       "language": "typescript",
       "category": "architecture",
       "title": "Keep controllers thin — validation in DTOs, logic in services",
-      "description": "Controllers parse the HTTP shape (via class-validator DTOs) and delegate to a service. They should not contain branching business logic, database access, or external service calls. If a controller method runs more than ~5 lines, the logic belongs in a service.",
+      "description": "A `@Controller` method parses the HTTP shape (via class-validator DTOs) and delegates to a service. It must not contain branching business logic, query-param parsing/splitting, filtering, sorting, database access, or external service calls. If a controller method runs more than ~5 lines or has any `if`, `for`, `.filter`, `.map`, `.split`, `Number(...)`, or anything resembling business logic, that logic belongs in the `@Injectable()` service.",
       "examples": {
-        "bad": "@Post('search')\nasync search(@Body() body: any) {\n  if (!body.diff || body.diff.length === 0) throw new BadRequestException();\n  const vector = await this.voyage.embed(body.diff);\n  const hits = await this.chroma.query(vector);\n  return hits.filter((h) => h.score > 0.5);\n}",
-        "good": "@Post('search')\nasync search(@Body() dto: SearchRequestDto) {\n  const hits = await this.embeddings.search(dto.diff, { k: dto.k });\n  return { hits };\n}"
+        "bad": "@Get()\nlist(@Query('status') status?: string) {\n  const wanted = status ? status.split(',') : [];\n  const all = this.ordersService.listAll();\n  const filtered =\n    wanted.length === 0 ? all : all.filter((o) => wanted.includes(o.status));\n  return filtered;\n}\n\n@Post()\ncreate(@Body() dto: CreateOrderDto) {\n  if (dto.totalCents < 0) throw new BadRequestException('negative total');\n  const id = String(Date.now());\n  return this.ordersService.save({ ...dto, id });\n}",
+        "good": "@Get()\nlist(@Query('status') status?: string): OrderRecord[] {\n  return this.ordersService.listByStatus(status);\n}\n\n@Post()\ncreate(@Body() dto: CreateOrderDto): OrderRecord {\n  return this.ordersService.createOrder(dto);\n}"
       }
     },
     {
