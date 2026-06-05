@@ -8,6 +8,7 @@ import { WebhookModule } from '@/modules/webhooks';
 import { EmbeddingsModule } from '@/modules/embeddings';
 import { ReviewsModule } from '@/modules/reviews';
 import { DashboardModule } from '@/modules/dashboard';
+import { OrdersModule } from '@/modules/orders';
 import { HealthController } from '@/system';
 
 @Module({
@@ -39,6 +40,7 @@ import { HealthController } from '@/system';
     // from DatabaseModule (@Global); ConfigService from ConfigModule
     // (@Global).
     DashboardModule,
+    OrdersModule,
   ],
   controllers: [HealthController],
   providers: [
