@@ -168,7 +168,7 @@ describe('SqliteKnowledgeChunksRepository', () => {
       // and `no-floating-promises` are the chunks that share surface
       // tokens with the query.
       expect(ids).toEqual(expect.arrayContaining([`${SOURCE_ID}:no-var`]));
-      // All BM25 scores in FTS5 are negative; more negative = better.
+      // `bm25Score` is the per-token rank: positive, smaller = better.
       // A non-NaN finite number is the contract we expose.
       for (const hit of hits) expect(Number.isFinite(hit.bm25Score)).toBe(true);
     });
@@ -176,6 +176,18 @@ describe('SqliteKnowledgeChunksRepository', () => {
     it('respects the k cap', () => {
       const hits = repo.searchByKeyword('any var await type', 2);
       expect(hits.length).toBeLessThanOrEqual(2);
+    });
+
+    it('keeps the best-ranked chunks when k cuts the candidate list', () => {
+      // `type` appears in both no-explicit-any (title + body, two
+      // occurrences → BM25 rank 1) and eqeqeq (body "type coercion",
+      // one occurrence → BM25 rank 2). With k=1 the slice has to fire,
+      // and the single survivor must be the rank-1 chunk — anything
+      // else means the implementation kept the worst of the candidate
+      // pool instead of the best.
+      const hits = repo.searchByKeyword('type', 1);
+      expect(hits).toHaveLength(1);
+      expect(hits[0].id).toBe(`${SOURCE_ID}:no-explicit-any`);
     });
 
     it('returns an empty array when no token meets the minimum length', () => {

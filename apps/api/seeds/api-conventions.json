@@ -142,11 +142,11 @@
       "severity": "error",
       "language": "typescript",
       "category": "security",
-      "title": "Never log a secret, token, full request body, or full diff",
-      "description": "API keys, GitHub App private keys, OAuth tokens, webhook signatures, and full request bodies must not appear in any log statement. They land in CloudWatch / Sentry / shared log files. Log a stable identifier (request id, user id, PR node id) or a hash, never the secret. If you must log a key for debug, redact to the last 4 characters.",
+      "title": "Never log a secret, token, customer email, password, full request body, or full diff",
+      "description": "API keys, OAuth tokens, webhook signatures, passwords, customer emails, phone numbers, full request bodies, and any other personally identifiable information must not appear in any log statement. They land in CloudWatch, Sentry, and shared log files where access is broader than the running service. Never call console.log or this.logger.log/debug/warn with dto.password, dto.email, dto.customer_email, request.headers.authorization, request.body, or JSON.stringify(dto). Log a stable identifier — request id, user id, customer id, PR node id — or a hash instead. If you must log a key for debug, redact to the last 4 characters.",
       "examples": {
-        "bad": "this.logger.debug(`auth header: ${request.headers.authorization}`);",
-        "good": "this.logger.debug(`auth header present: ${Boolean(request.headers.authorization)}`);"
+        "bad": "this.logger.log(`order created id=${id} email=${dto.customer_email} total=${total}`);\nconsole.log(`auth header: ${request.headers.authorization}`);\nthis.logger.debug(`signup payload: ${JSON.stringify(dto)}`);\nthis.logger.warn(`failed login user=${dto.email} password=${dto.password}`);",
+        "good": "this.logger.log(`order created id=${id} customer=${dto.customer_id} total=${total}`);\nthis.logger.debug(`auth header present: ${Boolean(request.headers.authorization)}`);\nthis.logger.debug(`signup customer=${dto.customer_id}`);\nthis.logger.warn(`failed login user_id=${userId}`);"
       }
     },
     {
@@ -214,11 +214,11 @@
       "severity": "warning",
       "language": "typescript",
       "category": "type-safety",
-      "title": "Constructor-injected dependencies should be marked readonly",
-      "description": "A constructor-injected dependency that's reassigned somewhere in the class is almost always a bug. Marking it `readonly` documents the invariant and lets the typechecker enforce it. Applies to repositories, services, Logger, ConfigService.",
+      "title": "Constructor-injected dependencies and private class fields should be marked readonly",
+      "description": "Any constructor-injected dependency that's reassigned somewhere in the class is almost always a bug. Marking it `readonly` documents the invariant and lets the typechecker enforce it. The same applies to private class fields holding service instances like `private logger = new Logger(...)`, repositories, services, ConfigService, or any DI'd token — they should all be `private readonly`. Look for `private foo:` or `private foo =` in any `@Injectable` service or `@Controller` constructor or class body — every one of those should be `private readonly` unless the field is genuinely mutable internal state.",
       "examples": {
-        "bad": "constructor(\n  @Inject(ORDER_REPOSITORY)\n  private orders: IOrderRepository,\n) {}",
-        "good": "constructor(\n  @Inject(ORDER_REPOSITORY)\n  private readonly orders: IOrderRepository,\n) {}"
+        "bad": "@Injectable()\nexport class OrdersService {\n  private logger = new Logger(OrdersService.name);\n\n  constructor(\n    private ordersRepo: IOrdersRepository,\n    @Inject(NOTIFY_TOKEN) private notifier: INotifier,\n  ) {}\n}\n\n@Controller('orders')\nexport class OrdersController {\n  constructor(private ordersService: OrdersService) {}\n}",
+        "good": "@Injectable()\nexport class OrdersService {\n  private readonly logger = new Logger(OrdersService.name);\n\n  constructor(\n    private readonly ordersRepo: IOrdersRepository,\n    @Inject(NOTIFY_TOKEN) private readonly notifier: INotifier,\n  ) {}\n}\n\n@Controller('orders')\nexport class OrdersController {\n  constructor(private readonly ordersService: OrdersService) {}\n}"
       }
     },
     {
@@ -262,11 +262,11 @@
       "severity": "warning",
       "language": "typescript",
       "category": "http-design",
-      "title": "Bound `?limit=` and `?offset=` query parameters",
-      "description": "An unbounded `?limit=` lets a caller pull the entire table in one request. Validate via class-validator (`@Min(1) @Max(100)`) or clamp in the controller before passing to the service. Default to a small value (25 is typical) when the param is absent.",
+      "title": "Bound `?limit=` and `?offset=` query parameters on list endpoints",
+      "description": "Every list/index endpoint must enforce a maximum result size. A `@Get()` handler that returns a collection with NO `?limit=` query parameter at all lets a caller pull the entire table in one request. The same problem applies when `?limit=` IS accepted but passed straight through without an upper bound. Either validate via class-validator (`@Min(1) @Max(100)`) on a DTO, clamp in the controller before passing to the service, or default to a small value (25 is typical) when the param is absent. Pair `?limit=` with `?offset=` so callers can page through.",
       "examples": {
-        "bad": "@Get()\nlist(@Query('limit') limit: number) {\n  return this.orders.list(limit);\n}",
-        "good": "@Get()\nlist(@Query('limit') limit?: string): OrderRecord[] {\n  const parsed = Number(limit);\n  const bounded =\n    Number.isFinite(parsed) && parsed > 0 && parsed <= 100 ? parsed : 25;\n  return this.orders.list(bounded);\n}"
+        "bad": "@Get()\nlist(@Query('status') status?: string) {\n  return this.ordersService.listByStatus(status);\n}\n\n@Get()\nlistItems(@Query('limit') limit: number) {\n  return this.itemsService.list(limit);\n}",
+        "good": "@Get()\nlist(\n  @Query('status') status?: string,\n  @Query('limit') limit?: string,\n  @Query('offset') offset?: string,\n): OrderRecord[] {\n  const parsedLimit = Number(limit);\n  const bounded =\n    Number.isFinite(parsedLimit) && parsedLimit > 0 && parsedLimit <= 100\n      ? parsedLimit\n      : 25;\n  const parsedOffset = Math.max(0, Number(offset) || 0);\n  return this.ordersService.list({ status, limit: bounded, offset: parsedOffset });\n}"
       }
     },
     {

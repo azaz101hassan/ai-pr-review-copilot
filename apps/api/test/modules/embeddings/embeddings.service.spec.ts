@@ -354,9 +354,10 @@ describe('EmbeddingsService.search', () => {
     ]);
     const chunks = makeChunkRepo();
     // Sparse ranks: sparse-only at #1, in-both at #2.
+    // `bm25Score` is the per-token rank itself — smaller = better.
     chunks.searchByKeyword.mockReturnValue([
-      { id: 'sparse-only', bm25Score: -2.5 },
-      { id: 'in-both', bm25Score: -1.8 },
+      { id: 'sparse-only', bm25Score: 1 },
+      { id: 'in-both', bm25Score: 2 },
     ]);
     chunks.findByIds.mockReturnValue([
       { ...sampleChunkRow('in-both', 'rule-both'), id: 'in-both', rule_id: 'rule-both' },

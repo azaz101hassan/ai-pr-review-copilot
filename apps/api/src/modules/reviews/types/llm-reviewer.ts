@@ -102,7 +102,10 @@ export interface ILlmReviewer {
 // History:
 //   'v2' — single-turn forced report_findings tool
 //   'v3' — multi-turn agentic loop; 4 tools; same Finding shape
-export const PROMPT_AND_TOOL_VERSION = 'v3' as const;
+//   'v4' — clarifies multi-rule emission on the same line so orthogonal
+//          violations (e.g. wrong-mechanism + sensitive-content) both
+//          surface instead of collapsing into one finding
+export const PROMPT_AND_TOOL_VERSION = 'v4' as const;
 
 // Hash enforcement map. The snapshot spec asserts
 // `sha256(SYSTEM_PROMPT + JSON.stringify(tools)) === HASH_MAP[VERSION]`.
@@ -121,5 +124,5 @@ export const PROMPT_AND_TOOL_VERSION_HASH_MAP: Record<
   // this on every test run; editing the prompt or any tool schema without
   // updating both this hash AND PROMPT_AND_TOOL_VERSION in the same commit
   // fails the spec.
-  v3: '9bcd7ad43f5686aaf9b6e6f3b57be2eecaffa277bbfaea93aa14d44137790133',
+  v4: '8249f8d296164663b9987eca060296d855071107677f6ce4de89c3e9e1373130',
 };

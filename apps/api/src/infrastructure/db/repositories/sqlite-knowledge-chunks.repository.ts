@@ -137,9 +137,9 @@ export class SqliteKnowledgeChunksRepository implements IKnowledgeChunkRepositor
     // field: a chunk that was rank 1 for ANY single token gets sparse
     // rank 1, regardless of the absolute BM25 number.
     //
-    // The returned `bm25Score` field is set to `-perTokenRank` so the
-    // ordering invariant (more negative = better) is preserved for
-    // callers that sort on the field.
+    // The returned `bm25Score` field is the per-token rank itself:
+    // smaller (closer to 1) = better. ASC sort then puts the best
+    // candidates first so `slice(0, k)` returns the top-k.
     const bestRankById = new Map<string, number>();
     for (const token of tokens) {
       const rows = stmt.all(token, PER_TOKEN_HITS) as Array<{ id: string; bm25: number }>;
@@ -153,7 +153,7 @@ export class SqliteKnowledgeChunksRepository implements IKnowledgeChunkRepositor
     }
 
     return [...bestRankById.entries()]
-      .map(([id, rank]) => ({ id, bm25Score: -rank }))
+      .map(([id, rank]) => ({ id, bm25Score: rank }))
       .sort((a, b) => a.bm25Score - b.bm25Score)
       .slice(0, k);
   }
