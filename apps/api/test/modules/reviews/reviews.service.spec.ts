@@ -65,6 +65,10 @@ function makeConfig(overrides: Partial<ConfigService> = {}): ConfigService {
     anthropicModel: 'claude-haiku-4-5-20251001',
     llmProvider: 'anthropic' as const,
     openrouterModel: '',
+    // Mirrors the production default so DEFAULT_K assertions in this
+    // spec stay self-explanatory — tests that exercise a different K
+    // override via `overrides`.
+    retrievalDefaultK: 25,
     activeModel() {
       return (this as ConfigService).llmProvider === 'openrouter'
         ? (this as ConfigService).openrouterModel

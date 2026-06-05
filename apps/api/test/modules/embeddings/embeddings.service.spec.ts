@@ -63,12 +63,14 @@ function makeChunkRepo(): IKnowledgeChunkRepository & {
   findById: jest.Mock;
   findByIds: jest.Mock;
   deleteBySourceId: jest.Mock;
+  searchByKeyword: jest.Mock;
 } {
   return {
     upsertMany: jest.fn(),
     findById: jest.fn(),
     findByIds: jest.fn().mockReturnValue([]),
     deleteBySourceId: jest.fn().mockReturnValue(0),
+    searchByKeyword: jest.fn().mockReturnValue([]),
   };
 }
 
@@ -269,13 +271,16 @@ describe('EmbeddingsService.search', () => {
     };
   }
 
-  it('embeds the query, queries the store with k, joins SQLite chunks', async () => {
+  it('embeds the query, queries dense + sparse retrievers, RRF-merges, joins SQLite chunks', async () => {
     const provider = makeProvider();
     provider.embedQuery.mockResolvedValue({ vector: vec(0.5), tokensUsed: 5 } satisfies EmbedQueryResult);
     const store = makeStore();
     store.query.mockResolvedValue([sampleHit]);
     const chunks = makeChunkRepo();
     chunks.findByIds.mockReturnValue([sampleChunkRow(sampleHit.id)]);
+    // Sparse retriever returns nothing for this test — the dense leg
+    // is the only contributor, but RRF still runs.
+    chunks.searchByKeyword.mockReturnValue([]);
 
     const svc = new EmbeddingsService(
       makeLoader({ sources: [], chunks: [] }),
@@ -288,39 +293,90 @@ describe('EmbeddingsService.search', () => {
     const hits = await svc.search('some diff', { k: 5 });
 
     expect(provider.embedQuery).toHaveBeenCalledWith('some diff');
+    // Each retriever is queried at HYBRID_CANDIDATE_MULTIPLIER × k so
+    // RRF has a wider candidate pool than the final cut. With the
+    // 73-chunk corpus and a 200-token diff producing dozens of chunks
+    // tied at per-token-rank 1, the multiplier is 8 — k=5 → candidateK=40.
     expect(store.query).toHaveBeenCalledWith(
-      expect.objectContaining({ k: 5, embedding: expect.any(Array) }),
+      expect.objectContaining({ k: 40, embedding: expect.any(Array) }),
     );
-    expect(hits).toEqual([
-      {
-        rule_id: 'eqeqeq',
-        source: 'airbnb-eslint',
-        score: 0.9,
-        title: 'Require ===',
-        document: 'body text',
-        metadata: { rule_id: 'eqeqeq', source: 'airbnb-eslint' },
+    expect(chunks.searchByKeyword).toHaveBeenCalledWith('some diff', 40);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({
+      rule_id: 'eqeqeq',
+      source: 'airbnb-eslint',
+      title: 'Require ===',
+      document: 'body text',
+      // Metadata is now sourced from the canonical SQLite chunk row,
+      // not the (denormalized, drift-prone) vector-store metadata.
+      metadata: {
+        severity: 'error',
+        language: 'javascript',
+        category: 'best-practices',
       },
-    ]);
+    });
+    // RRF score for a single rank-1 contributor at kFusion=10 (the
+    // EmbeddingsService override for this small corpus): 1 / (10 + 1).
+    expect(hits[0].score).toBeCloseTo(1 / 11, 6);
   });
 
-  it('defaults k to 10 when not provided', async () => {
+  it('defaults k to 10; each retriever sees k × candidate multiplier', async () => {
     const provider = makeProvider();
     provider.embedQuery.mockResolvedValue({ vector: vec(0.1), tokensUsed: 1 });
     const store = makeStore();
     store.query.mockResolvedValue([]);
+    const chunks = makeChunkRepo();
+    chunks.searchByKeyword.mockReturnValue([]);
 
     const svc = new EmbeddingsService(
       makeLoader({ sources: [], chunks: [] }),
       provider,
       store,
       makeSourceRepo(),
-      makeChunkRepo(),
+      chunks,
     );
 
     await svc.search('diff');
 
     const opts = store.query.mock.calls[0][0] as VectorStoreQueryOptions;
-    expect(opts.k).toBe(10);
+    expect(opts.k).toBe(80);
+    expect(chunks.searchByKeyword).toHaveBeenCalledWith('diff', 80);
+  });
+
+  it('combines dense and sparse hits — items in both rank higher than items in only one', async () => {
+    const provider = makeProvider();
+    provider.embedQuery.mockResolvedValue({ vector: vec(0.1), tokensUsed: 1 });
+    const store = makeStore();
+    // Dense ranks: in-both at #1, dense-only at #2.
+    store.query.mockResolvedValue([
+      { id: 'in-both', score: 0.9, document: 'd1', metadata: {} },
+      { id: 'dense-only', score: 0.8, document: 'd2', metadata: {} },
+    ]);
+    const chunks = makeChunkRepo();
+    // Sparse ranks: sparse-only at #1, in-both at #2.
+    chunks.searchByKeyword.mockReturnValue([
+      { id: 'sparse-only', bm25Score: -2.5 },
+      { id: 'in-both', bm25Score: -1.8 },
+    ]);
+    chunks.findByIds.mockReturnValue([
+      { ...sampleChunkRow('in-both', 'rule-both'), id: 'in-both', rule_id: 'rule-both' },
+      { ...sampleChunkRow('dense-only', 'rule-dense'), id: 'dense-only', rule_id: 'rule-dense' },
+      { ...sampleChunkRow('sparse-only', 'rule-sparse'), id: 'sparse-only', rule_id: 'rule-sparse' },
+    ]);
+
+    const svc = new EmbeddingsService(
+      makeLoader({ sources: [], chunks: [] }),
+      provider,
+      store,
+      makeSourceRepo(),
+      chunks,
+    );
+
+    const hits = await svc.search('diff', { k: 3 });
+    expect(hits[0].rule_id).toBe('rule-both');
+    expect(hits.map((h) => h.rule_id)).toEqual(
+      expect.arrayContaining(['rule-both', 'rule-dense', 'rule-sparse']),
+    );
   });
 
   it('throws on empty diff before calling provider or store', async () => {

@@ -53,12 +53,19 @@ import type { Recording } from '@/modules/reviews/eval/recording';
  * Paths every recording tracks regardless of provider. The shared LLM
  * surface lives here (system prompt, tool schemas, agent-loop helpers,
  * constants); a change to any of these affects every provider's
- * recordings equally.
+ * recordings equally. The retrieval surface (embeddings service +
+ * hybrid-search repo methods + FTS5 migration) is here for the same
+ * reason — a change to how chunks are ranked changes what the LLM
+ * sees, and every captured trace is then stale.
  */
 export const SHARED_TRACKED_PATHS = [
   'apps/api/src/infrastructure/llm/',
   'apps/api/src/modules/reviews/eval/faithfulness-judge.prompt.ts',
   'apps/api/seeds/',
+  'apps/api/src/modules/embeddings/embeddings.service.ts',
+  'apps/api/src/modules/embeddings/helpers/reciprocal-rank-fusion.ts',
+  'apps/api/src/infrastructure/db/repositories/sqlite-knowledge-chunks.repository.ts',
+  'apps/api/src/infrastructure/db/migrations/0007_knowledge_chunks_fts.sql',
 ];
 
 /**

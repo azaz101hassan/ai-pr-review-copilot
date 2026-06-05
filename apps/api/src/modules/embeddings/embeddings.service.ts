@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { CorpusLoader, LoadedCorpus, NormalizedChunk } from './helpers/corpus-loader';
+import { rrfMerge } from './helpers/reciprocal-rank-fusion';
 import {
   EMBEDDING_PROVIDER,
   IEmbeddingProvider,
@@ -14,6 +15,16 @@ import {
   IKnowledgeChunkRepository,
 } from './types/knowledge-chunk.repository';
 import { KnowledgeChunkInsert } from './types/knowledge-chunk.types';
+
+// Multiply the requested `k` by this when querying each retriever
+// individually, so the RRF merge has a wider candidate pool than the
+// final result size. The multiplier needs to be high enough that the
+// sparse leg can return every chunk tied at per-token-rank-1 — with
+// ~200 unique diff tokens and a 73-rule corpus, that's typically
+// 40-60 chunks. `8` keeps the pool comfortably above that ceiling at
+// the typical k=25 (candidate=200), and the FTS5 cost stays
+// sub-millisecond per query at this corpus size.
+const HYBRID_CANDIDATE_MULTIPLIER = 8;
 
 // Voyage's per-request cap is 1000 inputs; we batch at 128 to stay well
 // clear and keep each request small enough that a single rate-limit
@@ -133,51 +144,132 @@ export class EmbeddingsService {
     };
   }
 
-  // Query read path. Embed the diff once, query Chroma top-K, then
-  // re-fetch the chunk rows from SQLite for canonical title + body. The
-  // SQLite re-fetch is what makes the seam survive Chroma drift: if a
-  // vector points at an id that no longer exists in SQLite, that hit is
-  // dropped with a warning rather than returned as a fabrication.
+  // Hybrid query read path. Embed the diff once and query Chroma for
+  // dense (semantic) neighbours; in parallel, ask the SQLite FTS5 index
+  // for sparse (BM25) keyword hits. Merge the two ranked lists via
+  // Reciprocal Rank Fusion, then re-fetch chunk rows from SQLite for
+  // canonical title + body. The SQLite re-fetch is what makes the seam
+  // survive Chroma drift: if a vector points at an id that no longer
+  // exists in SQLite, that hit is dropped with a warning rather than
+  // returned as a fabrication.
+  //
+  // The dense leg catches semantic matches (a project-flavoured diff
+  // vs an abstract rule description). The sparse leg catches
+  // surface-token matches the embedding miss-rates on — classic ESLint
+  // rules like `no-var` whose distinguishing signal is the literal
+  // token `var` appearing in the diff.
   async search(diff: string, options: SearchOptions = {}): Promise<SearchHit[]> {
     if (!diff || diff.trim().length === 0) {
       throw new Error('diff must be a non-empty string');
     }
 
     const k = options.k ?? DEFAULT_K;
-    const { vector } = await this.provider.embedQuery(diff);
-    const rawHits = await this.vectorStore.query({
-      embedding: vector,
-      k,
-      where: options.where,
-    });
+    const candidateK = k * HYBRID_CANDIDATE_MULTIPLIER;
 
-    if (rawHits.length === 0) return [];
+    const denseHitsPromise = this.provider.embedQuery(diff).then(({ vector }) =>
+      this.vectorStore.query({
+        embedding: vector,
+        k: candidateK,
+        where: options.where,
+      }),
+    );
+    // FTS5 search is synchronous (better-sqlite3 is sync) but we wrap
+    // in a resolved Promise so the two retrievers can be Promise.all'd.
+    const sparseHitsPromise = Promise.resolve(
+      this.chunks.searchByKeyword(diff, candidateK),
+    );
 
-    const chunkRows = this.chunks.findByIds(rawHits.map((h) => h.id));
+    const [denseHits, sparseHits] = await Promise.all([
+      denseHitsPromise,
+      sparseHitsPromise,
+    ]);
+
+    // Apply optional `where` filter to sparse hits too — FTS5 doesn't
+    // know about Chroma's metadata, but the caller may have used
+    // `where` to scope retrieval to (say) one language. Drop sparse
+    // candidates whose chunk row doesn't satisfy the filter.
+    const filteredSparse = options.where
+      ? this.filterSparseByWhere(sparseHits, options.where)
+      : sparseHits;
+
+    if (denseHits.length === 0 && filteredSparse.length === 0) return [];
+
+    // Annotate sparse hits with their explicit per-token rank — the
+    // repo packs the rank as `bm25Score = -rank` so multiple chunks
+    // can share a tied rank (every chunk that was top-1 for ANY single
+    // diff token has rank 1). Without this, RRF would treat each
+    // sparse-list position as a serial rank and unfairly demote the
+    // tied chunks past the first few positions.
+    const sparseWithRank = filteredSparse.map((h) => ({
+      id: h.id,
+      rank: -h.bm25Score,
+    }));
+
+    // kFusion=10 (vs the Cormack default of 60) intentionally amplifies
+    // top-rank contributions. The default is calibrated for million-doc
+    // retrieval where rank 1 and rank 10 are both noisy positives; our
+    // 73-chunk corpus is the opposite regime — rank 1 in either leg is
+    // a strong signal that should clearly outrank a both-lists rank 20
+    // consensus item. Lowering kFusion makes top hits in one leg able
+    // to stand against weaker consensus matches.
+    const merged = rrfMerge<{ id: string; rank?: number }>(
+      [denseHits, sparseWithRank],
+      { finalK: k, kFusion: 10 },
+    );
+
+    const chunkRows = this.chunks.findByIds(merged.map((h) => h.id));
     const byId = new Map(chunkRows.map((row) => [row.id, row]));
 
     const hits: SearchHit[] = [];
-    for (const hit of rawHits) {
+    for (const hit of merged) {
       const chunk = byId.get(hit.id);
       if (!chunk) {
-        // Drift between Chroma and SQLite — Chroma still has a vector
-        // for an id the SQLite catalogue no longer knows. Drop and
-        // warn; do NOT fabricate from the metadata in the vector store
-        // (it's a denormalized copy that may be stale).
+        // Drift between Chroma and SQLite — a Chroma vector or an FTS5
+        // entry points at an id the SQLite catalogue no longer knows.
+        // Drop and warn; do NOT fabricate from the metadata in the
+        // vector store (it's a denormalized copy that may be stale).
         this.logger.warn(
-          `vector store returned id ${hit.id} with no SQLite chunk row — dropping`,
+          `retrieval returned id ${hit.id} with no SQLite chunk row — dropping`,
         );
         continue;
       }
       hits.push({
         rule_id: chunk.rule_id,
         source: chunk.source_id,
-        score: hit.score,
+        score: hit.rrfScore,
         title: chunk.title,
         document: chunk.body,
-        metadata: hit.metadata,
+        metadata: {
+          severity: chunk.severity,
+          language: chunk.language,
+          category: chunk.category,
+        },
       });
     }
     return hits;
+  }
+
+  // Apply a Chroma-style `where` filter to FTS5 hits. We re-fetch each
+  // candidate's chunk row and keep only those whose metadata satisfies
+  // every key in the filter. This duplicates the post-FTS join below
+  // (and pays a small read cost twice) but keeps the `where` semantics
+  // identical between the two retrievers, which matters for tests that
+  // scope retrieval by language or severity.
+  private filterSparseByWhere<H extends { id: string }>(
+    sparseHits: H[],
+    where: Record<string, unknown>,
+  ): H[] {
+    if (sparseHits.length === 0) return sparseHits;
+    const rows = this.chunks.findByIds(sparseHits.map((h) => h.id));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return sparseHits.filter((hit) => {
+      const row = byId.get(hit.id);
+      if (!row) return false;
+      for (const [key, expected] of Object.entries(where)) {
+        const actual = (row as unknown as Record<string, unknown>)[key];
+        if (actual !== expected) return false;
+      }
+      return true;
+    });
   }
 }

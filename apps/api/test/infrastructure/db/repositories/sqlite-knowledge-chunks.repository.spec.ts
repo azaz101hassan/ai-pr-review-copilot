@@ -134,4 +134,79 @@ describe('SqliteKnowledgeChunksRepository', () => {
   it('deleteBySourceId returns 0 when the source has no chunks', () => {
     expect(repo.deleteBySourceId(SOURCE_ID)).toBe(0);
   });
+
+  describe('searchByKeyword (FTS5 BM25)', () => {
+    beforeEach(() => {
+      repo.upsertMany([
+        makeChunk({
+          rule_id: 'no-var',
+          title: 'Use let or const, never var',
+          body: 'var declarations are function-scoped and hoisted. Use let or const instead.',
+        }),
+        makeChunk({
+          rule_id: 'eqeqeq',
+          title: 'Use === and !==, never == or !=',
+          body: 'Loose equality performs type coercion that hides bugs. Always use strict equality.',
+        }),
+        makeChunk({
+          rule_id: 'no-explicit-any',
+          title: 'Avoid the any type',
+          body: 'The any type disables type checking. Prefer unknown and narrow with a guard.',
+        }),
+        makeChunk({
+          rule_id: 'no-floating-promises',
+          title: 'Always await Promises',
+          body: 'A Promise without await or a catch handler silently swallows errors.',
+        }),
+      ]);
+    });
+
+    it('returns hits ranked by BM25 when a query token matches a chunk', () => {
+      const hits = repo.searchByKeyword('a = await asyncCall(); var x = 1;', 10);
+      const ids = hits.map((h) => h.id);
+      // Both `var` and `await` (via `Promises`) should appear; `no-var`
+      // and `no-floating-promises` are the chunks that share surface
+      // tokens with the query.
+      expect(ids).toEqual(expect.arrayContaining([`${SOURCE_ID}:no-var`]));
+      // All BM25 scores in FTS5 are negative; more negative = better.
+      // A non-NaN finite number is the contract we expose.
+      for (const hit of hits) expect(Number.isFinite(hit.bm25Score)).toBe(true);
+    });
+
+    it('respects the k cap', () => {
+      const hits = repo.searchByKeyword('any var await type', 2);
+      expect(hits.length).toBeLessThanOrEqual(2);
+    });
+
+    it('returns an empty array when no token meets the minimum length', () => {
+      // All single-char tokens are dropped before the MATCH expression
+      // is built; the query reduces to no usable tokens.
+      const hits = repo.searchByKeyword('= + - * { }', 10);
+      expect(hits).toEqual([]);
+    });
+
+    it('returns an empty array when k <= 0', () => {
+      expect(repo.searchByKeyword('var', 0)).toEqual([]);
+      expect(repo.searchByKeyword('var', -1)).toEqual([]);
+    });
+
+    it('keeps the FTS index in sync on upsert and delete', () => {
+      // Upsert a fifth chunk whose body has a unique token; it should
+      // surface only after the trigger fires.
+      const uniqueChunk = makeChunk({
+        rule_id: 'unique-marker',
+        title: 'Marker rule',
+        body: 'This rule exists to verify trigger-driven index sync via the unmistakable token xyzzy123.',
+      });
+      repo.upsertMany([uniqueChunk]);
+      const hitsAfterInsert = repo.searchByKeyword('xyzzy123', 5);
+      expect(hitsAfterInsert.map((h) => h.id)).toContain(uniqueChunk.id);
+
+      // Deleting the source drops the row; the AFTER DELETE trigger
+      // should remove the FTS entry too.
+      repo.deleteBySourceId(SOURCE_ID);
+      const hitsAfterDelete = repo.searchByKeyword('xyzzy123', 5);
+      expect(hitsAfterDelete).toEqual([]);
+    });
+  });
 });
