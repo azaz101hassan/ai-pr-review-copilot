@@ -142,11 +142,11 @@
       "severity": "error",
       "language": "typescript",
       "category": "security",
-      "title": "Never log a secret, token, full request body, or full diff",
-      "description": "API keys, GitHub App private keys, OAuth tokens, webhook signatures, and full request bodies must not appear in any log statement. They land in CloudWatch / Sentry / shared log files. Log a stable identifier (request id, user id, PR node id) or a hash, never the secret. If you must log a key for debug, redact to the last 4 characters.",
+      "title": "Never log a secret, token, customer email, password, full request body, or full diff",
+      "description": "API keys, OAuth tokens, webhook signatures, passwords, customer emails, phone numbers, full request bodies, and any other personally identifiable information must not appear in any log statement. They land in CloudWatch, Sentry, and shared log files where access is broader than the running service. Never call console.log or this.logger.log/debug/warn with dto.password, dto.email, dto.customer_email, request.headers.authorization, request.body, or JSON.stringify(dto). Log a stable identifier — request id, user id, customer id, PR node id — or a hash instead. If you must log a key for debug, redact to the last 4 characters.",
       "examples": {
-        "bad": "this.logger.debug(`auth header: ${request.headers.authorization}`);",
-        "good": "this.logger.debug(`auth header present: ${Boolean(request.headers.authorization)}`);"
+        "bad": "this.logger.log(`order created id=${id} email=${dto.customer_email} total=${total}`);\nconsole.log(`auth header: ${request.headers.authorization}`);\nthis.logger.debug(`signup payload: ${JSON.stringify(dto)}`);\nthis.logger.warn(`failed login user=${dto.email} password=${dto.password}`);",
+        "good": "this.logger.log(`order created id=${id} customer=${dto.customer_id} total=${total}`);\nthis.logger.debug(`auth header present: ${Boolean(request.headers.authorization)}`);\nthis.logger.debug(`signup customer=${dto.customer_id}`);\nthis.logger.warn(`failed login user_id=${userId}`);"
       }
     },
     {
