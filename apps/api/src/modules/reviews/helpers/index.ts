@@ -49,3 +49,8 @@ export {
   formatWalkthroughSuccessBody,
   FormatWalkthroughSuccessBodyInput,
 } from './format-walkthrough-success-body';
+export {
+  formatCheckRunOutput,
+  FormatCheckRunOutputInput,
+  CheckRunOutput,
+} from './format-check-run-output';
