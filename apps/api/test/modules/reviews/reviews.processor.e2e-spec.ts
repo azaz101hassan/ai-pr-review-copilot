@@ -988,4 +988,83 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     // must carry it so the next sweep can retire the dangling check-run.
     expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
   });
+
+  it('BullMQ retry: the second attempt sweeps the prior failed attempt\'s check-run and posts a fresh one', async () => {
+    // ONE PR identity shared by both attempts.
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Install the spy BEFORE attempt 1 so it captures insertInProgress calls
+    // from both attempts. afterEach restores it — no explicit mockRestore needed.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    // Queue two distinct check-run ids. makeOctokit() (installed by beforeEach)
+    // already returns { data: { id: 4242 } } by default, but we override
+    // explicitly so the two one-shot values are unambiguous and self-documenting.
+    const checksCreate = authProvider.octokit.rest.checks.create as unknown as jest.Mock;
+    checksCreate
+      .mockResolvedValueOnce({ data: { id: 4242 } })
+      .mockResolvedValueOnce({ data: { id: 5151 } });
+
+    const checksUpdate = authProvider.octokit.rest.checks.update as unknown as jest.Mock;
+    const pullsCreateReview = authProvider.octokit.rest.pulls.createReview as unknown as jest.Mock;
+
+    // --- Attempt 1 (fails with retryable 429) ---
+    stubLlm.mode = 'throw-rate-limit';
+    await expect(
+      processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber })),
+    ).rejects.toThrow();
+    // Attempt 1 row is now: status='failed', check_run_id=4242.
+
+    // --- Attempt 2 (succeeds) ---
+    stubLlm.mode = 'echo-first-only';
+    await processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }));
+
+    // --- Assertion 1: checks.create called exactly TWICE ---
+    // Each attempt posts a fresh in-progress check-run. The retry does NOT
+    // reuse attempt 1's id — it POSTs a brand-new check-run at Step 7.
+    expect(checksCreate).toHaveBeenCalledTimes(2);
+
+    // --- Assertion 2: attempt 2's Step 4b swept attempt 1's check-run to neutral ---
+    // findMostRecentPriorCheckRun found check_run_id=4242 (the attempt 1 failed
+    // row) and called tryPatchCheckRun with conclusion='neutral'. Locate the
+    // call by check_run_id + conclusion to distinguish it from the skipped
+    // patch attempt 1 posted (also targeting 4242 but with conclusion='skipped').
+    const sweepCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number; conclusion: string }]) =>
+        args[0].check_run_id === 4242 && args[0].conclusion === 'neutral',
+    ) as
+      | [{ check_run_id: number; conclusion: string; output: { title: string } }]
+      | undefined;
+    expect(sweepCall).toBeDefined();
+    expect(sweepCall![0].output.title).toBe('Superseded by newer review on this PR.');
+
+    // --- Assertion 3: attempt 2's terminal success PATCH targets 5151 ---
+    const successCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number; conclusion: string }]) =>
+        args[0].check_run_id === 5151 && args[0].conclusion === 'success',
+    ) as [{ check_run_id: number; status: string; conclusion: string }] | undefined;
+    expect(successCall).toBeDefined();
+    expect(successCall![0].status).toBe('completed');
+
+    // --- Assertion 4: real-DB — TWO reviews rows for this prNodeId ---
+    // insertSpy captured both insertInProgress calls in order.
+    expect(insertSpy).toHaveBeenCalledTimes(2);
+    const attempt1Id = insertSpy.mock.calls[0][0].id;
+    const attempt2Id = insertSpy.mock.calls[1][0].id;
+
+    const attempt1Row = reviewsRepo.findById(attempt1Id);
+    expect(attempt1Row).toBeDefined();
+    expect(attempt1Row?.status).toBe('failed');
+    expect(attempt1Row?.check_run_id).toBe(4242);
+
+    const attempt2Row = reviewsRepo.findById(attempt2Id);
+    expect(attempt2Row).toBeDefined();
+    expect(attempt2Row?.status).toBe('completed');
+    expect(attempt2Row?.check_run_id).toBe(5151);
+
+    // --- Assertion 5: pulls.createReview called exactly once (attempt 2 only) ---
+    // Attempt 1 threw before reaching Step 13b; attempt 2 completed and emitted
+    // one finding for the no-var fixture, so shouldPostReview is true.
+    expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+  });
 });
