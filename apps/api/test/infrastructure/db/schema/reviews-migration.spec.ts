@@ -7,13 +7,13 @@ describe('reviews migration — check_run_id + walkthrough_summary columns', () 
   let dir: string;
   let db: DatabaseService;
 
-  beforeAll(() => {
+  beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'reviews-migration-'));
     db = new DatabaseService();
     db.open(join(dir, 'test.sqlite'));
   });
 
-  afterAll(() => {
+  afterEach(() => {
     db.onApplicationShutdown();
     rmSync(dir, { recursive: true, force: true });
   });

@@ -56,9 +56,7 @@ describe('AnthropicWalkthroughSummarizer', () => {
       messages: {
         create: jest
           .fn()
-          .mockImplementation(
-            () => new Promise((resolve) => setTimeout(resolve, 5000)),
-          ),
+          .mockImplementation(() => new Promise<never>(() => undefined)),
       },
     };
     const summarizer = new AnthropicWalkthroughSummarizer(slowClient as any, {
