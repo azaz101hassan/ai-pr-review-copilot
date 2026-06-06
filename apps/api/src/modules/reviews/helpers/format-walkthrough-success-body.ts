@@ -1,5 +1,5 @@
-import { sanitizeFindingMarkdown } from './sanitize-finding-markdown';
-import type { FindingWithSeverity } from './format-review-body';
+import { sanitizeFindingMarkdown } from '@/modules/reviews/helpers/sanitize-finding-markdown';
+import type { FindingWithSeverity } from '@/modules/reviews/helpers/format-review-body';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -1,7 +1,7 @@
 import type { Finding } from '@/modules/reviews/types/llm-reviewer';
-import { sanitizeFindingMarkdown } from './sanitize-finding-markdown';
-import type { FindingCounts } from './finding-counts.types';
-import type { OutsideDiffFinding } from './anchor-findings-to-diff';
+import { sanitizeFindingMarkdown } from '@/modules/reviews/helpers/sanitize-finding-markdown';
+import type { FindingCounts } from '@/modules/reviews/helpers/finding-counts.types';
+import type { OutsideDiffFinding } from '@/modules/reviews/helpers/anchor-findings-to-diff';
 
 type SanitizeFn = (input: string) => string;
 

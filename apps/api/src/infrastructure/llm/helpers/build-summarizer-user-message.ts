@@ -13,10 +13,18 @@ export function buildSummarizerUserMessage(
       : `Findings (${input.findings.length}):\n${input.findings
           .map((f) => `- [${f.severity}] ${f.rule_id}: ${f.title}`)
           .join('\n')}`;
+  const totalRules = input.retrievedRules.length;
+  const shownRules = Math.min(totalRules, MAX_RULES_IN_PROMPT);
+  const rulesHeader =
+    totalRules === 0
+      ? null
+      : totalRules > MAX_RULES_IN_PROMPT
+        ? `Rules retrieved (showing first ${shownRules} of ${totalRules}):`
+        : `Rules retrieved (${totalRules}):`;
   const rulesBlock =
-    input.retrievedRules.length === 0
+    totalRules === 0
       ? 'Rules retrieved: none.'
-      : `Rules retrieved (${input.retrievedRules.length}):\n${input.retrievedRules
+      : `${rulesHeader}\n${input.retrievedRules
           .slice(0, MAX_RULES_IN_PROMPT)
           .map((r) => `- ${r.rule_id} (from ${r.source}): ${r.title}`)
           .join('\n')}`;

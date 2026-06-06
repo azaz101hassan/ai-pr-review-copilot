@@ -6,10 +6,10 @@ import {
   WalkthroughSummarizerInput,
   WalkthroughSummarizerResult,
 } from '@/modules/reviews/types/walkthrough-summarizer';
-import { WALKTHROUGH_SUMMARIZER_SYSTEM_PROMPT } from './walkthrough-summarizer.prompt';
-import { SUMMARIZER_MAX_TOKENS, SUMMARIZER_DEFAULT_TIMEOUT_MS } from './llm.constants';
-import { buildSummarizerUserMessage } from './helpers/build-summarizer-user-message';
-import { violatesFindingsGuard } from './helpers/summarizer-findings-guard';
+import { WALKTHROUGH_SUMMARIZER_SYSTEM_PROMPT } from '@/infrastructure/llm/walkthrough-summarizer.prompt';
+import { SUMMARIZER_MAX_TOKENS, SUMMARIZER_DEFAULT_TIMEOUT_MS } from '@/infrastructure/llm/llm.constants';
+import { buildSummarizerUserMessage } from '@/infrastructure/llm/helpers/build-summarizer-user-message';
+import { violatesFindingsGuard } from '@/infrastructure/llm/helpers/summarizer-findings-guard';
 
 export interface AnthropicWalkthroughSummarizerOptions {
   model: string;
