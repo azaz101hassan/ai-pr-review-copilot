@@ -7,6 +7,11 @@ import {
   type IWalkthroughSummarizer,
 } from '@/modules/reviews/types/walkthrough-summarizer';
 import { AnthropicWalkthroughSummarizer } from '@/infrastructure/llm/anthropic-walkthrough-summarizer';
+import {
+  FAITHFULNESS_JUDGE,
+  type IFaithfulnessJudge,
+} from '@/modules/reviews/eval/faithfulness-judge.contract';
+import { AnthropicFaithfulnessJudge } from '@/infrastructure/llm/anthropic-faithfulness-judge';
 import { ConfigService } from '@/config';
 
 @Module({
@@ -24,7 +29,19 @@ import { ConfigService } from '@/config';
         ),
       inject: [ConfigService],
     },
+    {
+      // The eval faithfulness judge also follows the active provider so
+      // capture runs against whichever LLM is being evaluated. Default
+      // model is Haiku (the historical canonical judge); operators can
+      // override per run if needed.
+      provide: FAITHFULNESS_JUDGE,
+      useFactory: (config: ConfigService): IFaithfulnessJudge =>
+        new AnthropicFaithfulnessJudge(
+          new Anthropic({ apiKey: config.anthropicApiKey }),
+        ),
+      inject: [ConfigService],
+    },
   ],
-  exports: [LLM_REVIEWER, WALKTHROUGH_SUMMARIZER],
+  exports: [LLM_REVIEWER, WALKTHROUGH_SUMMARIZER, FAITHFULNESS_JUDGE],
 })
 export class AnthropicModule {}

@@ -7,6 +7,11 @@ import {
   type IWalkthroughSummarizer,
 } from '@/modules/reviews/types/walkthrough-summarizer';
 import { OpenRouterWalkthroughSummarizer } from '@/infrastructure/llm/openrouter-walkthrough-summarizer';
+import {
+  FAITHFULNESS_JUDGE,
+  type IFaithfulnessJudge,
+} from '@/modules/reviews/eval/faithfulness-judge.contract';
+import { OpenRouterFaithfulnessJudge } from '@/infrastructure/llm/openrouter-faithfulness-judge';
 import { ConfigService } from '@/config';
 
 @Module({
@@ -27,7 +32,23 @@ import { ConfigService } from '@/config';
         ),
       inject: [ConfigService],
     },
+    {
+      // The eval faithfulness judge also follows the active provider so
+      // capture runs against whichever LLM is being evaluated. The
+      // OpenRouter adapter uses the same model id as the reviewer so the
+      // eval cost matches production behaviour.
+      provide: FAITHFULNESS_JUDGE,
+      useFactory: (config: ConfigService): IFaithfulnessJudge =>
+        new OpenRouterFaithfulnessJudge(
+          new OpenAI({
+            apiKey: config.openrouterApiKey,
+            baseURL: config.openrouterBaseUrl,
+          }),
+          { model: config.openrouterModel },
+        ),
+      inject: [ConfigService],
+    },
   ],
-  exports: [LLM_REVIEWER, WALKTHROUGH_SUMMARIZER],
+  exports: [LLM_REVIEWER, WALKTHROUGH_SUMMARIZER, FAITHFULNESS_JUDGE],
 })
 export class OpenRouterModule {}
