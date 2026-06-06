@@ -81,9 +81,19 @@ Set:
 |---|---|
 | **Pull requests** | Read & write |
 | **Contents** | Read-only |
+| **Checks** | Read & write |
 | **Metadata** | Read-only (this one is mandatory and auto-checked) |
 
-Pull-requests "write" is required for posting review comments. Contents "read" is required when the worker fetches the diff via Octokit.
+Pull-requests "write" is required for posting review comments. Contents "read" is required when the worker fetches the diff via Octokit. Checks "write" is required for posting the merge-box status check that shows the bot's lifecycle state (in_progress while reviewing, then success or skipped) — without it the bot still works, but the check badge will be absent.
+
+### Upgrading an existing installation
+
+If you previously installed this App before the `Checks` permission
+was added, GitHub will show a yellow banner on the App settings page
+asking you to accept the new permissions. The bot continues to
+post the walkthrough and review comments without the Checks
+permission, but the merge-box badge will be absent until accepted.
+The accept flow is a single click in your installation's settings.
 
 ### Subscribe to events
 
