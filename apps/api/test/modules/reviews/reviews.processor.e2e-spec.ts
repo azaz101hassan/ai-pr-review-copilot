@@ -174,6 +174,11 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
   let findingsRepo: IReviewFindingRepository;
   let pullRequestsRepo: IPullRequestRepository;
   let authProvider: StubGithubAuthProvider;
+  // The SAME stub LLM instance the processor's runRealReview drives.
+  // Held as an outer ref so per-test scenarios can set its mode/script;
+  // beforeEach resets it to the default echo-first-only behavior so a
+  // test that drove it cannot leak state into the next.
+  let stubLlm: StubLlmReviewer;
   // The default summarizer returns a deterministic prose intro; later
   // tasks reassign the mock to return null (failure path). Typed with a
   // jest.Mock summarize so tests can drive it without re-casting.
@@ -206,6 +211,12 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
       summarize: jest.fn().mockResolvedValue({ intro: 'A concise summary.' }),
     };
 
+    // Build the stub LLM into a local and keep an outer ref so tests can
+    // drive its mode/script. The processor's runRealReview resolves the
+    // SAME instance via the LLM_REVIEWER token below, so driving stubLlm
+    // here changes what the worker's agent loop sees.
+    stubLlm = new StubLlmReviewer();
+
     const moduleRef = await Test.createTestingModule({
       imports: [makeTestModule()],
     })
@@ -214,7 +225,7 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
       .overrideProvider(VECTOR_STORE)
       .useValue(new StubVectorStore())
       .overrideProvider(LLM_REVIEWER)
-      .useValue(new StubLlmReviewer())
+      .useValue(stubLlm)
       .overrideProvider(GITHUB_AUTH_PROVIDER)
       .useValue(authProvider)
       .overrideProvider(WALKTHROUGH_SUMMARIZER)
@@ -262,6 +273,15 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     (summarizer.summarize as jest.Mock).mockResolvedValue({
       intro: 'A concise summary.',
     });
+    // Reset the shared stub LLM to its default behavior so a scenario
+    // test that flipped mode/script cannot leak into the next test. The
+    // default echo-first-only mode emits one finding for the no-var
+    // fixture - the behavior the existing happy-path tests rely on.
+    stubLlm.mode = 'echo-first-only';
+    stubLlm.script = [];
+    stubLlm.delayMs = 0;
+    stubLlm.lastInput = undefined;
+    stubLlm.turnCapToolCalls = [];
   });
 
   // Restore any jest.spyOn installed on the shared (booted-once)
@@ -669,5 +689,90 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     // The stub LLM emits one finding for the no-var fixture so shouldPostReview
     // is true and createReview fires even though the summarizer returned null.
     expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+  });
+
+  it('a finding located outside the diff still posts a Review with the outside-diff CAUTION callout and zero inline comments', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Drive the stub to emit ONE finding whose location_hint references a
+    // file NOT present in the no-var diff's hunks. rule_id='no-var' is in
+    // the retrieved rule set for no-var-violation.patch (the default
+    // fixture), so it survives the stub's hallucination filter
+    // (step.findings.filter on inputRuleIds). The location
+    // 'totally/other.ts:5' parses to a path:line, but src/totals.js is the
+    // only file in the diff, so anchorFindingsToDiff partitions it into
+    // outsideDiff (file-not-in-diff branch) and anchorable stays empty.
+    stubLlm.mode = 'multi-turn-script';
+    stubLlm.script = [
+      {
+        kind: 'emit',
+        findings: [
+          {
+            rule_id: 'no-var',
+            title: 'Outside-diff finding',
+            message: 'This references a file not in the diff.',
+            location_hint: 'totally/other.ts:5',
+            citation: null,
+          },
+        ],
+      },
+    ];
+
+    // Spy on the REAL repo (callThrough) to recover the worker-allocated
+    // review id so we can read the persisted findings back out of SQLite.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // --- Assertion 1: a Review IS posted exactly once ---
+    // shouldPostReview is true via the outside-diff branch
+    // (partition.outsideDiff.length > 0) even though nothing anchors inline.
+    expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+
+    const createReviewArg = pullsCreateReview.mock.calls[0][0] as {
+      body: string;
+      comments: unknown[];
+    };
+
+    // --- Assertion 2: the body carries the outside-diff CAUTION callout ---
+    // Literals derived verbatim from format-review-body.ts: the '> [!CAUTION]'
+    // admonition line and the summary line with the one-finding count. We do
+    // NOT assert on the prose line below the admonition (it contains a
+    // straight apostrophe in "can't"); the two literals below are stable.
+    expect(createReviewArg.body).toContain('> [!CAUTION]');
+    expect(createReviewArg.body).toContain('Outside diff range comments (1)');
+    // The outside-diff entry renders the parsed path:line for the finding.
+    expect(createReviewArg.body).toContain('totally/other.ts:5');
+
+    // --- Assertion 3: zero inline comments ---
+    // Nothing anchored to a hunk (the file is not in the diff), so the
+    // comments array the worker built from partition.anchorable is empty.
+    expect(createReviewArg.comments).toEqual([]);
+
+    // --- Assertion 4: real-DB round-trip (the net-new fact) ---
+    // The emitted finding flowed through real runRealReview persistence into
+    // real SQLite. Read it back by the worker-allocated id: exactly one row,
+    // and the review row itself completed terminally.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const persisted = findingsRepo.findByReviewId(reservedId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].rule_id).toBe('no-var');
+    const row = reviewsRepo.findById(reservedId);
+    expect(row?.status).toBe('completed');
+
+    // --- Assertion 5: success check-run PATCH still fired ---
+    // The outside-diff-only outcome is still a completed review: the Step 13c
+    // check-run PATCH lands its terminal success conclusion.
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    const checksUpdateArg = checksUpdate.mock.calls[0][0] as {
+      conclusion: string;
+    };
+    expect(checksUpdateArg.conclusion).toBe('success');
   });
 });
