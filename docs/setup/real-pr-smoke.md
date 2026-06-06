@@ -24,8 +24,8 @@ If you want this to survive shell restarts, add the export to `apps/api/.env` (t
 ### 1.2 Start the redis service
 
 ```bash
-docker compose up -d redis
-docker compose ps     # both chroma and redis should be "running (healthy)"
+docker compose --env-file apps/api/.env up -d redis
+docker compose --env-file apps/api/.env ps     # both chroma and redis should be "running (healthy)"
 ```
 
 Smoke-test:
@@ -135,7 +135,7 @@ To rotate the allowlist:
 
 ```bash
 # Edit apps/api/.env, then:
-docker compose restart api  # or: stop and re-run npm run dev:api
+docker compose --env-file apps/api/.env restart redis  # or: stop and re-run npm run start:dev
 ```
 
 The boot log records the parsed allowlist as part of `ReviewsModule`'s init.
@@ -156,7 +156,7 @@ The flag is read at boot. Re-deploying after a flip requires a process restart. 
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Boot log says `Redis ping failed for queue "reviews"` | `REDIS_URL` points at a host that isn't running Redis, or the password is wrong | `docker compose ps` to confirm `redis` is healthy; verify `REDIS_PASSWORD` in your shell matches the one inside `REDIS_URL`. |
+| Boot log says `Redis ping failed for queue "reviews"` | `REDIS_URL` points at a host that isn't running Redis, or the password is wrong | `docker compose --env-file apps/api/.env ps` to confirm `redis` is healthy; verify `REDIS_PASSWORD` in `.env` matches the one inside `REDIS_URL`. |
 | Boot log says `GitHub App probe failed: 401` | `APP_ID` and `APP_PRIVATE_KEY` don't match a real App, or the PEM was corrupted during the `\n` escape | Re-download the PEM from your App settings and re-run the escape conversion in step 2. |
 | Boot log says `APP_PRIVATE_KEY does not look like a PEM private key` | The env value is missing the `-----BEGIN` header — usually means the `\n` escape was eaten by your shell | Double-check the `.env` value: it should start with the literal characters `-----BEGIN`. The escape sequences should be `\n` (two chars), not real newlines. |
 | Webhook returns 200 / `ignored-repo` for every PR | Repo is not in `DOGFOOD_REPOS` | Add `owner/repo` to the env var and restart. |

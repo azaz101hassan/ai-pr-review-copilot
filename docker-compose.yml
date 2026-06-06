@@ -7,12 +7,12 @@
 #           integration, see docs/plans/06-day5-real-pr-integration.md
 #           and docs/setup/real-pr-smoke.md).
 #
-# Usage:
-#   docker compose up -d              # background, all services
-#   docker compose up -d redis        # one service
-#   docker compose ps                 # health status
-#   docker compose down               # stop; data persists in named volumes
-#   docker compose down -v            # stop and wipe persisted volumes
+# Usage (run from repo root):
+#   docker compose --env-file apps/api/.env up -d          # all services
+#   docker compose --env-file apps/api/.env up -d redis    # one service
+#   docker compose --env-file apps/api/.env ps             # health status
+#   docker compose --env-file apps/api/.env down           # stop; data persists
+#   docker compose --env-file apps/api/.env down -v        # stop and wipe volumes
 #
 # See docs/setup/embeddings.md and docs/setup/real-pr-smoke.md for the
 # full bring-up walkthroughs.

@@ -67,7 +67,7 @@ curl http://localhost:8000/api/v2/heartbeat
 
 > **Heads up — the heartbeat path moved.** Old Chroma tutorials reference `/api/v1/heartbeat`; that path is removed in current builds. The healthcheck in `docker-compose.yml` already hits the v2 path; if you ever copy a Chroma snippet from elsewhere, double-check.
 
-Stop the container with `docker compose down`. The persisted volume in `./chroma-data/` survives — to wipe it, `docker compose down -v`.
+Stop the container with `docker compose --env-file apps/api/.env down`. The persisted volume in `./chroma-data/` survives — to wipe it, `docker compose --env-file apps/api/.env down -v`.
 
 ---
 
@@ -157,8 +157,8 @@ The `diff` field is capped at 50 000 chars (Voyage is per-token, the endpoint is
 | `seed:knowledge` exits with `ChromaRequestError: getOrCreateCollection failed` | Chroma container isn't running, or `CHROMA_URL` points somewhere else. | `docker compose up -d chroma`, wait for healthy, retry. |
 | Migration drift after pulling new commits | Old SQLite file at `apps/api/data/app.sqlite` predates a new Drizzle migration. | `rm -f apps/api/data/app.sqlite*` and re-seed. (Local dev only — production migrations are forward-only.) |
 | HTTP search returns `[]` for every diff | Corpus not seeded. | `npm run seed:knowledge --workspace apps/api`. |
-| `Cannot instantiate a collection with the DefaultEmbeddingFunction` printed repeatedly | A collection exists in your local Chroma volume that was created by a pre-fix version of the adapter (stored `default-embed` in its config metadata). Our adapter passes `embeddingFunction: null` on create, but doesn't rewrite the metadata on read. | Wipe the bind-mounted host directory: `docker compose down && rm -rf chroma-data/ && docker compose up -d chroma`. **Note**: `docker compose down -v` is NOT enough — `-v` only removes Docker-managed volumes, not host bind mounts. Next seed creates the collection fresh with the right config. |
-| Need to fully reset local state | Re-seeding after corpus changes, or recovering from drift between SQLite chunks and Chroma vectors. | `docker compose down && rm -rf chroma-data/ apps/api/data/app.sqlite* && docker compose up -d chroma && npm run seed:knowledge --workspace apps/api`. Wipes both stores; next seed rebuilds them from `apps/api/seeds/*.json`. |
+| `Cannot instantiate a collection with the DefaultEmbeddingFunction` printed repeatedly | A collection exists in your local Chroma volume that was created by a pre-fix version of the adapter (stored `default-embed` in its config metadata). Our adapter passes `embeddingFunction: null` on create, but doesn't rewrite the metadata on read. | Wipe the bind-mounted host directory: `docker compose --env-file apps/api/.env down && rm -rf chroma-data/ && docker compose --env-file apps/api/.env up -d chroma`. **Note**: `docker compose down -v` is NOT enough — `-v` only removes Docker-managed volumes, not host bind mounts. Next seed creates the collection fresh with the right config. |
+| Need to fully reset local state | Re-seeding after corpus changes, or recovering from drift between SQLite chunks and Chroma vectors. | `docker compose --env-file apps/api/.env down && rm -rf chroma-data/ apps/api/data/app.sqlite* && docker compose --env-file apps/api/.env up -d chroma && npm run seed:knowledge --workspace apps/api`. Wipes both stores; next seed rebuilds them from `apps/api/seeds/*.json`. |
 
 ---
 
