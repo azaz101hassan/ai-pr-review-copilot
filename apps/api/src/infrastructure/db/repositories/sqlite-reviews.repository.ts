@@ -31,6 +31,14 @@ const STANDALONE_VERSIONS = [
   'standalone-failure',
   'standalone-empty-diff',
   'standalone-skipped-too-large',
+  // A reserved row whose reconcile never ran (process died, or
+  // retrieval threw before updateRetrievalMetadata) keeps its
+  // 'placeholder' prompt_version. Excluding it here keeps an orphaned
+  // reservation out of every analytics aggregate, and out of the
+  // status/error breakdowns after the boot-time stale sweep (10-min cutoff) flips it to
+  // failed. Note: SIZE_SKIPPED_VERSION stays the size-skip marker, so
+  // 'placeholder' rows never count toward skippedCount.
+  'placeholder',
 ] as const;
 
 const SIZE_SKIPPED_VERSION = 'standalone-skipped-too-large' as const;

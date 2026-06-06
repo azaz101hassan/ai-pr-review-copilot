@@ -215,183 +215,250 @@ export class ReviewsProcessor
       return;
     }
 
-    // Step 5 — unified diff via mediaType.
-    let diff: string;
+    // Reserve the lifecycle row BEFORE any further I/O. The row's
+    // existence is the serialization point the in-flight guard depends
+    // on; reserving here (rather than at runRealReview) closes the race
+    // where two concurrent deliveries both pass the guard and proceed.
+    // Retrieval fields are placeholders until runRealReview reconciles
+    // them — or a pre-LLM exit path below sets a standalone marker via
+    // updateRetrievalMetadata + markFailed/markCompleted. The single
+    // outer try/finally below owns the activeReviewIds cleanup so the
+    // delete fires exactly once on every exit (return OR throw).
+    const reviewId = randomUUID();
+    this.activeReviewIds.add(reviewId);
+    this.reviewsRepo.insertInProgress({
+      id: reviewId,
+      pr_node_id: data.pr_node_id,
+      model: this.config.activeModel(),
+      created_at: new Date(),
+    });
+
     try {
-      const res = await octokit.request(
-        'GET /repos/{owner}/{repo}/pulls/{pull_number}',
-        {
-          owner: data.owner,
-          repo: data.repo,
-          pull_number: data.pr_number,
-          mediaType: { format: 'diff' },
-        },
-      );
-      diff = String(res.data ?? '');
-    } catch (err) {
-      const status = readStatus(err);
-      await this.writeStandaloneFailure(data, 'github_api_error', status);
-      if (status === 401) {
-        this.githubAuth.invalidateInstallation(data.installation_id);
-        throw new UnrecoverableError(formatBriefError(err));
-      }
-      // Retryable GitHub failure on the diff fetch — same rationale as
-      // the pulls.get retryable branch above.
-      await this.tryPostFailedWalkthrough({
-        octokit,
-        owner: data.owner,
-        repo: data.repo,
-        pr_number: data.pr_number,
-        pr_node_id: data.pr_node_id,
-        reason: 'github_api_error',
-        jobLogPrefix,
-      });
-      throw classifyToRequestError(err);
-    }
-
-    // Step 6a — MAX_DIFF_BYTES.
-    const diffBytes = Buffer.byteLength(diff, 'utf8');
-    if (diffBytes > this.config.maxDiffBytes) {
-      await this.writeStandaloneFailure(data, 'diff_too_large', 0);
-      await this.tryPostFailedWalkthrough({
-        octokit,
-        owner: data.owner,
-        repo: data.repo,
-        pr_number: data.pr_number,
-        pr_node_id: data.pr_node_id,
-        reason: 'diff_too_large',
-        jobLogPrefix,
-      });
-      this.logger.warn(
-        `${jobLogPrefix} worker.job.failed diff_too_large bytes=${diffBytes} cap=${this.config.maxDiffBytes}`,
-      );
-      return;
-    }
-
-    // Step 6a-bis — MAX_REVIEW_DIFF_LINES (soft size gate).
-    // Distinct from MAX_DIFF_BYTES above: that one is a silent
-    // failure for runaway-size system safety; this one is product
-    // policy. The reviewer's quality is reliable on small focused
-    // diffs and degrades sharply on whole-PR-scale ones, so over
-    // the threshold we POST a friendly skip-walkthrough and persist
-    // a 'completed' standalone row marked with the dedicated
-    // prompt_version. No agent loop, no Anthropic call → ~$0 on
-    // big PRs.
-    const changedLines = countChangedLines(diff);
-    if (changedLines > this.config.maxReviewDiffLines) {
-      const skipBody = formatWalkthroughSkippedBody({
-        prNodeId: data.pr_node_id,
-        changedLines,
-        limit: this.config.maxReviewDiffLines,
-      });
+      // Step 5 — unified diff via mediaType.
+      let diff: string;
       try {
-        await this.upsertWalkthrough({
+        const res = await octokit.request(
+          'GET /repos/{owner}/{repo}/pulls/{pull_number}',
+          {
+            owner: data.owner,
+            repo: data.repo,
+            pull_number: data.pr_number,
+            mediaType: { format: 'diff' },
+          },
+        );
+        diff = String(res.data ?? '');
+      } catch (err) {
+        // Finalize the reserved row in place as a standalone failure —
+        // overwrite the placeholder retrieval marker, then markFailed
+        // with the GitHub status so eval/dashboard see the attempt.
+        const status = readStatus(err);
+        this.reviewsRepo.updateRetrievalMetadata(reviewId, {
+          diff_length: 0,
+          model: this.config.activeModel(),
+          prompt_version: 'standalone-failure',
+          top_k: 0,
+          retrieved_chunk_ids: '[]',
+          retrieved_chunk_ids_hash: '0'.repeat(64),
+        });
+        this.reviewsRepo.markFailed(reviewId, {
+          completed_at: new Date(),
+          error_status: status,
+          error_code: 'github_api_error',
+        });
+        if (status === 401) {
+          this.githubAuth.invalidateInstallation(data.installation_id);
+          throw new UnrecoverableError(formatBriefError(err));
+        }
+        // Retryable GitHub failure on the diff fetch — same rationale as
+        // the pulls.get retryable branch above.
+        await this.tryPostFailedWalkthrough({
           octokit,
           owner: data.owner,
           repo: data.repo,
           pr_number: data.pr_number,
           pr_node_id: data.pr_node_id,
-          body: skipBody,
+          reason: 'github_api_error',
+          jobLogPrefix,
         });
-      } catch (err) {
-        // Best-effort POST. If GitHub rejects the comment we still
-        // want the audit row so dashboard / metrics see the skip.
-        // Don't retry, don't fail the job — the bot's decision was
-        // "skip", and the row records that decision regardless of
-        // whether the visible comment landed.
-        this.logger.warn(
-          `${jobLogPrefix} worker.skip.walkthrough_post_failed ${formatBriefError(err)}`,
-        );
+        throw classifyToRequestError(err);
       }
-      this.writeStandaloneSkipped(data, diffBytes);
-      this.logger.log(
-        `${jobLogPrefix} worker.job.skipped diff_size changed_lines=${changedLines} cap=${this.config.maxReviewDiffLines}`,
-      );
-      return;
-    }
 
-    // Step 6b — empty diff. Mark completed cleanly without calling
-    // Anthropic and without POSTing. A standalone-completion row with
-    // zero findings keeps the audit trail honest (eval sees the
-    // attempt + zero findings, rather than the operator wondering why
-    // a delivery vanished). Mirrors writeStandaloneFailure for symmetry.
-    if (diff.trim().length === 0) {
-      this.writeStandaloneCompletion(data);
-      this.logger.log(`${jobLogPrefix} worker.review.empty diff was empty`);
-      return;
-    }
+      // Step 6a — MAX_DIFF_BYTES.
+      const diffBytes = Buffer.byteLength(diff, 'utf8');
+      if (diffBytes > this.config.maxDiffBytes) {
+        // Finalize the reserved row as a standalone failure
+        // (diff_too_large carries a zero status — no GitHub error
+        // involved, just our own size cap).
+        this.reviewsRepo.updateRetrievalMetadata(reviewId, {
+          diff_length: 0,
+          model: this.config.activeModel(),
+          prompt_version: 'standalone-failure',
+          top_k: 0,
+          retrieved_chunk_ids: '[]',
+          retrieved_chunk_ids_hash: '0'.repeat(64),
+        });
+        this.reviewsRepo.markFailed(reviewId, {
+          completed_at: new Date(),
+          error_status: 0,
+          error_code: 'diff_too_large',
+        });
+        await this.tryPostFailedWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          reason: 'diff_too_large',
+          jobLogPrefix,
+        });
+        this.logger.warn(
+          `${jobLogPrefix} worker.job.failed diff_too_large bytes=${diffBytes} cap=${this.config.maxDiffBytes}`,
+        );
+        return;
+      }
 
-    // Step 7 — per-job context provider.
-    const repoContext = new GitHubRepoContextProvider({
-      octokit,
-      owner: data.owner,
-      repo: data.repo,
-      head_sha: data.head_sha,
-      pr_node_id: data.pr_node_id,
-      priorReviewRepo: this.findingsRepo,
-    });
+      // Step 6a-bis — MAX_REVIEW_DIFF_LINES (soft size gate).
+      // Distinct from MAX_DIFF_BYTES above: that one is a silent
+      // failure for runaway-size system safety; this one is product
+      // policy. The reviewer's quality is reliable on small focused
+      // diffs and degrades sharply on whole-PR-scale ones, so over
+      // the threshold we POST a friendly skip-walkthrough and finalize
+      // the reserved row 'completed' marked with the dedicated
+      // prompt_version. No agent loop, no Anthropic call → ~$0 on
+      // big PRs.
+      const changedLines = countChangedLines(diff);
+      if (changedLines > this.config.maxReviewDiffLines) {
+        const skipBody = formatWalkthroughSkippedBody({
+          prNodeId: data.pr_node_id,
+          changedLines,
+          limit: this.config.maxReviewDiffLines,
+        });
+        try {
+          await this.upsertWalkthrough({
+            octokit,
+            owner: data.owner,
+            repo: data.repo,
+            pr_number: data.pr_number,
+            pr_node_id: data.pr_node_id,
+            body: skipBody,
+          });
+        } catch (err) {
+          // Best-effort POST. If GitHub rejects the comment we still
+          // want the audit row so dashboard / metrics see the skip.
+          // Don't retry, don't fail the job — the bot's decision was
+          // "skip", and the row records that decision regardless of
+          // whether the visible comment landed.
+          this.logger.warn(
+            `${jobLogPrefix} worker.skip.walkthrough_post_failed ${formatBriefError(err)}`,
+          );
+        }
+        // Reconcile the reserved row with the size-skip marker (carrying
+        // the actual diff_length) and mark it completed with zero usage.
+        this.reviewsRepo.updateRetrievalMetadata(reviewId, {
+          diff_length: diffBytes,
+          model: this.config.activeModel(),
+          prompt_version: 'standalone-skipped-too-large',
+          top_k: 0,
+          retrieved_chunk_ids: '[]',
+          retrieved_chunk_ids_hash: '0'.repeat(64),
+        });
+        this.reviewsRepo.markCompleted(reviewId, {
+          completed_at: new Date(),
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+        });
+        this.logger.log(
+          `${jobLogPrefix} worker.job.skipped diff_size changed_lines=${changedLines} cap=${this.config.maxReviewDiffLines}`,
+        );
+        return;
+      }
 
-    // Pre-allocate the review_id at the worker so the activeReviewIds
-    // tracking Set is consistent with row existence for the entire
-    // lifecycle (add BEFORE runRealReview persists the row, delete in
-    // finally). Adding to the Set AFTER runRealReview returned would
-    // let a SIGTERM inside the agent loop miss the row entirely from
-    // the drain's perspective. The pre-allocated UUID is passed
-    // through runRealReview into runDryRun's insert (validated as a
-    // canonical UUID by the service).
-    const reviewId = randomUUID();
-    this.activeReviewIds.add(reviewId);
+      // Step 6b — empty diff. Mark completed cleanly without calling
+      // Anthropic and without POSTing. The standalone-empty-diff marker
+      // keeps the audit trail honest (eval sees the attempt + zero
+      // findings, rather than the operator wondering why a delivery
+      // vanished) while excluding it from quality metrics.
+      if (diff.trim().length === 0) {
+        this.reviewsRepo.updateRetrievalMetadata(reviewId, {
+          diff_length: 0,
+          model: this.config.activeModel(),
+          prompt_version: 'standalone-empty-diff',
+          top_k: 0,
+          retrieved_chunk_ids: '[]',
+          retrieved_chunk_ids_hash: '0'.repeat(64),
+        });
+        this.reviewsRepo.markCompleted(reviewId, {
+          completed_at: new Date(),
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+        });
+        this.logger.log(`${jobLogPrefix} worker.review.empty diff was empty`);
+        return;
+      }
 
-    let result: RunDryRunResult;
-    try {
-      this.logger.log(
-        `${jobLogPrefix} worker.review.started review_id=${reviewId}`,
-      );
-      result = await this.reviewsService.runRealReview({
-        diff,
-        prNodeId: data.pr_node_id,
-        headSha: data.head_sha,
-        repoContext,
-        reviewId,
-      });
-    } catch (err) {
-      // runRealReview already wrote a failed row internally.
-      this.activeReviewIds.delete(reviewId);
-      this.logger.warn(
-        `${jobLogPrefix} worker.review.failed ${formatBriefError(err)}`,
-      );
-      // Post a failed-walkthrough so the PR author sees the bot's
-      // status. On retryable failures the next attempt — if it
-      // succeeds — will PATCH the same comment back to the success
-      // body. On terminal failures the failed-walkthrough is the
-      // final state.
-      const reason: FailureReason = isAnthropicErrorLike(err)
-        ? 'llm_error'
-        : 'internal_error';
-      await this.tryPostFailedWalkthrough({
+      // Step 7 — per-job context provider.
+      const repoContext = new GitHubRepoContextProvider({
         octokit,
         owner: data.owner,
         repo: data.repo,
-        pr_number: data.pr_number,
+        head_sha: data.head_sha,
         pr_node_id: data.pr_node_id,
-        reason,
-        jobLogPrefix,
+        priorReviewRepo: this.findingsRepo,
       });
-      // Terminal Anthropic errors (credit_balance_too_low,
-      // invalid_request_error, etc.) must not retry — a retry of the
-      // same agent loop would produce the same failure AND burn
-      // another $X of Anthropic credit. Wrap in UnrecoverableError so
-      // BullMQ skips remaining attempts.
-      if (isTerminalAnthropicError(err)) {
-        throw new UnrecoverableError(formatBriefError(err));
-      }
-      // Retryable (429, 5xx, transport) — re-throw the original.
-      // BullMQ's backoffStrategy reads err.retryAfterMs and honours
-      // Anthropic's hint when present.
-      throw err;
-    }
 
-    try {
+      let result: RunDryRunResult;
+      try {
+        this.logger.log(
+          `${jobLogPrefix} worker.review.started review_id=${reviewId}`,
+        );
+        result = await this.reviewsService.runRealReview({
+          diff,
+          prNodeId: data.pr_node_id,
+          headSha: data.head_sha,
+          repoContext,
+          reviewId,
+        });
+      } catch (err) {
+        // runRealReview already reconciled + wrote a failed row
+        // internally. The outer finally owns the activeReviewIds delete.
+        this.logger.warn(
+          `${jobLogPrefix} worker.review.failed ${formatBriefError(err)}`,
+        );
+        // Post a failed-walkthrough so the PR author sees the bot's
+        // status. On retryable failures the next attempt — if it
+        // succeeds — will PATCH the same comment back to the success
+        // body. On terminal failures the failed-walkthrough is the
+        // final state.
+        const reason: FailureReason = isAnthropicErrorLike(err)
+          ? 'llm_error'
+          : 'internal_error';
+        await this.tryPostFailedWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          reason,
+          jobLogPrefix,
+        });
+        // Terminal Anthropic errors (credit_balance_too_low,
+        // invalid_request_error, etc.) must not retry — a retry of the
+        // same agent loop would produce the same failure AND burn
+        // another $X of Anthropic credit. Wrap in UnrecoverableError so
+        // BullMQ skips remaining attempts.
+        if (isTerminalAnthropicError(err)) {
+          throw new UnrecoverableError(formatBriefError(err));
+        }
+        // Retryable (429, 5xx, transport) — re-throw the original.
+        // BullMQ's backoffStrategy reads err.retryAfterMs and honours
+        // Anthropic's hint when present.
+        throw err;
+      }
+
       this.logger.log(
         `${jobLogPrefix} worker.review.findings_emitted count=${result.findings.length} review_id=${reviewId}`,
       );
@@ -843,85 +910,9 @@ export class ReviewsProcessor
     }
   }
 
-  // Standalone completion path — empty diff. Mirrors
-  // writeStandaloneFailure: inserts a one-shot completed row with
-  // zero findings (`top_k=0`, empty retrieved_chunk_ids) so the
-  // audit trail records the attempt. No Anthropic call ran; no POST.
-  // Eval can filter by `prompt_version='standalone-empty-diff'` to
-  // exclude these from quality metrics.
-  private writeStandaloneCompletion(data: ReviewJobData): void {
-    const id = randomUUID();
-    const now = new Date();
-    try {
-      this.reviewsRepo.insert({
-        id,
-        pr_node_id: data.pr_node_id,
-        created_by: null,
-        diff_length: 0,
-        model: this.config.activeModel(),
-        prompt_version: 'standalone-empty-diff',
-        top_k: 0,
-        retrieved_chunk_ids: '[]',
-        retrieved_chunk_ids_hash: '0'.repeat(64),
-        status: 'completed',
-        error_status: null,
-        error_code: null,
-        input_tokens: null,
-        output_tokens: null,
-        cache_creation_input_tokens: null,
-        cache_read_input_tokens: null,
-        created_at: now,
-        completed_at: now,
-      });
-    } catch (writeErr) {
-      this.logger.error(
-        `failed to persist standalone completion row for pr=${data.pr_node_id} — ${formatBriefError(writeErr)}`,
-      );
-    }
-  }
-
-  // Standalone skipped path — runs when the diff exceeds
-  // MAX_REVIEW_DIFF_LINES. Inserts a `completed` row with the
-  // dedicated `prompt_version='standalone-skipped-too-large'` so
-  // dashboards / eval can filter these out (or specifically count
-  // them) without misclassifying. No Anthropic call ran; the
-  // walkthrough comment was posted best-effort separately.
-  private writeStandaloneSkipped(
-    data: ReviewJobData,
-    diffLength: number,
-  ): void {
-    const id = randomUUID();
-    const now = new Date();
-    try {
-      this.reviewsRepo.insert({
-        id,
-        pr_node_id: data.pr_node_id,
-        created_by: null,
-        diff_length: diffLength,
-        model: this.config.activeModel(),
-        prompt_version: 'standalone-skipped-too-large',
-        top_k: 0,
-        retrieved_chunk_ids: '[]',
-        retrieved_chunk_ids_hash: '0'.repeat(64),
-        status: 'completed',
-        error_status: null,
-        error_code: null,
-        input_tokens: null,
-        output_tokens: null,
-        cache_creation_input_tokens: null,
-        cache_read_input_tokens: null,
-        created_at: now,
-        completed_at: now,
-      });
-    } catch (writeErr) {
-      this.logger.error(
-        `failed to persist standalone skipped row for pr=${data.pr_node_id} — ${formatBriefError(writeErr)}`,
-      );
-    }
-  }
-
   // Standalone failure path — runs when the worker fails BEFORE
-  // entering runRealReview (so no review row exists yet). We insert
+  // reserving the lifecycle row (so no reserved row exists yet): the
+  // two pulls.get exit paths (PR closed / pulls.get error). We insert
   // a one-shot failed row so the eval harness sees the attempt and
   // its error_code, rather than the operator wondering why a webhook
   // delivery vanished.

@@ -102,7 +102,10 @@ interface ProcessorParts {
   runRealReview: jest.Mock;
   findRecentInProgressForPr: jest.Mock;
   markFailed: jest.Mock;
+  markCompleted: jest.Mock;
   insert: jest.Mock;
+  insertInProgress: jest.Mock;
+  updateRetrievalMetadata: jest.Mock;
 }
 
 function makeProcessor(
@@ -146,14 +149,17 @@ function makeProcessor(
     .fn()
     .mockReturnValue(overrides.findRecentInProgressForPr ?? undefined);
   const markFailed = jest.fn();
+  const markCompleted = jest.fn();
   const insert = jest.fn();
+  const insertInProgress = jest.fn();
+  const updateRetrievalMetadata = jest.fn();
   const reviewsRepo: IReviewRepository = {
     insert,
-    insertInProgress: jest.fn(),
-    updateRetrievalMetadata: jest.fn(),
+    insertInProgress,
+    updateRetrievalMetadata,
     findById: jest.fn(),
     findAll: jest.fn().mockReturnValue([]),
-    markCompleted: jest.fn(),
+    markCompleted,
     markFailed,
     markFailedIfInProgress: jest.fn().mockReturnValue(1),
     sweepStaleInProgress: jest.fn().mockReturnValue(0),
@@ -209,7 +215,10 @@ function makeProcessor(
     runRealReview,
     findRecentInProgressForPr,
     markFailed,
+    markCompleted,
     insert,
+    insertInProgress,
+    updateRetrievalMetadata,
   };
 }
 
@@ -346,8 +355,24 @@ describe('ReviewsProcessor.process — guards', () => {
       });
       await parts.processor.process(makeJob());
       expect(parts.runRealReview).not.toHaveBeenCalled();
-      expect(parts.insert).toHaveBeenCalledTimes(1);
-      expect(parts.insert.mock.calls[0][0].error_code).toBe('diff_too_large');
+      // The reserved row is finalized in place — no separate standalone
+      // insert; the reservation happened up front via insertInProgress.
+      expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+      expect(parts.insert).not.toHaveBeenCalled();
+      const reservedId = parts.insertInProgress.mock.calls[0][0].id;
+      // Retrieval metadata reconciled to the standalone-failure marker.
+      expect(parts.updateRetrievalMetadata).toHaveBeenCalledTimes(1);
+      const [retrievalId, retrievalPatch] =
+        parts.updateRetrievalMetadata.mock.calls[0];
+      expect(retrievalId).toBe(reservedId);
+      expect(retrievalPatch.prompt_version).toBe('standalone-failure');
+      expect(retrievalPatch.diff_length).toBe(0);
+      // markFailed carries the diff_too_large code with a zero status.
+      expect(parts.markFailed).toHaveBeenCalledTimes(1);
+      const [failedId, failedPatch] = parts.markFailed.mock.calls[0];
+      expect(failedId).toBe(reservedId);
+      expect(failedPatch.error_code).toBe('diff_too_large');
+      expect(failedPatch.error_status).toBe(0);
     } finally {
       if (prevCap === undefined) delete process.env.MAX_DIFF_BYTES;
       else process.env.MAX_DIFF_BYTES = prevCap;
@@ -379,7 +404,7 @@ describe('ReviewsProcessor.process — guards', () => {
       });
     }
 
-    it('posts skip-walkthrough + inserts standalone-skipped row + does NOT call runRealReview when changed lines > cap', async () => {
+    it('posts skip-walkthrough + finalizes the reserved row as standalone-skipped + does NOT call runRealReview when changed lines > cap', async () => {
       await withSizeCap('2', async () => {
         const parts = makeProcessor({
           octokit: makeOctokit({
@@ -397,6 +422,10 @@ describe('ReviewsProcessor.process — guards', () => {
         expect(parts.octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
         const commentArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
         expect(commentArgs.body).toContain('review skipped');
+        // The reserved row was finalized in place — no separate insert.
+        expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+        expect(parts.insert).not.toHaveBeenCalled();
+        expect(parts.markCompleted).toHaveBeenCalledTimes(1);
       });
     });
 
@@ -417,7 +446,7 @@ describe('ReviewsProcessor.process — guards', () => {
       });
     });
 
-    it('persists a completed standalone-skipped-too-large row carrying the diff_length', async () => {
+    it('finalizes a completed standalone-skipped-too-large row carrying the diff_length', async () => {
       await withSizeCap('2', async () => {
         const parts = makeProcessor({
           octokit: makeOctokit({
@@ -427,18 +456,35 @@ describe('ReviewsProcessor.process — guards', () => {
 
         await parts.processor.process(makeJob());
 
-        expect(parts.insert).toHaveBeenCalledTimes(1);
-        const row = parts.insert.mock.calls[0][0];
-        expect(row.status).toBe('completed');
-        expect(row.prompt_version).toBe('standalone-skipped-too-large');
-        expect(row.error_code).toBeNull();
-        expect(row.error_status).toBeNull();
-        expect(row.diff_length).toBe(Buffer.byteLength(FIVE_LINE_DIFF, 'utf8'));
-        expect(row.top_k).toBe(0);
+        // Reservation up front; no standalone insert.
+        expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+        expect(parts.insert).not.toHaveBeenCalled();
+        const reservedId = parts.insertInProgress.mock.calls[0][0].id;
+        // Retrieval reconciled with the size-skip marker and the
+        // diff_length carried through (matches the old standalone row).
+        expect(parts.updateRetrievalMetadata).toHaveBeenCalledTimes(1);
+        const [retrievalId, retrievalPatch] =
+          parts.updateRetrievalMetadata.mock.calls[0];
+        expect(retrievalId).toBe(reservedId);
+        expect(retrievalPatch.prompt_version).toBe(
+          'standalone-skipped-too-large',
+        );
+        expect(retrievalPatch.diff_length).toBe(
+          Buffer.byteLength(FIVE_LINE_DIFF, 'utf8'),
+        );
+        expect(retrievalPatch.top_k).toBe(0);
+        // Finalized completed with zero tokens; not failed.
+        expect(parts.markCompleted).toHaveBeenCalledTimes(1);
+        const [completedId, completedPatch] =
+          parts.markCompleted.mock.calls[0];
+        expect(completedId).toBe(reservedId);
+        expect(completedPatch.input_tokens).toBe(0);
+        expect(completedPatch.output_tokens).toBe(0);
+        expect(parts.markFailed).not.toHaveBeenCalled();
       });
     });
 
-    it('still persists the standalone-skipped row when the walkthrough POST fails (best-effort)', async () => {
+    it('still finalizes the standalone-skipped row when the walkthrough POST fails (best-effort)', async () => {
       await withSizeCap('2', async () => {
         const createCommentErr: Error & { status?: number } =
           new Error('Bad Gateway');
@@ -455,11 +501,14 @@ describe('ReviewsProcessor.process — guards', () => {
 
         // No agent loop, no Review POST.
         expect(parts.runRealReview).not.toHaveBeenCalled();
-        // The audit row landed despite the comment failure.
-        expect(parts.insert).toHaveBeenCalledTimes(1);
-        expect(parts.insert.mock.calls[0][0].prompt_version).toBe(
+        // The audit row landed despite the comment failure — reconciled
+        // to the size-skip marker and marked completed.
+        expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+        expect(parts.insert).not.toHaveBeenCalled();
+        expect(parts.updateRetrievalMetadata.mock.calls[0][1].prompt_version).toBe(
           'standalone-skipped-too-large',
         );
+        expect(parts.markCompleted).toHaveBeenCalledTimes(1);
       });
     });
 
@@ -485,7 +534,7 @@ describe('ReviewsProcessor.process — guards', () => {
     });
   });
 
-  it('exits clean on empty diff without calling Anthropic or posting, and inserts a standalone completion row', async () => {
+  it('exits clean on empty diff without calling Anthropic or posting, and finalizes a standalone completion row', async () => {
     const parts = makeProcessor({
       octokit: makeOctokit({
         request: jest.fn().mockResolvedValue({ data: '   \n  ' }),
@@ -495,15 +544,138 @@ describe('ReviewsProcessor.process — guards', () => {
     await parts.processor.process(makeJob());
     expect(parts.runRealReview).not.toHaveBeenCalled();
     expect(parts.octokit.rest.pulls.createReview).not.toHaveBeenCalled();
-    // The audit row exists with status='completed', error_code=null,
-    // and the dedicated prompt_version so eval can filter standalone
-    // empty diffs out cleanly.
+    // The reserved row is reconciled to the dedicated empty-diff marker
+    // and marked completed — no separate standalone insert.
+    expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+    expect(parts.insert).not.toHaveBeenCalled();
+    const reservedId = parts.insertInProgress.mock.calls[0][0].id;
+    expect(parts.updateRetrievalMetadata).toHaveBeenCalledTimes(1);
+    const [retrievalId, retrievalPatch] =
+      parts.updateRetrievalMetadata.mock.calls[0];
+    expect(retrievalId).toBe(reservedId);
+    expect(retrievalPatch.prompt_version).toBe('standalone-empty-diff');
+    expect(retrievalPatch.diff_length).toBe(0);
+    expect(parts.markCompleted).toHaveBeenCalledTimes(1);
+    expect(parts.markCompleted.mock.calls[0][0]).toBe(reservedId);
+    expect(parts.markFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReviewsProcessor.process — row reservation invariant', () => {
+  // Read the processor's private in-flight set so tests can prove the
+  // reserved id is added once and cleaned up on every exit path. The
+  // SIGTERM drain reads this same set, so an empty set after process()
+  // returns means no leaked reservation.
+  function inFlightIds(processor: ReviewsProcessor): string[] {
+    return Array.from(
+      (processor as unknown as { activeReviewIds: Set<string> })
+        .activeReviewIds,
+    );
+  }
+
+  it('reserves the row once via insertInProgress AFTER pulls.get and BEFORE the diff fetch', async () => {
+    const callOrder: string[] = [];
+    const prsGet = jest.fn().mockImplementation(async () => {
+      callOrder.push('pulls.get');
+      return { data: { state: 'open' } };
+    });
+    const request = jest.fn().mockImplementation(async () => {
+      callOrder.push('diff.fetch');
+      return { data: 'diff --git a/x b/x\n+hi\n' };
+    });
+    const parts = makeProcessor({
+      octokit: makeOctokit({ prsGet, request }),
+    });
+    parts.insertInProgress.mockImplementation(() => {
+      callOrder.push('insertInProgress');
+    });
+
+    await parts.processor.process(makeJob());
+
+    // Reserved exactly once with the worker-allocated id + active model.
+    expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+    const reserveArgs = parts.insertInProgress.mock.calls[0][0];
+    expect(typeof reserveArgs.id).toBe('string');
+    expect(reserveArgs.pr_node_id).toBe(baseData.pr_node_id);
+    expect(reserveArgs.model).toBe('claude-haiku-4-5-20251001');
+    // Ordering: pulls.get → insertInProgress → diff.fetch.
+    expect(callOrder).toEqual(['pulls.get', 'insertInProgress', 'diff.fetch']);
+  });
+
+  it('does NOT reserve a row when the in-flight guard short-circuits', async () => {
+    const parts = makeProcessor({
+      findRecentInProgressForPr: {
+        id: 'existing',
+        pr_node_id: baseData.pr_node_id,
+        created_by: null,
+        diff_length: 0,
+        model: 'haiku',
+        prompt_version: 'v1',
+        top_k: 0,
+        retrieved_chunk_ids: '[]',
+        retrieved_chunk_ids_hash: '0'.repeat(64),
+        status: 'in_progress',
+        error_status: null,
+        error_code: null,
+        input_tokens: null,
+        output_tokens: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        turn_count: 0,
+        tool_calls_json: null,
+        hallucinated_finding_count: 0,
+        cache_hit_count: 0,
+        check_run_id: null,
+        walkthrough_summary: null,
+        created_at: new Date(),
+        completed_at: null,
+      },
+    });
+
+    await parts.processor.process(makeJob());
+    expect(parts.insertInProgress).not.toHaveBeenCalled();
+  });
+
+  it('does NOT reserve a row before pulls.get confirms the PR is open (closed-PR path keeps the standalone insert)', async () => {
+    const parts = makeProcessor({
+      octokit: makeOctokit({
+        prsGet: jest.fn().mockResolvedValue({ data: { state: 'closed' } }),
+      }),
+    });
+
+    await parts.processor.process(makeJob());
+    // The reservation happens only after the open check; a closed PR
+    // still uses the standalone insert (no reserved row exists).
+    expect(parts.insertInProgress).not.toHaveBeenCalled();
     expect(parts.insert).toHaveBeenCalledTimes(1);
-    const row = parts.insert.mock.calls[0][0];
-    expect(row.status).toBe('completed');
-    expect(row.error_code).toBeNull();
-    expect(row.prompt_version).toBe('standalone-empty-diff');
-    expect(row.diff_length).toBe(0);
+  });
+
+  it('cleans up the reserved id on the happy path', async () => {
+    const parts = makeProcessor();
+    await parts.processor.process(makeJob());
+    expect(inFlightIds(parts.processor)).toEqual([]);
+  });
+
+  it('cleans up the reserved id on an early-return path (empty diff)', async () => {
+    const parts = makeProcessor({
+      octokit: makeOctokit({
+        request: jest.fn().mockResolvedValue({ data: '   \n  ' }),
+      }),
+    });
+    await parts.processor.process(makeJob());
+    // Reserved, then the outer finally removed it — no leak.
+    expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+    expect(inFlightIds(parts.processor)).toEqual([]);
+  });
+
+  it('cleans up the reserved id on a throw path (runRealReview rejects)', async () => {
+    const parts = makeProcessor({
+      runRealReviewError: new Error('boom'),
+    });
+    await expect(parts.processor.process(makeJob())).rejects.toThrow(/boom/);
+    // The single outer finally fires on the throw — no leaked reservation.
+    expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+    expect(inFlightIds(parts.processor)).toEqual([]);
   });
 });
 
@@ -923,6 +1095,26 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     const bodies = failedWalkthroughBodies(parts);
     expect(bodies).toHaveLength(1);
     expect(bodies[0].toLowerCase()).toContain('github');
+
+    // Reserved row was created before the diff fetch.
+    expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
+    const reservedId = parts.insertInProgress.mock.calls[0][0].id;
+    // No separate standalone insert — the reserved row is finalized in place.
+    expect(parts.insert).not.toHaveBeenCalled();
+    // Retrieval metadata reconciled to standalone-failure with diff_length 0.
+    expect(parts.updateRetrievalMetadata).toHaveBeenCalledTimes(1);
+    const [retrievalId, retrievalPatch] = parts.updateRetrievalMetadata.mock.calls[0];
+    expect(retrievalId).toBe(reservedId);
+    expect(retrievalPatch).toEqual(
+      expect.objectContaining({ prompt_version: 'standalone-failure', diff_length: 0 }),
+    );
+    // markFailed called with github_api_error and the diff-fetch HTTP status.
+    expect(parts.markFailed).toHaveBeenCalledTimes(1);
+    const [failedId, failedPatch] = parts.markFailed.mock.calls[0];
+    expect(failedId).toBe(reservedId);
+    expect(failedPatch).toEqual(
+      expect.objectContaining({ error_code: 'github_api_error', error_status: 502 }),
+    );
   });
 
   it('posts a "review could not complete" walkthrough on diff_too_large (diff_too_large reason)', async () => {
