@@ -16,6 +16,7 @@ export type FailureReason =
   | 'inline_post_failed'
   | 'anthropic_error'
   | 'llm_error'
+  | 'turn_cap_exceeded'
   | 'internal_error';
 
 export interface FormatWalkthroughFailedBodyInput {
@@ -38,6 +39,8 @@ const REASON_COPY: Record<FailureReason, string> = {
     'the language-model call was rejected (likely an account or configuration issue)',
   llm_error:
     'the language-model call was rejected (likely an account or configuration issue)',
+  turn_cap_exceeded:
+    'the reviewer explored the diff but did not converge on findings within the turn limit',
   internal_error:
     'the bot hit an unexpected internal error',
 };

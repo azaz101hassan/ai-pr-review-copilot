@@ -45,6 +45,7 @@ describe('formatWalkthroughFailedBody', () => {
     ['anthropic_error', /language-model|model|account|configuration/i],
     ['comment_post_failed', /walkthrough|comment/i],
     ['inline_post_failed', /inline/i],
+    ['turn_cap_exceeded', /converge|turn limit/i],
     ['internal_error', /internal/i],
   ] as const)(
     'renders a reason-specific hint for %s',

@@ -583,9 +583,14 @@ export class ReviewsProcessor
         // succeeds — will PATCH the same comment back to the success
         // body. On terminal failures the failed-walkthrough is the
         // final state.
-        const reason: FailureReason = isAnthropicErrorLike(err)
-          ? 'llm_error'
-          : 'internal_error';
+        const isTurnCap =
+          err instanceof LlmRequestError &&
+          err.errorCode === 'turn_cap_exceeded';
+        const reason: FailureReason = isTurnCap
+          ? 'turn_cap_exceeded'
+          : isAnthropicErrorLike(err)
+            ? 'llm_error'
+            : 'internal_error';
         await this.tryPostFailedWalkthrough({
           octokit,
           owner: data.owner,
@@ -601,9 +606,11 @@ export class ReviewsProcessor
         // (checkRunId null — install lacks the Checks permission).
         await this.patchCheckRunTerminal(octokit, data, checkRunId, {
           mode: 'failed',
-          reasonCopy: isAnthropicErrorLike(err)
-            ? 'the language-model call was rejected'
-            : 'an internal error',
+          reasonCopy: isTurnCap
+            ? 'the reviewer did not converge within the turn limit'
+            : isAnthropicErrorLike(err)
+              ? 'the language-model call was rejected'
+              : 'an internal error',
         });
         // Terminal Anthropic errors (credit_balance_too_low,
         // invalid_request_error, etc.) must not retry — a retry of the
