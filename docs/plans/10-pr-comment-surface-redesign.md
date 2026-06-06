@@ -630,8 +630,8 @@ for pre-migration rows.
 
 One migration file produced via:
 
-```
-npx drizzle-kit generate --name=add_check_run_walkthrough_summary_and_perm_cache
+```bash
+npx drizzle-kit generate --name=add_check_run_id_and_walkthrough_summary
 ```
 
 The migration is applied automatically on boot via
@@ -766,8 +766,8 @@ Added to `reviews.processor.e2e-spec.ts`:
 ### Migration test
 
 A small spec opens an empty SQLite, runs all migrations including
-the new one, and asserts the three new columns exist and are
-nullable.
+the new one, and asserts the two new columns (`check_run_id`,
+`walkthrough_summary`) exist and are nullable.
 
 ### Not tested in v1
 

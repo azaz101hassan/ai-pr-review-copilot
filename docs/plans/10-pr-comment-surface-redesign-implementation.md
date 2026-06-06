@@ -88,7 +88,7 @@ describe('reviews migration — check_run_id + walkthrough_summary columns', () 
 
 - [x] **Step 2: Run the test, confirm it fails**
 
-```
+```bash
 npm test --workspace apps/api -- reviews-migration.spec.ts
 ```
 
@@ -114,7 +114,7 @@ Append to `apps/api/src/infrastructure/db/schema/reviews.ts`, inside the `sqlite
 
 - [x] **Step 4: Generate the migration**
 
-```
+```bash
 cd apps/api && npx drizzle-kit generate --name=add_check_run_id_and_walkthrough_summary
 ```
 
@@ -122,7 +122,7 @@ Expected: a new file `apps/api/src/infrastructure/db/migrations/0008_<descriptor
 
 - [x] **Step 5: Re-run the test, confirm it passes**
 
-```
+```bash
 npm test --workspace apps/api -- reviews-migration.spec.ts
 ```
 
@@ -196,7 +196,7 @@ The `insertFixture(id)` helper already exists in the spec file. If `findById`'s 
 
 - [x] **Step 2: Run tests, confirm they fail**
 
-```
+```bash
 npm test --workspace apps/api -- sqlite-reviews.repository.spec.ts
 ```
 
@@ -250,7 +250,7 @@ In `apps/api/src/infrastructure/db/repositories/sqlite-reviews.repository.ts`, a
 
 - [x] **Step 5: Run tests, confirm they pass**
 
-```
+```bash
 npm test --workspace apps/api -- sqlite-reviews.repository.spec.ts
 ```
 
@@ -299,7 +299,7 @@ it('returns retrievedRules in the result, sourced from search hits', async () =>
 
 - [x] **Step 2: Run, confirm it fails**
 
-```
+```bash
 npm test --workspace apps/api -- reviews.service.spec.ts -t "retrievedRules"
 ```
 
@@ -349,7 +349,7 @@ In the success return at the bottom of `runDryRun`:
 
 - [x] **Step 5: Run, confirm passes**
 
-```
+```bash
 npm test --workspace apps/api -- reviews.service.spec.ts -t "retrievedRules"
 ```
 
@@ -433,7 +433,7 @@ Binary files a/img.png and b/img.png differ
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- parse-diff-files.spec.ts
 ```
 
@@ -513,7 +513,7 @@ export { parseDiffFiles, type DiffFileEntry } from './parse-diff-files';
 
 - [x] **Step 5: Run, confirm passes**
 
-```
+```bash
 npm test --workspace apps/api -- parse-diff-files.spec.ts
 ```
 
@@ -586,7 +586,7 @@ describe('formatWalkthroughInProgressBody', () => {
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- format-walkthrough-in-progress-body.spec.ts
 ```
 
@@ -646,7 +646,7 @@ export { formatWalkthroughInProgressBody } from './format-walkthrough-in-progres
 
 - [x] **Step 5: Run, confirm passes**
 
-```
+```bash
 npm test --workspace apps/api -- format-walkthrough-in-progress-body.spec.ts
 ```
 
@@ -687,7 +687,7 @@ it('includes the KB-tone failure copy', () => {
 
 - [x] **Step 2: Run, confirm relevant test fails**
 
-```
+```bash
 npm test --workspace apps/api -- format-walkthrough-failed-body.spec.ts
 ```
 
@@ -703,7 +703,7 @@ In `format-walkthrough-failed-body.ts`, change the line beginning `The bot tried
 
 - [x] **Step 4: Run, confirm passes**
 
-```
+```bash
 npm test --workspace apps/api -- format-walkthrough-failed-body.spec.ts
 ```
 
@@ -744,7 +744,7 @@ it('frames the skip around the KB application scope', () => {
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- format-walkthrough-skipped-body.spec.ts
 ```
 
@@ -913,7 +913,7 @@ describe('formatWalkthroughSuccessBody', () => {
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- format-walkthrough-success-body.spec.ts
 ```
 
@@ -1053,7 +1053,7 @@ function groupBySource(
 
 - [x] **Step 4: Find every reference to the old `formatWalkthroughBody`**
 
-```
+```bash
 grep -rn "formatWalkthroughBody\|format-walkthrough-body" apps/api/src apps/api/test
 ```
 
@@ -1074,7 +1074,7 @@ Keep the existing `formatWalkthroughBody` export until Task 23 (worker switchove
 
 - [x] **Step 6: Run new tests**
 
-```
+```bash
 npm test --workspace apps/api -- format-walkthrough-success-body.spec.ts
 ```
 
@@ -1194,7 +1194,7 @@ describe('formatReviewBody', () => {
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- format-review-body.spec.ts
 ```
 
@@ -1316,7 +1316,7 @@ function renderOutsideDiffEntry(
 
 - [x] **Step 4: Run, confirm passes**
 
-```
+```bash
 npm test --workspace apps/api -- format-review-body.spec.ts
 ```
 
@@ -1409,7 +1409,7 @@ describe('formatCheckRunOutput', () => {
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- format-check-run-output.spec.ts
 ```
 
@@ -1500,7 +1500,7 @@ export {
 
 - [x] **Step 5: Run, confirm passes**
 
-```
+```bash
 npm test --workspace apps/api -- format-check-run-output.spec.ts
 ```
 
@@ -1618,7 +1618,7 @@ export {
 
 - [x] **Step 4: Verify build**
 
-```
+```bash
 npm run build --workspace apps/api
 ```
 
@@ -1740,7 +1740,7 @@ describe('AnthropicWalkthroughSummarizer', () => {
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- anthropic-walkthrough-summarizer.spec.ts
 ```
 
@@ -1879,7 +1879,7 @@ function containsForbiddenPhrase(intro: string): boolean {
 
 - [x] **Step 4: Run, confirm passes**
 
-```
+```bash
 npm test --workspace apps/api -- anthropic-walkthrough-summarizer.spec.ts
 ```
 
@@ -1926,7 +1926,7 @@ describe('walkthroughSummarizerModel', () => {
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- config.service.spec.ts -t walkthroughSummarizerModel
 ```
 
@@ -1969,7 +1969,7 @@ git commit -m "feat(config): add WALKTHROUGH_SUMMARIZER_MODEL env var"
 
 - [x] **Step 1: Read the existing module to confirm where the ILlmReviewer binding lives**
 
-```
+```bash
 sed -n '1,80p' apps/api/src/modules/reviews/reviews.module.ts
 ```
 
@@ -2007,7 +2007,7 @@ If the project's `ConfigService` already has an existing `anthropicApiKey` gette
 
 - [x] **Step 3: Build to verify wiring**
 
-```
+```bash
 npm run build --workspace apps/api
 ```
 
@@ -2042,7 +2042,7 @@ it('includes the walkthrough summarizer prompt in tracked paths', () => {
 
 - [x] **Step 2: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- staleness.spec.ts -t "walkthrough summarizer prompt"
 ```
 
@@ -2079,7 +2079,7 @@ git commit -m "feat(eval): track walkthrough-summarizer prompt for staleness inv
 
 - [x] **Step 1: Locate the implementing class**
 
-```
+```bash
 grep -rn "implements IGithubAuthProvider" apps/api/src
 ```
 
@@ -2115,7 +2115,7 @@ describe('checks permission cache', () => {
 
 - [x] **Step 3: Run, confirm fails**
 
-```
+```bash
 npm test --workspace apps/api -- app-installation-auth.provider.spec.ts -t "permission cache"
 ```
 
@@ -2278,7 +2278,7 @@ import { formatCheckRunOutput } from './helpers';
 
 - [x] **Step 2: Build to verify wiring**
 
-```
+```bash
 npm run build --workspace apps/api
 ```
 
@@ -2442,7 +2442,7 @@ For the empty-diff path, replace `writeStandaloneCompletion(data)` with `markCom
 
 - [x] **Step 5: Run all worker + service tests**
 
-```
+```bash
 npm test --workspace apps/api -- reviews.processor reviews.service
 ```
 
@@ -2541,7 +2541,7 @@ if (prior) {
 
 - [x] **Step 3: Build**
 
-```
+```bash
 npm run build --workspace apps/api
 ```
 
@@ -2627,7 +2627,7 @@ import { formatWalkthroughInProgressBody } from './helpers';
 
 - [x] **Step 3: Build**
 
-```
+```bash
 npm run build --workspace apps/api
 ```
 
@@ -2766,7 +2766,7 @@ await this.patchCheckRunTerminal(
 
 - [x] **Step 6: Build + smoke test**
 
-```
+```bash
 npm run build --workspace apps/api
 npm test --workspace apps/api -- reviews.processor
 ```
@@ -2835,7 +2835,7 @@ The `sanitizedFindings` variable already exists from the current processor code 
 
 - [x] **Step 3: Build**
 
-```
+```bash
 npm run build --workspace apps/api
 ```
 
@@ -3028,7 +3028,7 @@ if (row?.check_run_id) {
 
 - [x] **Step 5: Delete the old walkthrough body files**
 
-```
+```bash
 rm apps/api/src/modules/reviews/helpers/format-walkthrough-body.ts
 rm apps/api/test/modules/reviews/helpers/format-walkthrough-body.spec.ts
 ```
@@ -3042,7 +3042,7 @@ export { formatWalkthroughBody, ... } from './format-walkthrough-body';
 
 - [x] **Step 6: Build + run all tests**
 
-```
+```bash
 npm run build --workspace apps/api
 npm test --workspace apps/api
 ```
@@ -3149,7 +3149,7 @@ it('inserts the review row BEFORE posting the in-progress check-run and walkthro
 
 - [x] **Step 2: Run, confirm passes**
 
-```
+```bash
 npm test --workspace apps/api -- reviews.processor.e2e-spec
 ```
 

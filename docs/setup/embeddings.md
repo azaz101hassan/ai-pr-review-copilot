@@ -47,13 +47,13 @@ The API will refuse to start without `VOYAGE_API_KEY` — `ConfigService` valida
 From the repo root:
 
 ```bash
-docker compose up -d chroma
+docker compose --env-file apps/api/.env up -d chroma
 ```
 
 The container exposes Chroma on `localhost:8000` and persists its index at `./chroma-data/` (bind-mounted into the container, gitignored). After ~20 seconds it should report healthy:
 
 ```bash
-docker compose ps
+docker compose --env-file apps/api/.env ps
 # NAME               STATUS                  PORTS
 # pr-copilot-chroma  Up 25s (healthy)        0.0.0.0:8000->8000/tcp
 ```
@@ -151,10 +151,10 @@ The `diff` field is capped at 50 000 chars (Voyage is per-token, the endpoint is
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | API refuses to start with "VOYAGE_API_KEY is missing…" | `apps/api/.env` doesn't have the key set, or the value is shorter than 16 chars. | Paste the full key from voyageai.com into `VOYAGE_API_KEY=…`. |
-| `docker compose ps` shows the container as `(unhealthy)` | Healthcheck is hitting `localhost:8000/api/v2/heartbeat` inside the container; Chroma still booting, or a port collision. | Wait 20s and re-check. If still unhealthy, run `docker compose logs chroma`. Confirm no other process holds port 8000 (`lsof -i :8000`). |
+| `docker compose --env-file apps/api/.env ps` shows the container as `(unhealthy)` | Healthcheck is hitting `localhost:8000/api/v2/heartbeat` inside the container; Chroma still booting, or a port collision. | Wait 20s and re-check. If still unhealthy, run `docker compose --env-file apps/api/.env logs chroma`. Confirm no other process holds port 8000 (`lsof -i :8000`). |
 | `seed:knowledge` exits with `VoyageRequestError: HTTP 429` | Free-tier rate limit (3 RPM / 10K TPM). | Attach a payment method to your Voyage account (step 1). The corpus is small enough that you won't be charged meaningfully. |
 | `seed:knowledge` exits with `VoyageRequestError: HTTP 401` | The pasted API key is wrong, expired, or contains a stray space. | Regenerate at [dash.voyageai.com](https://dash.voyageai.com/) → API Keys, paste fresh. |
-| `seed:knowledge` exits with `ChromaRequestError: getOrCreateCollection failed` | Chroma container isn't running, or `CHROMA_URL` points somewhere else. | `docker compose up -d chroma`, wait for healthy, retry. |
+| `seed:knowledge` exits with `ChromaRequestError: getOrCreateCollection failed` | Chroma container isn't running, or `CHROMA_URL` points somewhere else. | `docker compose --env-file apps/api/.env up -d chroma`, wait for healthy, retry. |
 | Migration drift after pulling new commits | Old SQLite file at `apps/api/data/app.sqlite` predates a new Drizzle migration. | `rm -f apps/api/data/app.sqlite*` and re-seed. (Local dev only — production migrations are forward-only.) |
 | HTTP search returns `[]` for every diff | Corpus not seeded. | `npm run seed:knowledge --workspace apps/api`. |
 | `Cannot instantiate a collection with the DefaultEmbeddingFunction` printed repeatedly | A collection exists in your local Chroma volume that was created by a pre-fix version of the adapter (stored `default-embed` in its config metadata). Our adapter passes `embeddingFunction: null` on create, but doesn't rewrite the metadata on read. | Wipe the bind-mounted host directory: `docker compose --env-file apps/api/.env down && rm -rf chroma-data/ && docker compose --env-file apps/api/.env up -d chroma`. **Note**: `docker compose down -v` is NOT enough — `-v` only removes Docker-managed volumes, not host bind mounts. Next seed creates the collection fresh with the right config. |

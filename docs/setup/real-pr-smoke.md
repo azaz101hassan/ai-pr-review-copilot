@@ -96,10 +96,13 @@ Re-check your App's permissions (Settings → **Permissions & events**). The rea
 | Permission | Access |
 |---|---|
 | **Pull requests** | Read & write |
+| **Checks** | Read & write |
 | **Contents** | Read |
 | **Metadata** | Read |
 
 Subscribed events: `Pull request`. (No `Push`, no `Issues`, no `Workflow run` — keep the surface narrow.)
+
+The **Checks** permission powers the merge-box check-run lifecycle (in-progress → terminal). Installs missing it degrade gracefully — the walkthrough comment still posts — but the merge box won't show a per-review status badge.
 
 If the permission set was wider during initial setup, narrow it now. GitHub will email installers asking them to re-accept the new permissions; for personal/test installs you can re-accept immediately.
 
@@ -147,8 +150,10 @@ The allowlist is the bot's primary safety control. It's intentionally simple:
 To rotate the allowlist:
 
 ```bash
-# Edit apps/api/.env, then:
-docker compose --env-file apps/api/.env restart redis  # or: stop and re-run npm run start:dev
+# Edit apps/api/.env, then restart the API process so it re-reads
+# DOGFOOD_REPOS. The allowlist lives in the API's env, NOT in Redis —
+# restarting Redis won't pick up the new value.
+# Stop the running `npm run start:dev` and re-run it in apps/api.
 ```
 
 The boot log records the parsed allowlist as part of `ReviewsModule`'s init.
