@@ -375,4 +375,66 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     // mockRestore needed (and none here, so a thrown assertion above can
     // never leak the spy onto the shared repo).
   });
+
+  it('success path posts in order walkthrough(PATCH) -> review -> check-run(PATCH success), and persists a completed row with summary + findings', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Capture the worker-allocated review id by spying on insertInProgress
+    // with callThrough so the row is still really written to SQLite.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const issuesUpdateComment = octokit.rest.issues.updateComment as unknown as jest.Mock;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // --- Assertion 1: POST ordering via the global monotonic counter ---
+    // Step 8 created the in-progress comment (cold cache -> createComment).
+    // Step 13a then PATCHes it to the terminal walkthrough body (updateComment).
+    // Step 13b posts the inlined Review (createReview).
+    // Step 13c PATCHes the check-run to its terminal success state (checks.update).
+    // Each fires exactly once on a first-review success (no Step 4b sweep on a
+    // fresh PR id), so checks.update calls[0] below is unambiguously the success
+    // PATCH rather than a stray neutral sweep.
+    expect(issuesUpdateComment).toHaveBeenCalledTimes(1);
+    expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+
+    const updateCommentOrder = issuesUpdateComment.mock.invocationCallOrder[0];
+    const createReviewOrder = pullsCreateReview.mock.invocationCallOrder[0];
+    const checksUpdateOrder = checksUpdate.mock.invocationCallOrder[0];
+
+    expect(updateCommentOrder).toBeLessThan(createReviewOrder);
+    expect(createReviewOrder).toBeLessThan(checksUpdateOrder);
+
+    // --- Assertion 2: check-run conclusion = 'success' ---
+    const checksUpdateArg = checksUpdate.mock.calls[0][0] as {
+      status: string;
+      conclusion: string;
+      check_run_id: number;
+    };
+    expect(checksUpdateArg.status).toBe('completed');
+    expect(checksUpdateArg.conclusion).toBe('success');
+    expect(checksUpdateArg.check_run_id).toBe(TEST_CHECK_RUN_ID);
+
+    // --- Assertion 3: real-DB completion with check_run_id + walkthrough_summary ---
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('completed');
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+    // The stub summarizer returns { intro: 'A concise summary.' }; the worker
+    // calls setWalkthroughSummary with summary.intro. Assert the value
+    // round-tripped through REAL SQLite (the unit spec cannot prove this).
+    expect(row?.walkthrough_summary).toBe('A concise summary.');
+
+    // --- Assertion 4: real findings persisted ---
+    // The echo-first-only stub LLM emits exactly one finding for the no-var
+    // fixture; runRealReview persists it via the REAL findingsRepo.insertMany.
+    expect(findingsRepo.findByReviewId(reservedId)).toHaveLength(1);
+  });
 });
