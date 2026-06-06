@@ -691,6 +691,129 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     expect(pullsCreateReview).toHaveBeenCalledTimes(1);
   });
 
+  it('size-cap: posts a skipped check-run + skip walkthrough, no review, and finalizes a standalone-skipped-too-large completed row', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Build a diff whose changed-line count is maxReviewDiffLines + 1 (default
+    // 1000 + 1 = 1001 lines starting with '+') but whose byte size is well
+    // under maxDiffBytes (default 262144). The lines are "+0".."+1000", so the
+    // total is ~5 KB -- far below the byte cap, so Step 6b (size) fires, not
+    // Step 6a (diff_too_large).
+    const LINE_COUNT = 1001;
+    const bigDiff = Array.from({ length: LINE_COUNT }, (_, i) => `+${i}`).join('\n');
+
+    // Override the request mock so the diff fetch returns the big diff.
+    (authProvider.octokit.request as unknown as jest.Mock).mockResolvedValue({
+      data: bigDiff,
+    });
+
+    // Spy (callThrough) to capture the worker-allocated review id from the
+    // real SQLite insert so we can read the row back after process() returns.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+    const issuesCreateComment = octokit.rest.issues.createComment as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // --- Assertion 1: no review posted ---
+    expect(pullsCreateReview).not.toHaveBeenCalled();
+
+    // --- Assertion 2: one terminal skipped check-run POSTed (no in-progress) ---
+    // The size-cap exit short-circuits BEFORE Step 7, so checks.create fires
+    // exactly once via postTerminalCheckRun with status 'completed', conclusion
+    // 'skipped'. checks.update (the in-progress PATCH) is never called.
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    const checksCreateArg = checksCreate.mock.calls[0][0] as {
+      status: string;
+      conclusion: string;
+      output: { title: string };
+    };
+    expect(checksCreateArg.status).toBe('completed');
+    expect(checksCreateArg.conclusion).toBe('skipped');
+    expect(checksCreateArg.output.title).toMatch(/Review skipped/i);
+    expect(checksUpdate).not.toHaveBeenCalled();
+
+    // --- Assertion 3: skip walkthrough body contains the expected copy ---
+    // The size-cap exit calls upsertWalkthrough (cold cache -> createComment).
+    expect(issuesCreateComment).toHaveBeenCalledTimes(1);
+    const skipBody = issuesCreateComment.mock.calls[0][0].body as string;
+    expect(skipBody).toContain('review skipped');
+
+    // --- Assertion 4: real-DB round-trip (net-new over unit spec) ---
+    // The unit spec mocks updateRetrievalMetadata/markCompleted; here we read
+    // the real SQLite row to prove the markers actually persisted.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('completed');
+    expect(row?.prompt_version).toBe('standalone-skipped-too-large');
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+  });
+
+  it('empty-diff: posts a skipped check-run (not neutral) + empty-diff walkthrough, no review, and finalizes a standalone-empty-diff completed row', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Override the diff fetch to return an empty string so Step 6c fires.
+    (authProvider.octokit.request as unknown as jest.Mock).mockResolvedValue({
+      data: '',
+    });
+
+    // Spy (callThrough) to capture the worker-allocated review id.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+    const issuesCreateComment = octokit.rest.issues.createComment as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // --- Assertion 1: no review posted ---
+    expect(pullsCreateReview).not.toHaveBeenCalled();
+
+    // --- Assertion 2: one terminal skipped check-run POSTed, NOT neutral ---
+    // The empty-diff exit short-circuits BEFORE Step 7 so no in-progress
+    // check-run runs. postTerminalCheckRun fires once with conclusion 'skipped'
+    // (not 'neutral'). The unit spec confirms the copy; here we confirm the
+    // conclusion value and that the check-run is never updated (no PATCH).
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    const checksCreateArg = checksCreate.mock.calls[0][0] as {
+      status: string;
+      conclusion: string;
+      output: { title: string };
+    };
+    expect(checksCreateArg.status).toBe('completed');
+    expect(checksCreateArg.conclusion).toBe('skipped');
+    expect(checksCreateArg.output.title).toBe('No diff to review');
+    expect(checksUpdate).not.toHaveBeenCalled();
+
+    // --- Assertion 3: empty-diff walkthrough body carries the expected markers ---
+    // Step 6c calls upsertWalkthrough (cold cache -> createComment).
+    expect(issuesCreateComment).toHaveBeenCalledTimes(1);
+    const emptyBody = issuesCreateComment.mock.calls[0][0].body as string;
+    expect(emptyBody).toContain('mode=empty-diff');
+    expect(emptyBody).toContain('no reviewable diff content');
+
+    // --- Assertion 4: real-DB round-trip (net-new over unit spec) ---
+    // Read the real SQLite row back to prove prompt_version, status, and
+    // check_run_id all persisted correctly (unit spec mocks these calls).
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('completed');
+    expect(row?.prompt_version).toBe('standalone-empty-diff');
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+  });
+
   it('a finding located outside the diff still posts a Review with the outside-diff CAUTION callout and zero inline comments', async () => {
     const { prNodeId, headSha, prNumber } = seedPr();
 
