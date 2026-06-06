@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '@/infrastructure/db';
 import { SqlitePullRequestsRepository } from '../../../../src/infrastructure/db/repositories/sqlite-pull-requests.repository';
 import { SqliteReviewFindingsRepository } from '../../../../src/infrastructure/db/repositories/sqlite-review-findings.repository';
@@ -1190,6 +1191,46 @@ describe('SqliteReviewsRepository', () => {
       repo.insert(makeReview({ id: 'da-only-null', pr_node_id: null }));
       const authors = repo.distinctAuthors({}, 100);
       expect(authors).toEqual([]);
+    });
+  });
+
+  describe('setCheckRunId', () => {
+    it('persists the check_run_id on an existing row', () => {
+      const id = randomUUID();
+      repo.insert(makeReview({ id, status: 'in_progress' }));
+      repo.setCheckRunId(id, 4242);
+      const row = repo.findById(id);
+      expect(row?.check_run_id).toBe(4242);
+    });
+
+    it('overwrites a prior check_run_id on the same row', () => {
+      const id = randomUUID();
+      repo.insert(makeReview({ id, status: 'in_progress' }));
+      repo.setCheckRunId(id, 1);
+      repo.setCheckRunId(id, 2);
+      expect(repo.findById(id)?.check_run_id).toBe(2);
+    });
+
+    it('throws when the row does not exist', () => {
+      expect(() => repo.setCheckRunId('nonexistent', 1)).toThrow(
+        /no review row/i,
+      );
+    });
+  });
+
+  describe('setWalkthroughSummary', () => {
+    it('persists a non-null summary', () => {
+      const id = randomUUID();
+      repo.insert(makeReview({ id, status: 'in_progress' }));
+      repo.setWalkthroughSummary(id, 'This PR adds X.');
+      expect(repo.findById(id)?.walkthrough_summary).toBe('This PR adds X.');
+    });
+
+    it('persists null when the summarizer call failed', () => {
+      const id = randomUUID();
+      repo.insert(makeReview({ id, status: 'in_progress' }));
+      repo.setWalkthroughSummary(id, null);
+      expect(repo.findById(id)?.walkthrough_summary).toBeNull();
     });
   });
 });

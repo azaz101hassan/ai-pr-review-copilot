@@ -163,6 +163,8 @@ function setup(opts: SetupOpts = {}) {
     }),
     distinctRepos: jest.fn().mockReturnValue([]),
     distinctAuthors: jest.fn().mockReturnValue([]),
+    setCheckRunId: jest.fn(),
+    setWalkthroughSummary: jest.fn(),
   };
 
   const findingsRepo: IReviewFindingRepository = {

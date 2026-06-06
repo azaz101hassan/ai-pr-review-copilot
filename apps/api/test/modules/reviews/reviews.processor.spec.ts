@@ -166,6 +166,8 @@ function makeProcessor(
     }),
     distinctRepos: jest.fn().mockReturnValue([]),
     distinctAuthors: jest.fn().mockReturnValue([]),
+    setCheckRunId: jest.fn(),
+    setWalkthroughSummary: jest.fn(),
   };
 
   const findingsRepo: IReviewFindingRepository = {
@@ -259,6 +261,8 @@ describe('ReviewsProcessor.process — guards', () => {
         tool_calls_json: null,
         hallucinated_finding_count: 0,
         cache_hit_count: 0,
+        check_run_id: null,
+        walkthrough_summary: null,
         created_at: new Date(),
         completed_at: null,
       },
@@ -757,6 +761,8 @@ describe('ReviewsProcessor.drainGracefully', () => {
       }),
       distinctRepos: jest.fn().mockReturnValue([]),
       distinctAuthors: jest.fn().mockReturnValue([]),
+      setCheckRunId: jest.fn(),
+      setWalkthroughSummary: jest.fn(),
     };
     const findingsRepo: IReviewFindingRepository = {
       insertMany: jest.fn(),

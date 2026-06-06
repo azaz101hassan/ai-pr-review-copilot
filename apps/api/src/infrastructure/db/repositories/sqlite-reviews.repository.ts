@@ -167,6 +167,28 @@ export class SqliteReviewsRepository implements IReviewRepository {
     return Number(result.changes);
   }
 
+  setCheckRunId(reviewId: string, checkRunId: number): void {
+    const result = this.db.drizzle
+      .update(reviews)
+      .set({ check_run_id: checkRunId })
+      .where(eq(reviews.id, reviewId))
+      .run();
+    if (Number(result.changes) === 0) {
+      throw new Error(`no review row with id="${reviewId}"`);
+    }
+  }
+
+  setWalkthroughSummary(reviewId: string, summary: string | null): void {
+    const result = this.db.drizzle
+      .update(reviews)
+      .set({ walkthrough_summary: summary })
+      .where(eq(reviews.id, reviewId))
+      .run();
+    if (Number(result.changes) === 0) {
+      throw new Error(`no review row with id="${reviewId}"`);
+    }
+  }
+
   findRecentInProgressForPr(
     prNodeId: string,
     withinMs: number,

@@ -180,6 +180,18 @@ export interface IReviewRepository {
   // number of rows actually updated.
   markFailedIfInProgress(id: string, patch: ReviewFailurePatch): number;
 
+  // Persist the GitHub-assigned check-run id once the worker POSTs
+  // the in-progress check. Per-review (per head_sha), so this lives
+  // on the reviews row, not the pull_requests row. Throws when the
+  // row does not exist — the worker only calls this AFTER the
+  // in_progress row has been inserted.
+  setCheckRunId(reviewId: string, checkRunId: number): void;
+
+  // Persist the LLM-generated walkthrough prose intro. Nullable:
+  // when the summarizer call fails, the row records null and the
+  // walkthrough formatter renders the mechanical scaffold alone.
+  setWalkthroughSummary(reviewId: string, summary: string | null): void;
+
   // Startup sweep. Marks any `in_progress` row whose `created_at` is
   // older than the cutoff as `failed` with the given error_code (e.g.,
   // 'process_terminated'). Returns the number of rows updated.
