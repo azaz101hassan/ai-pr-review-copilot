@@ -19,6 +19,7 @@ import {
   anchorFindingsToDiff,
   countChangedLines,
   findWalkthroughCommentId,
+  formatCheckRunOutput,
   formatInlineCommentBody,
   formatReviewBody,
   formatWalkthroughBody,
@@ -669,6 +670,84 @@ export class ReviewsProcessor
     });
     this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, newId);
     return 'created';
+  }
+
+  // Best-effort POST of the in-progress check run. Returns the
+  // check_run_id on success, null on failure (including 403 when
+  // the installation has not accepted the Checks permission).
+  // The 403 path marks the installation as missing-permission so
+  // subsequent C-PATCH calls are skipped without round-tripping.
+  private async tryPostInProgressCheckRun(args: {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    head_sha: string;
+    installation_id: number;
+  }): Promise<number | null> {
+    if (!this.githubAuth.hasChecksPermission(args.installation_id)) {
+      return null;
+    }
+    const output = formatCheckRunOutput({ mode: 'in-progress' });
+    try {
+      const res = await args.octokit.rest.checks.create({
+        owner: args.owner,
+        repo: args.repo,
+        name: 'AI PR Review Copilot',
+        head_sha: args.head_sha,
+        status: 'in_progress',
+        output,
+      });
+      return (res.data as { id: number }).id;
+    } catch (err) {
+      const status = readStatus(err);
+      if (status === 403) {
+        this.githubAuth.markChecksPermissionMissing(args.installation_id);
+        this.logger.warn(
+          `worker.check_run.permission_denied installation=${args.installation_id}`,
+        );
+      } else {
+        this.logger.warn(
+          `worker.check_run.post_failed status=${status} ${formatBriefError(err)}`,
+        );
+      }
+      return null;
+    }
+  }
+
+  // Best-effort PATCH of an existing check run. Used by both
+  // the terminal-state PATCH on completion AND the sweep step
+  // that retires leaked prior check runs at the start of a
+  // fresh job. Idempotent against already-terminal check runs.
+  private async tryPatchCheckRun(args: {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    check_run_id: number;
+    conclusion:
+      | 'success'
+      | 'neutral'
+      | 'skipped'
+      | 'failure'
+      | 'cancelled'
+      | 'timed_out'
+      | 'action_required';
+    title: string;
+    summary: string;
+  }): Promise<void> {
+    try {
+      await args.octokit.rest.checks.update({
+        owner: args.owner,
+        repo: args.repo,
+        check_run_id: args.check_run_id,
+        status: 'completed',
+        conclusion: args.conclusion,
+        output: { title: args.title, summary: args.summary },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `worker.check_run.patch_failed id=${args.check_run_id} ${formatBriefError(err)}`,
+      );
+    }
   }
 
   // One-retry wrapper for the walkthrough POST/PATCH calls. The
