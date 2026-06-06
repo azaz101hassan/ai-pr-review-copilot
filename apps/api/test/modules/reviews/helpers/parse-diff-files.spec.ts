@@ -49,19 +49,22 @@ Binary files a/img.png and b/img.png differ
     expect(parseDiffFiles('')).toEqual([]);
   });
 
-  it('does not misread content lines that begin with `++` or `--` as file headers', () => {
+  it('does not misread content lines whose content begins with `++` or `--` as file headers', () => {
     // An added line whose own content is `++foo` shows up as `+++foo` in the
-    // diff stream; a removed line whose own content is `--bar` shows up as
-    // `---bar`. Neither is a file-header marker (those are `+++ b/path` or
-    // `--- a/path` with a space + `a/`/`b/` / `/dev/null` prefix) and both
-    // must count toward added/removed.
+    // diff stream (prefix `+` + content `++foo`); a removed line whose own
+    // content is `--bar` shows up as `---bar`. The previous predicate
+    // `line.startsWith('+++') || line.startsWith('---')` misidentified
+    // these as file-header markers and silently dropped them from the
+    // count. Real file headers always have a `+++ ` / `--- ` prefix
+    // followed by `a/` / `b/` / `/dev/null`, so the stricter regex
+    // only matches those — and `+++foo` / `---bar` count correctly.
     const diff = `diff --git a/notes.md b/notes.md
 index 1111..2222 100644
 --- a/notes.md
 +++ b/notes.md
 @@ -1,2 +1,2 @@
--- bar
-++ foo
+---bar
++++foo
 `;
     expect(parseDiffFiles(diff)).toEqual([
       { path: 'notes.md', added: 1, removed: 1 },
