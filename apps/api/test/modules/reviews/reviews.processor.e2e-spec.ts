@@ -537,4 +537,72 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     const createOrder = checksCreate.mock.invocationCallOrder[0];
     expect(sweepOrder).toBeLessThan(createOrder);
   });
+
+  it('403 on the in-progress check-run POST degrades gracefully: marks the installation missing-Checks, the walkthrough carries the permission-pending note, no check-run id is persisted, and the job does not throw', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Use a distinct installation_id so the missing-permission flag we
+    // assert is scoped to this test and cannot bleed from/into the
+    // shared authProvider state (which uses installation_id 12345).
+    const installationId = 999;
+
+    // Make the in-progress check-run POST reject with 403 Forbidden.
+    const err403 = Object.assign(new Error('Forbidden'), { status: 403 });
+    (authProvider.octokit.rest.checks.create as unknown as jest.Mock).mockRejectedValue(err403);
+
+    // Spy on insertInProgress (callThrough) to recover the worker-allocated
+    // review id so we can read the real SQLite row back after process().
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    // The job must NOT throw even though checks.create returns 403 --
+    // tryPostInProgressCheckRun is best-effort and handles 403 internally.
+    await expect(
+      processor.process(
+        makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber, installation_id: installationId }),
+      ),
+    ).resolves.not.toThrow();
+
+    // --- Assertion 1: permission flag flipped ---
+    // Step 7's 403 handler calls markChecksPermissionMissing(999) on the
+    // real StubGithubAuthProvider. hasChecksPermission must now return false.
+    expect(authProvider.hasChecksPermission(installationId)).toBe(false);
+
+    // --- Assertion 2: in-progress walkthrough body carried the note ---
+    // Step 8 runs AFTER Step 7 flipped the flag. The in-progress body is
+    // built with missingChecksPermission: true, so it must contain the
+    // unavailable-badge copy. issues.createComment[0] is the in-progress
+    // POST (cold cache -- fresh PR id, no prior walkthrough comment).
+    const createComment = authProvider.octokit.rest.issues.createComment as unknown as jest.Mock;
+    expect(createComment).toHaveBeenCalled();
+    const inProgressBody = createComment.mock.calls[0][0].body as string;
+    expect(inProgressBody).toContain('merge-box status badge is unavailable');
+    // Pin the in-progress body specifically — the missing-permission copy is
+    // shared by the empty/success formatters too, so the mode marker proves
+    // this is the Step 8 in-progress walkthrough, not some other body.
+    expect(inProgressBody).toContain('mode=in-progress');
+
+    // --- Assertion 3: real-DB -- check_run_id IS NULL ---
+    // setCheckRunId was never called (checkRunId === null after the 403),
+    // so the real SQLite row must still have check_run_id = null. This is
+    // the net-new fact over the unit spec (which mocks setCheckRunId).
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.check_run_id).toBeNull();
+    // The review agent loop ran normally and completed -- only the check-run
+    // badge is absent; the row itself must be completed.
+    expect(row?.status).toBe('completed');
+
+    // --- Assertion 4: no terminal check-run PATCH ---
+    // Step 13c is guarded by `if (checkRunId !== null)`. With checkRunId
+    // null there is no success PATCH. No prior leaked check-run exists for
+    // this fresh PR id (no Step 4b sweep either). Total checks.update calls
+    // must be zero.
+    const checksUpdate = authProvider.octokit.rest.checks.update as unknown as jest.Mock;
+    expect(checksUpdate).not.toHaveBeenCalled();
+
+    // --- Assertion 5: checks.create was attempted exactly once (the 403) ---
+    const checksCreate = authProvider.octokit.rest.checks.create as unknown as jest.Mock;
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+  });
 });
