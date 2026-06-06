@@ -40,8 +40,8 @@ export function formatWalkthroughSkippedBody(
     '',
     `This PR has **${input.changedLines} changed lines**, which exceeds the configured limit of **${input.limit}** for this reviewer.`,
     '',
-    `The bot is tuned for small focused PRs (under ${input.limit} changed lines), where its findings are reliable. On larger diffs the quality drops and it tends to surface noise rather than signal — so it skips them on purpose rather than posting a low-confidence review.`,
+    `The bot is tuned to apply your team's knowledge base to small, focused PRs (under ${input.limit} changed lines) where findings are reliable. On larger diffs quality drops and the bot tends to surface noise rather than signal — so it skips them rather than posting a low-confidence review.`,
     '',
-    '_No findings were generated. To get a review on this work, consider breaking it into smaller PRs, each touching a focused subset of the change._',
+    '_No findings were generated. To get a review on this work, consider breaking it into smaller PRs._',
   ].join('\n');
 }

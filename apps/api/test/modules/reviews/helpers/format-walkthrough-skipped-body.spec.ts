@@ -40,6 +40,17 @@ describe('formatWalkthroughSkippedBody', () => {
     expect(body.toLowerCase()).toMatch(/small|focused|under \d+/);
   });
 
+  it('frames the skip around the KB application scope', () => {
+    const body = formatWalkthroughSkippedBody({
+      prNodeId: 'PR_x',
+      changedLines: 1000,
+      limit: 300,
+    });
+    expect(body).toMatch(
+      /tuned to apply your team's knowledge base to small, focused PRs/,
+    );
+  });
+
   it('includes a skipped-mode marker distinct from the normal review marker', () => {
     const body = formatWalkthroughSkippedBody({
       prNodeId: VALID_PR_NODE_ID,
