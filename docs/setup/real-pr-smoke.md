@@ -103,6 +103,19 @@ Subscribed events: `Pull request`. (No `Push`, no `Issues`, no `Workflow run` �
 
 If the permission set was wider during initial setup, narrow it now. GitHub will email installers asking them to re-accept the new permissions; for personal/test installs you can re-accept immediately.
 
+### Merge-box "Details" link — set the Homepage URL with care
+
+When the bot posts a check-run, GitHub renders a **Details** link on the right of the merge-box row. That link is **not** controlled by the bot — it resolves to the `external_url` GitHub attaches to every check-run, which in turn defaults to the App's **Homepage URL** (App Settings → **General** → Homepage URL).
+
+The default-template Homepage URL is often `http://localhost:3001` (or whatever placeholder the App was created with). Left as-is, every reviewer who clicks **Details** lands on a broken page.
+
+Options:
+
+- **Blank it.** Clear the Homepage URL in App settings. GitHub then omits the `external_url`, and the check-run renders without a clickable **Details** link. This is the safest default for personal / demo installs.
+- **Point it at a real landing page.** Set it to your team's docs or a status page once one exists.
+
+Verify after editing: open a fresh PR, click **Details** on the bot's check-run, confirm the destination matches your intent. There is no API call or restart needed — GitHub reads the App's Homepage URL on every check-run render.
+
 ---
 
 ## 4. PEM rotation procedure
