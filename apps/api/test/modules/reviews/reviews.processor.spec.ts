@@ -880,10 +880,10 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     return calls
       .map((c) => c[0]?.body as string | undefined)
       .filter((b): b is string => typeof b === 'string')
-      .filter((b) => b.includes('review failed'));
+      .filter((b) => b.includes('<!-- ai-pr-review-copilot:v1:mode=failed -->'));
   }
 
-  it('posts a "review failed" walkthrough on a retryable pulls.get failure (github_api_error)', async () => {
+  it('posts a "review could not complete" walkthrough on a retryable pulls.get failure (github_api_error)', async () => {
     const err: Error & { status?: number } = new Error('Bad Gateway');
     err.status = 502;
     const parts = makeProcessor({
@@ -900,7 +900,7 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     expect(bodies[0].toLowerCase()).toContain('github');
   });
 
-  it('posts a "review failed" walkthrough on a retryable diff-fetch failure (github_api_error)', async () => {
+  it('posts a "review could not complete" walkthrough on a retryable diff-fetch failure (github_api_error)', async () => {
     const err: Error & { status?: number } = new Error('Bad Gateway');
     err.status = 502;
     const parts = makeProcessor({
@@ -916,7 +916,7 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     expect(bodies[0].toLowerCase()).toContain('github');
   });
 
-  it('posts a "review failed" walkthrough on diff_too_large (diff_too_large reason)', async () => {
+  it('posts a "review could not complete" walkthrough on diff_too_large (diff_too_large reason)', async () => {
     const prevCap = process.env.MAX_DIFF_BYTES;
     process.env.MAX_DIFF_BYTES = '10';
     try {
@@ -938,7 +938,7 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     }
   });
 
-  it('posts a "review failed" walkthrough with anthropic_error reason on a terminal Anthropic error', async () => {
+  it('posts a "review could not complete" walkthrough with anthropic_error reason on a terminal Anthropic error', async () => {
     const {
       LlmRequestError,
     } = jest.requireActual('@/infrastructure/llm');
@@ -961,7 +961,7 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     expect(bodies[0]).not.toContain('credit_balance_too_low');
   });
 
-  it('posts a "review failed" walkthrough with internal_error reason on a non-Anthropic mid-loop error', async () => {
+  it('posts a "review could not complete" walkthrough with internal_error reason on a non-Anthropic mid-loop error', async () => {
     const parts = makeProcessor({
       runRealReviewError: new Error('boom'),
     });
@@ -973,7 +973,7 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     expect(bodies[0].toLowerCase()).toContain('internal');
   });
 
-  it('does NOT post a "review failed" walkthrough when the PR is closed (state !== open)', async () => {
+  it('does NOT post a "review could not complete" walkthrough when the PR is closed (state !== open)', async () => {
     const parts = makeProcessor({
       octokit: makeOctokit({
         prsGet: jest
@@ -987,7 +987,7 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     expect(failedWalkthroughBodies(parts)).toHaveLength(0);
   });
 
-  it('does NOT post a "review failed" walkthrough on a terminal pulls.get 404', async () => {
+  it('does NOT post a "review could not complete" walkthrough on a terminal pulls.get 404', async () => {
     const err: Error & { status?: number } = new Error('Not Found');
     err.status = 404;
     const parts = makeProcessor({
