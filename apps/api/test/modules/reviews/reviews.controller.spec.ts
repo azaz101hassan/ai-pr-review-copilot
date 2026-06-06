@@ -41,6 +41,7 @@ function happyResult(): RunDryRunResult {
     prompt_version: 'v1',
     turn_count: 1,
     tool_calls: null,
+    retrievedRules: [],
   };
 }
 

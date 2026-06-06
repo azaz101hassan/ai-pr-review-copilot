@@ -87,6 +87,15 @@ export interface RunDryRunResult {
   turn_count: number;
   tool_calls: ToolCallRecord[] | null;
   error_code?: string;
+  // Knowledge-base grounding surface — the rules retrieved for this
+  // review's diff. Used by the worker to render the walkthrough's
+  // "Rules cited" callout and to feed the walkthrough summarizer.
+  retrievedRules: Array<{
+    rule_id: string;
+    source: string;
+    title: string;
+    severity: SeverityLevel;
+  }>;
 }
 
 export class ReviewsServiceError extends Error {
@@ -422,6 +431,12 @@ export class ReviewsService implements OnModuleInit {
       prompt_version: result.promptVersion,
       turn_count: result.turnCount,
       tool_calls: result.toolCalls,
+      retrievedRules: searchHits.map((hit) => ({
+        rule_id: hit.rule_id,
+        source: hit.source,
+        title: hit.title,
+        severity: resolveSeverity(hit, this.logger),
+      })),
     };
   }
 

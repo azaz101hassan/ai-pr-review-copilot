@@ -839,6 +839,79 @@ describe('ReviewsService (pure-mock cases)', () => {
     });
   });
 
+  describe('runDryRun — retrievedRules', () => {
+    it('returns retrievedRules in the result, sourced from search hits', async () => {
+      const hit = makeSearchHit({ metadata: { severity: 'error', language: 'ts' } });
+      const embeddings = makeEmbeddings([hit]);
+      const llm = makeLlm(happyAnalyzeResult());
+      const reviews = makeMockReviewRepo();
+      const findings = makeMockFindingRepo();
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        reviews,
+        findings,
+        makeDbStub(),
+        makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
+      );
+
+      const result = await service.runDryRun({ diff: REAL_DIFF });
+
+      expect(result.retrievedRules).toBeDefined();
+      expect(Array.isArray(result.retrievedRules)).toBe(true);
+      // Deterministic non-empty assertion: makeSearchHit returns a hit
+      // with rule_id='no-var', source='team-standards', title='No var',
+      // and metadata.severity='error' (overridden above).
+      expect(result.retrievedRules).toHaveLength(1);
+      expect(result.retrievedRules[0]).toEqual({
+        rule_id: 'no-var',
+        source: 'team-standards',
+        title: 'No var',
+        severity: 'error',
+      });
+    });
+
+    it('returns retrievedRules for all sorted hits, not just the ones that matched findings', async () => {
+      const hits = [
+        makeSearchHit({ rule_id: 'no-var', source: 'team-standards', title: 'No var', metadata: { severity: 'warning' } }),
+        makeSearchHit({ rule_id: 'eqeqeq', source: 'airbnb', title: 'Use ===', metadata: { severity: 'error' } }),
+      ];
+      const embeddings = makeEmbeddings(hits);
+      // LLM only emits a finding for 'no-var'; 'eqeqeq' is retrieved but not cited
+      const llm = makeLlm(happyAnalyzeResult());
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        makeMockReviewRepo(),
+        makeMockFindingRepo(),
+        makeDbStub(),
+        makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
+      );
+
+      const result = await service.runDryRun({ diff: REAL_DIFF });
+
+      // retrievedRules should be ALL hits (sorted), not just the cited ones
+      expect(result.retrievedRules).toHaveLength(2);
+      // Sorted by `${source}:${rule_id}`: airbnb:eqeqeq < team-standards:no-var
+      expect(result.retrievedRules[0]).toEqual({
+        rule_id: 'eqeqeq',
+        source: 'airbnb',
+        title: 'Use ===',
+        severity: 'error',
+      });
+      expect(result.retrievedRules[1]).toEqual({
+        rule_id: 'no-var',
+        source: 'team-standards',
+        title: 'No var',
+        severity: 'warning',
+      });
+    });
+  });
+
   describe('db.transaction callback synchronicity guard', () => {
     it('source code never calls db.transaction with an `async` callback (grep-style guard)', () => {
       const source = fs.readFileSync(
