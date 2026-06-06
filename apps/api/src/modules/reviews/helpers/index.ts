@@ -46,6 +46,10 @@ export {
   FormatWalkthroughInProgressBodyInput,
 } from './format-walkthrough-in-progress-body';
 export {
+  formatWalkthroughEmptyBody,
+  FormatWalkthroughEmptyBodyInput,
+} from './format-walkthrough-empty-body';
+export {
   formatWalkthroughSuccessBody,
   FormatWalkthroughSuccessBodyInput,
 } from './format-walkthrough-success-body';

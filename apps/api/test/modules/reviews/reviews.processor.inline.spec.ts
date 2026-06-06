@@ -193,7 +193,7 @@ function setup(opts: SetupOpts = {}) {
   // Stateful walkthrough-comment-id cache (mirrors production): a
   // setWalkthroughCommentId write is visible to the next
   // getWalkthroughCommentId read. This is load-bearing for the
-  // first-review flow — Step 4d's in-progress createComment warms the
+  // first-review flow — Step 8's in-progress createComment warms the
   // cache so the terminal upsert PATCHes the same comment instead of
   // creating a duplicate. Seedable to model a re-review.
   let walkthroughCommentId: number | null = opts.walkthroughCachedId ?? null;
@@ -239,10 +239,10 @@ describe('ReviewsProcessor inline-comment flow', () => {
       const s = setup({ walkthroughCachedId: null });
       await s.processor.process(makeJob());
 
-      // 1. Step 4d scans the thread once (cold cache) before creating.
+      // 1. Step 8 scans the thread once (cold cache) before creating.
       // The terminal upsert reuses the warmed cache, so no second scan.
       expect(s.parts.listComments).toHaveBeenCalledTimes(1);
-      // 2. Step 4d creates the in-progress walkthrough (nothing matched
+      // 2. Step 8 creates the in-progress walkthrough (nothing matched
       // the marker). The body carries the shared marker + in-progress mode.
       expect(s.parts.createComment).toHaveBeenCalledTimes(1);
       const inProgressArgs = s.parts.createComment.mock.calls[0][0];
@@ -437,7 +437,7 @@ describe('ReviewsProcessor inline-comment flow', () => {
       await expect(s.processor.process(makeJob())).rejects.toBeDefined();
 
       // createComment fires across TWO upserts, each retrying once:
-      //   - Step 4d in-progress create (cold cache → scan → create,
+      //   - Step 8 in-progress create (cold cache → scan → create,
       //     502 + 1 retry = 2 calls; the failure is swallowed best-effort
       //     and the cache stays cold), then
       //   - Step 10a terminal create (still cold → scan → create, 502 +

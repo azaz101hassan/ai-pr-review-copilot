@@ -124,7 +124,7 @@ function makeProcessor(
     >;
     // Seed for the stateful walkthrough-comment-id cache. A non-null
     // value models a re-review (a walkthrough already exists), which
-    // makes Step 4d's createIfAbsent short-circuit to 'skipped'.
+    // makes Step 8's createIfAbsent short-circuit to 'skipped'.
     walkthroughCachedId: number | null;
   }> = {},
 ): { processor: ReviewsProcessor } & ProcessorParts {
@@ -315,8 +315,8 @@ describe('ReviewsProcessor.process — check-run sweep', () => {
   });
 });
 
-describe('ReviewsProcessor.process — in-progress surfaces (Step 4c/4d)', () => {
-  it('posts an in-progress check-run every review and persists its id', async () => {
+describe('ReviewsProcessor.process — in-progress surfaces (Step 7/8)', () => {
+  it('posts an in-progress check-run on the review path and persists its id', async () => {
     const parts = makeProcessor();
 
     await parts.processor.process(makeJob());
@@ -345,7 +345,7 @@ describe('ReviewsProcessor.process — in-progress surfaces (Step 4c/4d)', () =>
 
     await parts.processor.process(makeJob());
 
-    // Cold cache → Step 4d createComment carries the in-progress body.
+    // Cold cache → Step 8 createComment carries the in-progress body.
     const createComment = parts.octokit.rest.issues.createComment as unknown as jest.Mock;
     expect(createComment).toHaveBeenCalledTimes(1);
     expect(createComment.mock.calls[0][0].body).toContain('mode=in-progress');
@@ -362,7 +362,7 @@ describe('ReviewsProcessor.process — in-progress surfaces (Step 4c/4d)', () =>
   it('does NOT repost in-progress on a re-review (walkthrough already exists)', async () => {
     // Seed the stateful cache with an existing comment id from the
     // start — models a PR whose first review already posted a
-    // walkthrough. Step 4d must short-circuit to 'skipped' and never
+    // walkthrough. Step 8 must short-circuit to 'skipped' and never
     // flip the existing comment back to "in progress".
     const parts = makeProcessor({ walkthroughCachedId: 999 });
 
@@ -384,8 +384,8 @@ describe('ReviewsProcessor.process — in-progress surfaces (Step 4c/4d)', () =>
 
   it('renders the missing-Checks-permission note when the installation lacks Checks permission', async () => {
     const parts = makeProcessor();
-    // Flip the permission OFF before process() runs. Step 4c short-
-    // circuits (no checks.create / no setCheckRunId) and Step 4d's
+    // Flip the permission OFF before process() runs. Step 7 short-
+    // circuits (no checks.create / no setCheckRunId) and Step 8's
     // in-progress body carries the missing-permission note.
     (parts.authProvider.hasChecksPermission as jest.Mock).mockReturnValue(false);
 
@@ -400,6 +400,45 @@ describe('ReviewsProcessor.process — in-progress surfaces (Step 4c/4d)', () =>
     expect(createComment.mock.calls[0][0].body).toContain(
       'merge-box status badge is unavailable',
     );
+  });
+
+  it('review path posts the in-progress check-run + walkthrough only AFTER the size checks pass, then runs the review', async () => {
+    const callOrder: string[] = [];
+    const octokit = makeOctokit();
+    (octokit.rest.checks.create as unknown as jest.Mock).mockImplementation(
+      async (args: { status?: string }) => {
+        callOrder.push(`checks.create:${args.status}`);
+        return { data: { id: 1 } };
+      },
+    );
+    (octokit.rest.issues.createComment as unknown as jest.Mock).mockImplementation(
+      async () => {
+        callOrder.push('createComment');
+        return { data: { id: 1 } };
+      },
+    );
+    const parts = makeProcessor({ octokit });
+    parts.runRealReview.mockImplementation(async (input: { reviewId?: string }) => {
+      callOrder.push('runRealReview');
+      return happyServiceResult(input.reviewId);
+    });
+
+    await parts.processor.process(makeJob());
+
+    // The normal diff passes the size checks, so the in-progress check-run
+    // (status in_progress) and the in-progress walkthrough fire, and BOTH
+    // precede the agent loop.
+    expect(callOrder).toEqual([
+      'checks.create:in_progress',
+      'createComment',
+      'runRealReview',
+    ]);
+    // The single in-progress check-run carries status in_progress (the
+    // terminal/skipped POST helper is never used on the review path).
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    expect(checksCreate.mock.calls[0][0].status).toBe('in_progress');
+    expect(checksCreate.mock.calls[0][0].conclusion).toBeUndefined();
   });
 });
 
@@ -525,6 +564,13 @@ describe('ReviewsProcessor.process — guards', () => {
       expect(failedId).toBe(reservedId);
       expect(failedPatch.error_code).toBe('diff_too_large');
       expect(failedPatch.error_status).toBe(0);
+      // No in-progress surfaces ran: the only check-run write is the
+      // terminal skipped POST (status completed); checks.update untouched.
+      const checksCreate = parts.octokit.rest.checks.create as unknown as jest.Mock;
+      expect(checksCreate).toHaveBeenCalledTimes(1);
+      expect(checksCreate.mock.calls[0][0].status).toBe('completed');
+      expect(checksCreate.mock.calls[0][0].conclusion).toBe('skipped');
+      expect(parts.octokit.rest.checks.update as unknown as jest.Mock).not.toHaveBeenCalled();
     } finally {
       if (prevCap === undefined) delete process.env.MAX_DIFF_BYTES;
       else process.env.MAX_DIFF_BYTES = prevCap;
@@ -570,15 +616,26 @@ describe('ReviewsProcessor.process — guards', () => {
         expect(parts.runRealReview).not.toHaveBeenCalled();
         // No formal Review POST either.
         expect(parts.octokit.rest.pulls.createReview).not.toHaveBeenCalled();
-        // First review: Step 4d created the in-progress walkthrough
-        // (cold cache → createComment, mode=in-progress), warming the
-        // cache. The size-skip body then PATCHes that same comment.
+        // The size check now precedes any in-progress surface, so NO
+        // in-progress walkthrough was posted. The size-skip body lands
+        // directly on the FIRST createComment (cold cache).
         expect(parts.octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
-        const inProgressArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
-        expect(inProgressArgs.body).toContain('mode=in-progress');
-        expect(parts.octokit.rest.issues.updateComment).toHaveBeenCalledTimes(1);
-        const skipArgs = (parts.octokit.rest.issues.updateComment as unknown as jest.Mock).mock.calls[0][0];
+        const skipArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
+        expect(skipArgs.body).not.toContain('mode=in-progress');
         expect(skipArgs.body).toContain('review skipped');
+        expect(parts.octokit.rest.issues.updateComment).not.toHaveBeenCalled();
+        // A terminal skipped check-run was posted (no in-progress one).
+        const checksCreate = parts.octokit.rest.checks.create as unknown as jest.Mock;
+        expect(checksCreate).toHaveBeenCalledTimes(1);
+        expect(checksCreate.mock.calls[0][0]).toEqual(
+          expect.objectContaining({
+            status: 'completed',
+            conclusion: 'skipped',
+          }),
+        );
+        expect(checksCreate.mock.calls[0][0].output.title).toBe(
+          'Review skipped — diff exceeds size limit',
+        );
         // The reserved row was finalized in place — no separate insert.
         expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
         expect(parts.insert).not.toHaveBeenCalled();
@@ -596,10 +653,9 @@ describe('ReviewsProcessor.process — guards', () => {
 
         await parts.processor.process(makeJob());
 
-        // First review: the size-skip terminal body lands on the
-        // updateComment PATCH (Step 4d already created the in-progress
-        // comment and warmed the cache).
-        const skipArgs = (parts.octokit.rest.issues.updateComment as unknown as jest.Mock).mock.calls[0][0];
+        // No in-progress surface preceded the skip now, so the size-skip
+        // body lands on the FIRST createComment (cold cache).
+        const skipArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
         // 5 changed lines (3 added + 2 removed), cap of 2.
         expect(skipArgs.body).toContain('5 changed lines');
         expect(skipArgs.body).toContain('limit of **2**');
@@ -704,25 +760,39 @@ describe('ReviewsProcessor.process — guards', () => {
     await parts.processor.process(makeJob());
     expect(parts.runRealReview).not.toHaveBeenCalled();
     expect(parts.octokit.rest.pulls.createReview).not.toHaveBeenCalled();
-    // First-review reality under the new flow: Step 4d already created
-    // the in-progress walkthrough (cold cache → createComment), and the
-    // empty-diff branch marks the row completed and returns WITHOUT
-    // updating the walkthrough to a terminal body — so the comment is
-    // left showing "in progress". This is an open question flagged for a
-    // later task (terminal PATCH of the walkthrough/check-run on empty
-    // diff); we assert the CURRENT behavior so the gap is visible.
+    // The empty-diff check now precedes any in-progress surface. There is
+    // NO in-progress walkthrough; instead the empty-diff branch posts a
+    // dedicated honest "no diff" walkthrough directly (cold cache →
+    // createComment, mode=empty-diff) and a terminal skipped check-run.
+    // The empty body must NOT claim retrieval ran or that a Review was
+    // posted (no "rules retrieved", no "See the review below").
     expect(parts.octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
-    expect(
-      (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock
-        .calls[0][0].body,
-    ).toContain('mode=in-progress');
-    // No terminal walkthrough update fired on the empty-diff exit.
+    const emptyBody = (parts.octokit.rest.issues.createComment as unknown as jest.Mock)
+      .mock.calls[0][0].body;
+    expect(emptyBody).toContain('mode=empty-diff');
+    expect(emptyBody).toContain('no reviewable diff content');
+    expect(emptyBody).not.toContain('mode=success');
+    expect(emptyBody).not.toContain('rules retrieved');
+    expect(emptyBody).not.toContain('See the review below');
+    expect(emptyBody).not.toContain('mode=in-progress');
+    // No PATCH fired — the success body was the first write.
     expect(parts.octokit.rest.issues.updateComment).not.toHaveBeenCalled();
+    // Terminal skipped check-run posted, no in-progress one.
+    const checksCreate = parts.octokit.rest.checks.create as unknown as jest.Mock;
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    expect(checksCreate.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ status: 'completed', conclusion: 'skipped' }),
+    );
+    expect(checksCreate.mock.calls[0][0].output.title).toBe('No diff to review');
     // The reserved row is reconciled to the dedicated empty-diff marker
     // and marked completed — no separate standalone insert.
     expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
     expect(parts.insert).not.toHaveBeenCalled();
     const reservedId = parts.insertInProgress.mock.calls[0][0].id;
+    // The terminal check-run id (stub resolves { data: { id: 1 } }) is
+    // persisted on the reserved row so the next sweep can retire it.
+    const setCheckRunId = parts.reviewsRepo.setCheckRunId as unknown as jest.Mock;
+    expect(setCheckRunId).toHaveBeenCalledWith(reservedId, 1);
     expect(parts.updateRetrievalMetadata).toHaveBeenCalledTimes(1);
     const [retrievalId, retrievalPatch] =
       parts.updateRetrievalMetadata.mock.calls[0];
@@ -732,6 +802,67 @@ describe('ReviewsProcessor.process — guards', () => {
     expect(parts.markCompleted).toHaveBeenCalledTimes(1);
     expect(parts.markCompleted.mock.calls[0][0]).toBe(reservedId);
     expect(parts.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('empty diff posts a "no diff" walkthrough and a skipped check-run, no in-progress surfaces', async () => {
+    const parts = makeProcessor({
+      octokit: makeOctokit({
+        request: jest.fn().mockResolvedValue({ data: '' }),
+      }),
+    });
+
+    await parts.processor.process(makeJob());
+
+    // Honest empty-diff walkthrough body (first review → createComment).
+    const createComment = parts.octokit.rest.issues.createComment as unknown as jest.Mock;
+    expect(createComment).toHaveBeenCalledTimes(1);
+    expect(createComment.mock.calls[0][0].body).toContain('mode=empty-diff');
+    expect(createComment.mock.calls[0][0].body).toContain(
+      'no reviewable diff content',
+    );
+    expect(createComment.mock.calls[0][0].body).not.toContain('mode=success');
+    expect(createComment.mock.calls[0][0].body).not.toContain('rules retrieved');
+    expect(createComment.mock.calls[0][0].body).not.toContain(
+      'See the review below',
+    );
+    // No in-progress walkthrough was ever posted.
+    for (const call of createComment.mock.calls) {
+      expect(call[0].body).not.toContain('mode=in-progress');
+    }
+    // Skipped (empty-diff) check-run; never an in-progress one.
+    const checksCreate = parts.octokit.rest.checks.create as unknown as jest.Mock;
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    expect(checksCreate.mock.calls[0][0].conclusion).toBe('skipped');
+    expect(checksCreate.mock.calls[0][0].status).toBe('completed');
+    for (const call of checksCreate.mock.calls) {
+      expect(call[0].status).not.toBe('in_progress');
+    }
+  });
+
+  it('empty-diff RE-REVIEW PATCHes the existing walkthrough in place (no duplicate)', async () => {
+    // Seed the stateful cache with an existing comment id from the
+    // start — models a PR whose first review already posted a
+    // walkthrough, now re-reviewed against an empty diff. The empty-diff
+    // path must PATCH the existing comment (no createComment duplicate).
+    const parts = makeProcessor({
+      walkthroughCachedId: 999,
+      octokit: makeOctokit({
+        request: jest.fn().mockResolvedValue({ data: '' }),
+      }),
+    });
+
+    await parts.processor.process(makeJob());
+
+    // No duplicate comment — the existing walkthrough is updated in place.
+    expect(parts.octokit.rest.issues.createComment).not.toHaveBeenCalled();
+    const updateComment = parts.octokit.rest.issues.updateComment as unknown as jest.Mock;
+    expect(updateComment).toHaveBeenCalledTimes(1);
+    expect(updateComment.mock.calls[0][0].comment_id).toBe(999);
+    expect(updateComment.mock.calls[0][0].body).toContain('mode=empty-diff');
+    expect(updateComment.mock.calls[0][0].body).toContain(
+      'no reviewable diff content',
+    );
+    expect(updateComment.mock.calls[0][0].body).not.toContain('mode=success');
   });
 });
 
@@ -1232,11 +1363,11 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
   // createComment and updateComment calls. A failed-walkthrough body
   // can land on either surface depending on whether an in-progress
   // walkthrough already exists when the failure fires:
-  //   - PRE-reservation failures (e.g. pulls.get) run BEFORE Step 4d,
-  //     so no in-progress comment exists yet → createComment.
-  //   - POST-reservation failures (diff-fetch, diff_too_large, agent
-  //     loop) run AFTER Step 4d created+cached the in-progress comment
-  //     → updateComment (PATCH in place).
+  //   - Terminal-without-review and pre-Step-8 failures (pulls.get,
+  //     diff-fetch, diff_too_large) run BEFORE any in-progress comment
+  //     exists → createComment.
+  //   - Agent-loop failures run AFTER Step 8 created+cached the
+  //     in-progress comment → updateComment (PATCH in place).
   function failedWalkthroughBodies(parts: ProcessorParts): string[] {
     const createCalls = (
       parts.octokit.rest.issues.createComment as unknown as jest.Mock
@@ -1319,6 +1450,16 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
       const bodies = failedWalkthroughBodies(parts);
       expect(bodies).toHaveLength(1);
       expect(bodies[0].toLowerCase()).toMatch(/diff|cap/);
+      // A terminal skipped check-run is posted directly (no in-progress
+      // surface ran on this exit).
+      const checksCreate = parts.octokit.rest.checks.create as unknown as jest.Mock;
+      expect(checksCreate).toHaveBeenCalledTimes(1);
+      expect(checksCreate.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ status: 'completed', conclusion: 'skipped' }),
+      );
+      expect(checksCreate.mock.calls[0][0].output.title).toBe(
+        'Review could not complete',
+      );
     } finally {
       if (prevCap === undefined) delete process.env.MAX_DIFF_BYTES;
       else process.env.MAX_DIFF_BYTES = prevCap;
@@ -1346,6 +1487,15 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     // expose the raw error code.
     expect(bodies[0].toLowerCase()).toMatch(/language-model|model|account|configuration/);
     expect(bodies[0]).not.toContain('credit_balance_too_low');
+    // The Step 7 in-progress check-run is PATCHed to skipped.
+    const checksUpdate = parts.octokit.rest.checks.update as unknown as jest.Mock;
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    expect(checksUpdate.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ status: 'completed', conclusion: 'skipped' }),
+    );
+    expect(checksUpdate.mock.calls[0][0].output.title).toBe(
+      'Review could not complete',
+    );
   });
 
   it('posts a "review could not complete" walkthrough with internal_error reason on a non-Anthropic mid-loop error', async () => {
@@ -1358,6 +1508,13 @@ describe('ReviewsProcessor.process — failure walkthrough', () => {
     const bodies = failedWalkthroughBodies(parts);
     expect(bodies).toHaveLength(1);
     expect(bodies[0].toLowerCase()).toContain('internal');
+    // The Step 7 in-progress check-run is PATCHed to skipped.
+    const checksUpdate = parts.octokit.rest.checks.update as unknown as jest.Mock;
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    expect(checksUpdate.mock.calls[0][0].conclusion).toBe('skipped');
+    expect(checksUpdate.mock.calls[0][0].output.title).toBe(
+      'Review could not complete',
+    );
   });
 
   it('does NOT post a "review could not complete" walkthrough when the PR is closed (state !== open)', async () => {

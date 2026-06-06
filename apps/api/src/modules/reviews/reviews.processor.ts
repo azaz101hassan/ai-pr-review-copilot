@@ -23,12 +23,14 @@ import {
   formatInlineCommentBody,
   formatReviewBody,
   formatWalkthroughBody,
+  formatWalkthroughEmptyBody,
   formatWalkthroughFailedBody,
   formatWalkthroughInProgressBody,
   formatWalkthroughSkippedBody,
   parseDiffHunks,
   FailureReason,
   FindingWithSeverity,
+  type FormatCheckRunOutputInput,
 } from './helpers';
 import {
   IPullRequestRepository,
@@ -67,27 +69,34 @@ import {
 //   4. pulls.get → if state !== 'open' or 404, mark failed and exit.
 //   4b. Reserve the lifecycle row (insertInProgress) right after the
 //       open-state check, then sweep any prior leaked check-run on this
-//       PR to a terminal 'neutral' state before the new check is posted.
-//   4c. POST the in-progress check-run every review (best-effort); cache
-//       its id on the reserved row via setCheckRunId.
-//   4d. On a PR's FIRST review only (createIfAbsent), POST the in-progress
-//       walkthrough comment; re-reviews leave the existing walkthrough and
-//       update it in place at the terminal post.
-//   5. Fetch unified diff via mediaType.format='diff'.
-//   6. Pre-check: empty diff → mark completed with zero findings,
-//      do not call Anthropic, do not POST. MAX_DIFF_BYTES overflow
-//      → mark failed/diff_too_large, exit clean.
-//   7. Construct GitHubRepoContextProvider (per-job).
-//   8. Call reviewsService.runRealReview — runs the agent loop,
-//      persists the row and findings.
-//   9. Sanitize each finding's title/message; format the body with
-//      the self-identifying header + UUID-validated marker.
-//   10. POST octokit.rest.pulls.createReview (event=COMMENT,
-//       commit_id OMITTED so GitHub defaults to PR's current branch
-//       tip — eliminates stale-head-SHA window). retries: 0.
-//   11. On failure during steps 3-10: classifyError → markFailed
-//       with the right error_code; re-throw so BullMQ schedules a
-//       retry per the queue's attempts budget.
+//       PR to a terminal 'neutral' state.
+//   5. Fetch unified diff via mediaType.format='diff'. We decide
+//      terminal-vs-review from the diff BEFORE posting any in-progress
+//      surface, so a no-review outcome never flickers "in progress".
+//   6. Terminal-without-review exits (each returns):
+//        6a. MAX_DIFF_BYTES → markFailed/diff_too_large + failed
+//            walkthrough + skipped check-run.
+//        6b. MAX_REVIEW_DIFF_LINES (size cap) → markCompleted + skip
+//            walkthrough + skipped check-run.
+//        6c. empty diff → markCompleted + dedicated empty-diff
+//            walkthrough + skipped check-run.
+//   7. Review path only: POST the in-progress check-run (best-effort);
+//      cache its id on the reserved row via setCheckRunId.
+//   8. Review path only, first review only (createIfAbsent): POST the
+//      in-progress walkthrough comment; re-reviews leave the existing
+//      walkthrough up and update it in place at the terminal post.
+//   9. Construct GitHubRepoContextProvider (per-job), then call
+//       reviewsService.runRealReview — runs the agent loop, persists
+//       the row and findings. On failure: post a failed walkthrough AND
+//       PATCH the Step 7 in-progress check-run to skipped, then re-throw
+//       (Unrecoverable on terminal Anthropic).
+//   10. Sanitize each finding's title/message; format the body with the
+//       self-identifying header + UUID-validated marker; then POST in two
+//       steps that match the inline `Step 10a`/`Step 10b` markers:
+//        10a. upsert the walkthrough comment (terminal body).
+//        10b. POST the inlined Review (event=COMMENT, commit_id OMITTED
+//             so GitHub defaults to the PR's current branch tip);
+//             skipped on zero findings.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -263,53 +272,6 @@ export class ReviewsProcessor
         });
       }
 
-      // Step 4c — POST the in-progress check-run (best-effort) and cache
-      // its id on the reserved row. Runs on EVERY review so the bot shows
-      // "in progress" in the PR checks section. tryPostInProgressCheckRun
-      // returns null when the installation lacks the Checks permission or
-      // the POST fails; in that case we simply don't persist an id.
-      const checkRunId = await this.tryPostInProgressCheckRun({
-        octokit,
-        owner: data.owner,
-        repo: data.repo,
-        head_sha: data.head_sha,
-        installation_id: data.installation_id,
-      });
-      if (checkRunId !== null) {
-        this.reviewsRepo.setCheckRunId(reviewId, checkRunId);
-      }
-
-      // Step 4d — POST the in-progress walkthrough ONLY on a PR's first
-      // review (createIfAbsent). On re-reviews the walkthrough already
-      // exists, so we leave the prior result up and let the terminal post
-      // update it in place — we never flip an existing walkthrough back to
-      // "in progress". The missing-permission note is shown when the
-      // Checks C-POST above could not run. Order matters: Step 4c's 403
-      // path flips the permission cache (markChecksPermissionMissing) that
-      // this hasChecksPermission read observes, so 4c must precede 4d.
-      // Tolerated on failure.
-      const inProgressBody = formatWalkthroughInProgressBody({
-        prNodeId: data.pr_node_id,
-        missingChecksPermission: !this.githubAuth.hasChecksPermission(
-          data.installation_id,
-        ),
-      });
-      try {
-        await this.upsertWalkthrough({
-          octokit,
-          owner: data.owner,
-          repo: data.repo,
-          pr_number: data.pr_number,
-          pr_node_id: data.pr_node_id,
-          body: inProgressBody,
-          createIfAbsent: true,
-        });
-      } catch (err) {
-        this.logger.warn(
-          `${jobLogPrefix} worker.walkthrough.in_progress_post_failed ${formatBriefError(err)}`,
-        );
-      }
-
       // Step 5 — unified diff via mediaType.
       let diff: string;
       try {
@@ -378,6 +340,10 @@ export class ReviewsProcessor
           error_status: 0,
           error_code: 'diff_too_large',
         });
+        await this.postTerminalCheckRun(octokit, data, reviewId, {
+          mode: 'failed',
+          reasonCopy: 'the diff exceeds the byte-size safety cap',
+        });
         await this.tryPostFailedWalkthrough({
           octokit,
           owner: data.owner,
@@ -393,7 +359,7 @@ export class ReviewsProcessor
         return;
       }
 
-      // Step 6a-bis — MAX_REVIEW_DIFF_LINES (soft size gate).
+      // Step 6b — MAX_REVIEW_DIFF_LINES (soft size gate).
       // Distinct from MAX_DIFF_BYTES above: that one is a silent
       // failure for runaway-size system safety; this one is product
       // policy. The reviewer's quality is reliable on small focused
@@ -445,18 +411,35 @@ export class ReviewsProcessor
           cache_creation_input_tokens: null,
           cache_read_input_tokens: null,
         });
+        await this.postTerminalCheckRun(octokit, data, reviewId, {
+          mode: 'skipped',
+          changedLines,
+          limit: this.config.maxReviewDiffLines,
+        });
         this.logger.log(
           `${jobLogPrefix} worker.job.skipped diff_size changed_lines=${changedLines} cap=${this.config.maxReviewDiffLines}`,
         );
         return;
       }
 
-      // Step 6b — empty diff. Mark completed cleanly without calling
+      // Step 6c — empty diff. Mark completed cleanly without calling
       // Anthropic and without POSTing. The standalone-empty-diff marker
       // keeps the audit trail honest (eval sees the attempt + zero
       // findings, rather than the operator wondering why a delivery
       // vanished) while excluding it from quality metrics.
       if (diff.trim().length === 0) {
+        // Build the honest empty-diff walkthrough body FIRST — before
+        // markCompleted. A body-builder throw must not strand an
+        // already-completed row in a BullMQ retry loop, so any failure
+        // here happens while the row is still in_progress. No retrieval
+        // ran and no Review is posted on this exit, so the body says
+        // exactly that (no "rules retrieved", no "see the review below").
+        const emptyBody = formatWalkthroughEmptyBody({
+          prNodeId: data.pr_node_id,
+          missingChecksPermission: !this.githubAuth.hasChecksPermission(
+            data.installation_id,
+          ),
+        });
         this.reviewsRepo.updateRetrievalMetadata(reviewId, {
           diff_length: 0,
           model: this.config.activeModel(),
@@ -472,11 +455,83 @@ export class ReviewsProcessor
           cache_creation_input_tokens: null,
           cache_read_input_tokens: null,
         });
+        // Post the "no diff" walkthrough (best-effort) so the PR author
+        // sees a terminal result rather than a missing comment, then a
+        // terminal skipped check-run. No in-progress surface ran for this
+        // exit, so the walkthrough goes straight to the empty body and the
+        // check-run goes straight to its terminal state.
+        try {
+          await this.upsertWalkthrough({
+            octokit,
+            owner: data.owner,
+            repo: data.repo,
+            pr_number: data.pr_number,
+            pr_node_id: data.pr_node_id,
+            body: emptyBody,
+          });
+        } catch (err) {
+          this.logger.warn(
+            `${jobLogPrefix} worker.empty.walkthrough_post_failed ${formatBriefError(err)}`,
+          );
+        }
+        await this.postTerminalCheckRun(octokit, data, reviewId, {
+          mode: 'empty-diff',
+        });
         this.logger.log(`${jobLogPrefix} worker.review.empty diff was empty`);
         return;
       }
 
-      // Step 7 — per-job context provider.
+      // Step 7 — POST the in-progress check-run (review path only). The
+      // size checks above all return before this point, so an in-progress
+      // surface goes up ONLY when a real review will run — no flicker on
+      // the terminal-without-review exits. Best-effort: tryPostInProgressCheckRun
+      // returns null when the installation lacks the Checks permission or
+      // the POST fails; in that case we simply don't persist an id. The
+      // local checkRunId stays in scope for the runRealReview catch below,
+      // which PATCHes it to skipped on an agent-loop failure.
+      const checkRunId = await this.tryPostInProgressCheckRun({
+        octokit,
+        owner: data.owner,
+        repo: data.repo,
+        head_sha: data.head_sha,
+        installation_id: data.installation_id,
+      });
+      if (checkRunId !== null) {
+        this.reviewsRepo.setCheckRunId(reviewId, checkRunId);
+      }
+
+      // Step 8 — POST the in-progress walkthrough ONLY on a PR's first
+      // review (createIfAbsent). On re-reviews the walkthrough already
+      // exists, so we leave the prior result up and let the terminal post
+      // update it in place — we never flip an existing walkthrough back to
+      // "in progress". The missing-permission note is shown when the
+      // Checks C-POST above could not run. Order matters: Step 7's 403
+      // path flips the permission cache (markChecksPermissionMissing) that
+      // this hasChecksPermission read observes, so Step 7 must precede
+      // Step 8. Tolerated on failure.
+      const inProgressBody = formatWalkthroughInProgressBody({
+        prNodeId: data.pr_node_id,
+        missingChecksPermission: !this.githubAuth.hasChecksPermission(
+          data.installation_id,
+        ),
+      });
+      try {
+        await this.upsertWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          body: inProgressBody,
+          createIfAbsent: true,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `${jobLogPrefix} worker.walkthrough.in_progress_post_failed ${formatBriefError(err)}`,
+        );
+      }
+
+      // Step 9 — per-job context provider.
       const repoContext = new GitHubRepoContextProvider({
         octokit,
         owner: data.owner,
@@ -520,6 +575,16 @@ export class ReviewsProcessor
           pr_node_id: data.pr_node_id,
           reason,
           jobLogPrefix,
+        });
+        // PATCH the Step 7 in-progress check-run to a terminal skipped
+        // state so the merge-box status doesn't dangle "in progress"
+        // after the agent loop failed. No-op when no check-run was posted
+        // (checkRunId null — install lacks the Checks permission).
+        await this.patchCheckRunTerminal(octokit, data, checkRunId, {
+          mode: 'failed',
+          reasonCopy: isAnthropicErrorLike(err)
+            ? 'the language-model call was rejected'
+            : 'an internal error',
         });
         // Terminal Anthropic errors (credit_balance_too_low,
         // invalid_request_error, etc.) must not retry — a retry of the
@@ -748,7 +813,7 @@ export class ReviewsProcessor
   // PATCH 404 (comment manually deleted) clears the cache and falls
   // through to the scan/POST path below.
   //
-  // createIfAbsent (Step 4d's in-progress post): NEVER patch an
+  // createIfAbsent (Step 8's in-progress post): NEVER patch an
   // existing comment — only create one when none exists. A cached id
   // (or a marker found by scanning the thread on a cold cache) means
   // a walkthrough already exists, so we return 'skipped' and leave the
@@ -901,6 +966,69 @@ export class ReviewsProcessor
       }
       return null;
     }
+  }
+
+  // Create a check-run already in its terminal state (status:'completed',
+  // conclusion:'skipped') for paths that finish WITHOUT running a review
+  // (empty / too-large / size-cap). Best-effort: skips when the install
+  // lacks the Checks permission, swallows POST errors. Persists the id so
+  // the next job's sweep retires it.
+  private async postTerminalCheckRun(
+    octokit: Octokit,
+    data: ReviewJobData,
+    reviewId: string,
+    output: FormatCheckRunOutputInput,
+  ): Promise<void> {
+    if (!this.githubAuth.hasChecksPermission(data.installation_id)) return;
+    const formatted = formatCheckRunOutput(output);
+    try {
+      const res = await octokit.rest.checks.create({
+        owner: data.owner,
+        repo: data.repo,
+        name: 'AI PR Review Copilot',
+        head_sha: data.head_sha,
+        status: 'completed',
+        conclusion: 'skipped',
+        output: formatted,
+      });
+      const id = (res.data as { id: number }).id;
+      this.reviewsRepo.setCheckRunId(reviewId, id);
+    } catch (err) {
+      const status = readStatus(err);
+      if (status === 403) {
+        this.githubAuth.markChecksPermissionMissing(data.installation_id);
+        this.logger.warn(
+          `worker.check_run.permission_denied installation=${data.installation_id}`,
+        );
+      } else {
+        this.logger.warn(
+          `worker.check_run.terminal_post_failed status=${status} ${formatBriefError(err)}`,
+        );
+      }
+    }
+  }
+
+  // PATCH an existing (in-progress) check-run to a terminal skipped state.
+  // Used by the agent-loop failure path on the review branch, where Step 7
+  // already posted an in-progress check-run whose id is the in-scope local.
+  // No-op when no check-run was posted (checkRunId null).
+  private async patchCheckRunTerminal(
+    octokit: Octokit,
+    data: ReviewJobData,
+    checkRunId: number | null,
+    output: FormatCheckRunOutputInput,
+  ): Promise<void> {
+    if (checkRunId === null) return;
+    const formatted = formatCheckRunOutput(output);
+    await this.tryPatchCheckRun({
+      octokit,
+      owner: data.owner,
+      repo: data.repo,
+      check_run_id: checkRunId,
+      conclusion: 'skipped',
+      title: formatted.title,
+      summary: formatted.summary,
+    });
   }
 
   // Best-effort PATCH of an existing check run. Used by both
