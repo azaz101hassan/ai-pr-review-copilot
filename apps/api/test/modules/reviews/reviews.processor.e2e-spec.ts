@@ -898,4 +898,94 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     };
     expect(checksUpdateArg.conclusion).toBe('success');
   });
+
+  it('agent-loop failure (429) PATCHes the in-progress check-run to skipped (not neutral) + failed walkthrough, re-throws, and persists a failed row', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Drive the shared stub LLM to throw a retryable 429 so the agent loop
+    // fails mid-review (Step 9). runRealReview catches the error, marks the
+    // row failed internally, and re-throws; the outer catch in process() then
+    // posts the failed walkthrough (tryPostFailedWalkthrough via updateComment
+    // because Step 8 already created the in-progress comment) and PATCHes the
+    // Step 7 in-progress check-run to conclusion='skipped' (patchCheckRunTerminal).
+    // Finally process() re-throws the original LlmRequestError -- NOT an
+    // UnrecoverableError -- because 429 is retryable.
+    stubLlm.mode = 'throw-rate-limit';
+
+    // Spy (callThrough) to capture the worker-allocated review id from the
+    // real insertInProgress call so we can read the failed row back from SQLite.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const issuesUpdateComment = octokit.rest.issues.updateComment as unknown as jest.Mock;
+
+    // process() must RE-THROW (retryable 429) -- BullMQ will schedule
+    // the job for retry. The throw is the original LlmRequestError, not
+    // an UnrecoverableError.
+    const { UnrecoverableError } = jest.requireActual<typeof import('bullmq')>('bullmq');
+    let caughtErr: unknown;
+    try {
+      await processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }));
+    } catch (err) {
+      caughtErr = err;
+    }
+
+    // --- Assertion 1: re-throw is retryable (not UnrecoverableError) ---
+    // 429 is in the retryable set -- the worker must NOT wrap it in
+    // UnrecoverableError (that is reserved for terminal codes like
+    // credit_balance_too_low, turn_cap_exceeded, etc.).
+    expect(caughtErr).toBeDefined();
+    expect(caughtErr).not.toBeInstanceOf(UnrecoverableError);
+
+    // --- Assertion 2: check-run lifecycle ---
+    // Step 7 POSTed the in-progress check-run (checks.create, once).
+    // The Step 9 catch called patchCheckRunTerminal which called tryPatchCheckRun
+    // -> checks.update, once, with conclusion='skipped' (NOT 'neutral') and the
+    // canonical title 'Review could not complete'. No prior leaked check-run
+    // exists for this fresh PR id so there is no Step 4b sweep update.
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+
+    const checksUpdateArg = checksUpdate.mock.calls[0][0] as {
+      status: string;
+      conclusion: string;
+      check_run_id: number;
+      output: { title: string };
+    };
+    expect(checksUpdateArg.status).toBe('completed');
+    expect(checksUpdateArg.conclusion).toBe('skipped');
+    expect(checksUpdateArg.check_run_id).toBe(TEST_CHECK_RUN_ID);
+    expect(checksUpdateArg.output.title).toBe('Review could not complete');
+
+    // --- Assertion 3: pulls.createReview never called ---
+    // The agent loop threw before runRealReview returned any findings, so
+    // no Review surface was posted.
+    expect(pullsCreateReview).not.toHaveBeenCalled();
+
+    // --- Assertion 4: failed walkthrough body landed on updateComment ---
+    // Step 8 created the in-progress comment (cold cache -> createComment, cached id).
+    // The Step 9 catch called tryPostFailedWalkthrough -> upsertWalkthrough.
+    // upsertWalkthrough found the cached id and called updateComment (PATCH),
+    // NOT createComment. The body must carry the mode=failed marker.
+    expect(issuesUpdateComment).toHaveBeenCalled();
+    const failedBody = issuesUpdateComment.mock.calls[0][0].body as string;
+    expect(failedBody).toContain('<!-- ai-pr-review-copilot:v1:mode=failed -->');
+
+    // --- Assertion 5: real-DB round-trip (net-new over unit spec) ---
+    // The unit spec mocks markFailed and setCheckRunId; here we read the
+    // real SQLite row back to prove the error fields AND the check_run_id
+    // all persisted correctly through real runRealReview / markFailed.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('failed');
+    expect(row?.error_status).toBe(429);
+    expect(row?.error_code).toBe('rate_limit_error');
+    // Step 7 persisted the check-run id before the failure; the failed row
+    // must carry it so the next sweep can retire the dangling check-run.
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+  });
 });
