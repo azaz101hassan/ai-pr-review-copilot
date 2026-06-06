@@ -41,3 +41,7 @@ export {
   parseDiffFiles,
   DiffFileEntry,
 } from './parse-diff-files';
+export {
+  formatWalkthroughInProgressBody,
+  FormatWalkthroughInProgressBodyInput,
+} from './format-walkthrough-in-progress-body';
