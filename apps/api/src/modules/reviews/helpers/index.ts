@@ -37,3 +37,7 @@ export {
   findWalkthroughCommentId,
   FindWalkthroughCommentIdArgs,
 } from './find-walkthrough-comment-id';
+export {
+  parseDiffFiles,
+  DiffFileEntry,
+} from './parse-diff-files';
