@@ -41,6 +41,8 @@ interface StubOctokitParts {
   createComment: jest.Mock;
   updateComment: jest.Mock;
   listComments: jest.Mock;
+  checksCreate: jest.Mock;
+  checksUpdate: jest.Mock;
 }
 
 function makeOctokit(parts: Partial<StubOctokitParts> = {}): {
@@ -66,6 +68,11 @@ function makeOctokit(parts: Partial<StubOctokitParts> = {}): {
       parts.updateComment ?? jest.fn().mockResolvedValue({ data: {} }),
     listComments:
       parts.listComments ?? jest.fn().mockResolvedValue({ data: [] }),
+    checksCreate:
+      parts.checksCreate ??
+      jest.fn().mockResolvedValue({ data: { id: 1 } }),
+    checksUpdate:
+      parts.checksUpdate ?? jest.fn().mockResolvedValue({ data: {} }),
   };
   return {
     octokit: {
@@ -78,6 +85,10 @@ function makeOctokit(parts: Partial<StubOctokitParts> = {}): {
           createComment: full.createComment,
           updateComment: full.updateComment,
           listComments: full.listComments,
+        },
+        checks: {
+          create: full.checksCreate,
+          update: full.checksUpdate,
         },
       },
       request: full.request,
@@ -179,10 +190,19 @@ function setup(opts: SetupOpts = {}) {
     findByPrNodeIdForPriorReview: jest.fn().mockReturnValue([]),
   };
 
-  const getWalkthroughCommentId = jest
-    .fn()
-    .mockReturnValue(opts.walkthroughCachedId ?? null);
-  const setWalkthroughCommentId = jest.fn();
+  // Stateful walkthrough-comment-id cache (mirrors production): a
+  // setWalkthroughCommentId write is visible to the next
+  // getWalkthroughCommentId read. This is load-bearing for the
+  // first-review flow — Step 4d's in-progress createComment warms the
+  // cache so the terminal upsert PATCHes the same comment instead of
+  // creating a duplicate. Seedable to model a re-review.
+  let walkthroughCommentId: number | null = opts.walkthroughCachedId ?? null;
+  const getWalkthroughCommentId = jest.fn(() => walkthroughCommentId);
+  const setWalkthroughCommentId = jest.fn(
+    (_prNodeId: string, id: number | null) => {
+      walkthroughCommentId = id;
+    },
+  );
   const pullRequestsRepo: IPullRequestRepository = {
     save: jest.fn(),
     findByNodeId: jest.fn(),
@@ -215,25 +235,37 @@ function setup(opts: SetupOpts = {}) {
 
 describe('ReviewsProcessor inline-comment flow', () => {
   describe('first run (no cached walkthrough)', () => {
-    it('posts the walkthrough, then the inlined review with comments[]', async () => {
+    it('posts the in-progress walkthrough, PATCHes it to the result, then posts the inlined review with comments[]', async () => {
       const s = setup({ walkthroughCachedId: null });
       await s.processor.process(makeJob());
 
-      // 1. Walkthrough scan happens first.
+      // 1. Step 4d scans the thread once (cold cache) before creating.
+      // The terminal upsert reuses the warmed cache, so no second scan.
       expect(s.parts.listComments).toHaveBeenCalledTimes(1);
-      // 2. Walkthrough POST fires (nothing matched the marker).
+      // 2. Step 4d creates the in-progress walkthrough (nothing matched
+      // the marker). The body carries the shared marker + in-progress mode.
       expect(s.parts.createComment).toHaveBeenCalledTimes(1);
-      const walkthroughArgs = s.parts.createComment.mock.calls[0][0];
-      expect(walkthroughArgs.issue_number).toBe(7);
-      expect(walkthroughArgs.body).toMatch(
+      const inProgressArgs = s.parts.createComment.mock.calls[0][0];
+      expect(inProgressArgs.issue_number).toBe(7);
+      expect(inProgressArgs.body).toMatch(
         /^<!-- ai-pr-review-copilot:walkthrough:v1:pr=PR_node_test -->/,
       );
-      // 3. The comment id is cached.
+      expect(inProgressArgs.body).toContain('mode=in-progress');
+      // 3. The comment id is cached (warms the cache for the terminal post).
       expect(s.setWalkthroughCommentId).toHaveBeenCalledWith(
         'PR_node_test',
         555,
       );
-      // 4. Inlined Review POST fires with comments[].
+      // 4. The terminal walkthrough PATCHes the same comment in place
+      // (warm cache → updateComment, NOT a second createComment).
+      expect(s.parts.updateComment).toHaveBeenCalledTimes(1);
+      const terminalArgs = s.parts.updateComment.mock.calls[0][0];
+      expect(terminalArgs.comment_id).toBe(555);
+      expect(terminalArgs.body).toContain(
+        '<!-- ai-pr-review-copilot:walkthrough:v1:pr=PR_node_test -->',
+      );
+      expect(terminalArgs.body).not.toContain('mode=in-progress');
+      // 5. Inlined Review POST fires with comments[].
       expect(s.parts.createReview).toHaveBeenCalledTimes(1);
       const reviewArgs = s.parts.createReview.mock.calls[0][0];
       expect(reviewArgs.event).toBe('COMMENT');
@@ -404,7 +436,14 @@ describe('ReviewsProcessor inline-comment flow', () => {
 
       await expect(s.processor.process(makeJob())).rejects.toBeDefined();
 
-      expect(create502).toHaveBeenCalledTimes(2);
+      // createComment fires across TWO upserts, each retrying once:
+      //   - Step 4d in-progress create (cold cache → scan → create,
+      //     502 + 1 retry = 2 calls; the failure is swallowed best-effort
+      //     and the cache stays cold), then
+      //   - Step 10a terminal create (still cold → scan → create, 502 +
+      //     1 retry = 2 calls), which throws → comment_post_failed.
+      // 2 + 2 = 4 createComment attempts.
+      expect(create502).toHaveBeenCalledTimes(4);
       // Inlined Review POST is NOT attempted when the Walkthrough
       // ultimately fails.
       expect(s.parts.createReview).not.toHaveBeenCalled();

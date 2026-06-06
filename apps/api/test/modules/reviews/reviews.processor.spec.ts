@@ -110,6 +110,8 @@ interface ProcessorParts {
   insert: jest.Mock;
   insertInProgress: jest.Mock;
   updateRetrievalMetadata: jest.Mock;
+  getWalkthroughCommentId: jest.Mock;
+  setWalkthroughCommentId: jest.Mock;
 }
 
 function makeProcessor(
@@ -120,6 +122,10 @@ function makeProcessor(
     findRecentInProgressForPr: ReturnType<
       IReviewRepository['findRecentInProgressForPr']
     >;
+    // Seed for the stateful walkthrough-comment-id cache. A non-null
+    // value models a re-review (a walkthrough already exists), which
+    // makes Step 4d's createIfAbsent short-circuit to 'skipped'.
+    walkthroughCachedId: number | null;
   }> = {},
 ): { processor: ReviewsProcessor } & ProcessorParts {
   const octokit = overrides.octokit ?? makeOctokit();
@@ -192,12 +198,24 @@ function makeProcessor(
     findByPrNodeIdForPriorReview: jest.fn().mockReturnValue([]),
   };
 
+  // Stateful walkthrough-comment-id cache. setWalkthroughCommentId
+  // writes the closed-over slot and getWalkthroughCommentId reads it,
+  // so warming the cache (the in-progress create on a first review)
+  // makes the terminal upsert PATCH the same comment instead of
+  // creating a duplicate. Seedable to a starting value to model a
+  // re-review where a walkthrough already exists.
+  let walkthroughCommentId: number | null =
+    overrides.walkthroughCachedId ?? null;
+  const getWalkthroughCommentId = jest.fn(() => walkthroughCommentId);
+  const setWalkthroughCommentId = jest.fn((_prNodeId: string, id: number | null) => {
+    walkthroughCommentId = id;
+  });
   const pullRequestsRepo: IPullRequestRepository = {
     save: jest.fn(),
     findByNodeId: jest.fn(),
     findRecentMatching: jest.fn().mockReturnValue([]),
-    getWalkthroughCommentId: jest.fn().mockReturnValue(null),
-    setWalkthroughCommentId: jest.fn(),
+    getWalkthroughCommentId,
+    setWalkthroughCommentId,
   };
 
   const config = new ConfigService();
@@ -224,6 +242,8 @@ function makeProcessor(
     insert,
     insertInProgress,
     updateRetrievalMetadata,
+    getWalkthroughCommentId,
+    setWalkthroughCommentId,
   };
 }
 
@@ -292,6 +312,94 @@ describe('ReviewsProcessor.process — check-run sweep', () => {
     // findMostRecentPriorCheckRun defaults to mockReturnValue(undefined)
     await parts.processor.process(makeJob());
     expect(parts.octokit.rest.checks.update as unknown as jest.Mock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReviewsProcessor.process — in-progress surfaces (Step 4c/4d)', () => {
+  it('posts an in-progress check-run every review and persists its id', async () => {
+    const parts = makeProcessor();
+
+    await parts.processor.process(makeJob());
+
+    const checksCreate = parts.octokit.rest.checks.create as unknown as jest.Mock;
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    expect(checksCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: baseData.owner,
+        repo: baseData.repo,
+        name: 'AI PR Review Copilot',
+        head_sha: expect.stringMatching(/^[0-9a-f]{40}$/),
+        status: 'in_progress',
+      }),
+    );
+    // The returned check_run_id (stub resolves { data: { id: 1 } }) is
+    // persisted on the reserved row.
+    const reservedId = parts.insertInProgress.mock.calls[0][0].id;
+    const setCheckRunId = parts.reviewsRepo.setCheckRunId as unknown as jest.Mock;
+    expect(setCheckRunId).toHaveBeenCalledTimes(1);
+    expect(setCheckRunId).toHaveBeenCalledWith(reservedId, 1);
+  });
+
+  it('posts the in-progress walkthrough on a first review (no existing comment)', async () => {
+    const parts = makeProcessor();
+
+    await parts.processor.process(makeJob());
+
+    // Cold cache → Step 4d createComment carries the in-progress body.
+    const createComment = parts.octokit.rest.issues.createComment as unknown as jest.Mock;
+    expect(createComment).toHaveBeenCalledTimes(1);
+    expect(createComment.mock.calls[0][0].body).toContain('mode=in-progress');
+    // Terminal walkthrough PATCHes the same comment with the result body
+    // (warm cache → updateComment), carrying the review-id marker.
+    const updateComment = parts.octokit.rest.issues.updateComment as unknown as jest.Mock;
+    expect(updateComment).toHaveBeenCalledTimes(1);
+    expect(updateComment.mock.calls[0][0].body).toContain(
+      'ai-pr-review-copilot:v1:review-id=',
+    );
+    expect(updateComment.mock.calls[0][0].body).not.toContain('mode=in-progress');
+  });
+
+  it('does NOT repost in-progress on a re-review (walkthrough already exists)', async () => {
+    // Seed the stateful cache with an existing comment id from the
+    // start — models a PR whose first review already posted a
+    // walkthrough. Step 4d must short-circuit to 'skipped' and never
+    // flip the existing comment back to "in progress".
+    const parts = makeProcessor({ walkthroughCachedId: 999 });
+
+    await parts.processor.process(makeJob());
+
+    // No in-progress (or any) createComment — the existing walkthrough
+    // is left in place.
+    expect(parts.octokit.rest.issues.createComment).not.toHaveBeenCalled();
+    // The only walkthrough write is the terminal PATCH against the
+    // existing comment (id 999) carrying the result body.
+    const updateComment = parts.octokit.rest.issues.updateComment as unknown as jest.Mock;
+    expect(updateComment).toHaveBeenCalledTimes(1);
+    expect(updateComment.mock.calls[0][0].comment_id).toBe(999);
+    expect(updateComment.mock.calls[0][0].body).toContain(
+      'ai-pr-review-copilot:v1:review-id=',
+    );
+    expect(updateComment.mock.calls[0][0].body).not.toContain('mode=in-progress');
+  });
+
+  it('renders the missing-Checks-permission note when the installation lacks Checks permission', async () => {
+    const parts = makeProcessor();
+    // Flip the permission OFF before process() runs. Step 4c short-
+    // circuits (no checks.create / no setCheckRunId) and Step 4d's
+    // in-progress body carries the missing-permission note.
+    (parts.authProvider.hasChecksPermission as jest.Mock).mockReturnValue(false);
+
+    await parts.processor.process(makeJob());
+
+    // No check-run posted and no id persisted.
+    expect(parts.octokit.rest.checks.create as unknown as jest.Mock).not.toHaveBeenCalled();
+    expect(parts.reviewsRepo.setCheckRunId as unknown as jest.Mock).not.toHaveBeenCalled();
+    // The in-progress walkthrough body carries the unavailable-badge note.
+    const createComment = parts.octokit.rest.issues.createComment as unknown as jest.Mock;
+    expect(createComment).toHaveBeenCalledTimes(1);
+    expect(createComment.mock.calls[0][0].body).toContain(
+      'merge-box status badge is unavailable',
+    );
   });
 });
 
@@ -462,10 +570,15 @@ describe('ReviewsProcessor.process — guards', () => {
         expect(parts.runRealReview).not.toHaveBeenCalled();
         // No formal Review POST either.
         expect(parts.octokit.rest.pulls.createReview).not.toHaveBeenCalled();
-        // Walkthrough comment was created (cold cache → createComment).
+        // First review: Step 4d created the in-progress walkthrough
+        // (cold cache → createComment, mode=in-progress), warming the
+        // cache. The size-skip body then PATCHes that same comment.
         expect(parts.octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
-        const commentArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
-        expect(commentArgs.body).toContain('review skipped');
+        const inProgressArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
+        expect(inProgressArgs.body).toContain('mode=in-progress');
+        expect(parts.octokit.rest.issues.updateComment).toHaveBeenCalledTimes(1);
+        const skipArgs = (parts.octokit.rest.issues.updateComment as unknown as jest.Mock).mock.calls[0][0];
+        expect(skipArgs.body).toContain('review skipped');
         // The reserved row was finalized in place — no separate insert.
         expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
         expect(parts.insert).not.toHaveBeenCalled();
@@ -483,10 +596,13 @@ describe('ReviewsProcessor.process — guards', () => {
 
         await parts.processor.process(makeJob());
 
-        const commentArgs = (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock.calls[0][0];
+        // First review: the size-skip terminal body lands on the
+        // updateComment PATCH (Step 4d already created the in-progress
+        // comment and warmed the cache).
+        const skipArgs = (parts.octokit.rest.issues.updateComment as unknown as jest.Mock).mock.calls[0][0];
         // 5 changed lines (3 added + 2 removed), cap of 2.
-        expect(commentArgs.body).toContain('5 changed lines');
-        expect(commentArgs.body).toContain('limit of **2**');
+        expect(skipArgs.body).toContain('5 changed lines');
+        expect(skipArgs.body).toContain('limit of **2**');
       });
     });
 
@@ -578,7 +694,7 @@ describe('ReviewsProcessor.process — guards', () => {
     });
   });
 
-  it('exits clean on empty diff without calling Anthropic or posting, and finalizes a standalone completion row', async () => {
+  it('exits clean on empty diff without calling Anthropic or posting a Review, and finalizes a standalone completion row', async () => {
     const parts = makeProcessor({
       octokit: makeOctokit({
         request: jest.fn().mockResolvedValue({ data: '   \n  ' }),
@@ -588,6 +704,20 @@ describe('ReviewsProcessor.process — guards', () => {
     await parts.processor.process(makeJob());
     expect(parts.runRealReview).not.toHaveBeenCalled();
     expect(parts.octokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    // First-review reality under the new flow: Step 4d already created
+    // the in-progress walkthrough (cold cache → createComment), and the
+    // empty-diff branch marks the row completed and returns WITHOUT
+    // updating the walkthrough to a terminal body — so the comment is
+    // left showing "in progress". This is an open question flagged for a
+    // later task (terminal PATCH of the walkthrough/check-run on empty
+    // diff); we assert the CURRENT behavior so the gap is visible.
+    expect(parts.octokit.rest.issues.createComment).toHaveBeenCalledTimes(1);
+    expect(
+      (parts.octokit.rest.issues.createComment as unknown as jest.Mock).mock
+        .calls[0][0].body,
+    ).toContain('mode=in-progress');
+    // No terminal walkthrough update fired on the empty-diff exit.
+    expect(parts.octokit.rest.issues.updateComment).not.toHaveBeenCalled();
     // The reserved row is reconciled to the dedicated empty-diff marker
     // and marked completed — no separate standalone insert.
     expect(parts.insertInProgress).toHaveBeenCalledTimes(1);
@@ -1098,12 +1228,23 @@ describe('ReviewsProcessor.onApplicationShutdown', () => {
 });
 
 describe('ReviewsProcessor.process — failure walkthrough', () => {
-  // Helper: extract the body strings of every createComment call.
+  // Helper: extract the mode=failed walkthrough body from BOTH
+  // createComment and updateComment calls. A failed-walkthrough body
+  // can land on either surface depending on whether an in-progress
+  // walkthrough already exists when the failure fires:
+  //   - PRE-reservation failures (e.g. pulls.get) run BEFORE Step 4d,
+  //     so no in-progress comment exists yet → createComment.
+  //   - POST-reservation failures (diff-fetch, diff_too_large, agent
+  //     loop) run AFTER Step 4d created+cached the in-progress comment
+  //     → updateComment (PATCH in place).
   function failedWalkthroughBodies(parts: ProcessorParts): string[] {
-    const calls = (
+    const createCalls = (
       parts.octokit.rest.issues.createComment as unknown as jest.Mock
     ).mock.calls;
-    return calls
+    const updateCalls = (
+      parts.octokit.rest.issues.updateComment as unknown as jest.Mock
+    ).mock.calls;
+    return [...createCalls, ...updateCalls]
       .map((c) => c[0]?.body as string | undefined)
       .filter((b): b is string => typeof b === 'string')
       .filter((b) => b.includes('<!-- ai-pr-review-copilot:v1:mode=failed -->'));

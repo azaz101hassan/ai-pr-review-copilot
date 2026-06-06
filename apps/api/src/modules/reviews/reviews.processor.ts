@@ -24,6 +24,7 @@ import {
   formatReviewBody,
   formatWalkthroughBody,
   formatWalkthroughFailedBody,
+  formatWalkthroughInProgressBody,
   formatWalkthroughSkippedBody,
   parseDiffHunks,
   FailureReason,
@@ -67,6 +68,11 @@ import {
 //   4b. Reserve the lifecycle row (insertInProgress) right after the
 //       open-state check, then sweep any prior leaked check-run on this
 //       PR to a terminal 'neutral' state before the new check is posted.
+//   4c. POST the in-progress check-run every review (best-effort); cache
+//       its id on the reserved row via setCheckRunId.
+//   4d. On a PR's FIRST review only (createIfAbsent), POST the in-progress
+//       walkthrough comment; re-reviews leave the existing walkthrough and
+//       update it in place at the terminal post.
 //   5. Fetch unified diff via mediaType.format='diff'.
 //   6. Pre-check: empty diff → mark completed with zero findings,
 //      do not call Anthropic, do not POST. MAX_DIFF_BYTES overflow
@@ -255,6 +261,53 @@ export class ReviewsProcessor
           title: 'Superseded by newer review on this PR.',
           summary: 'A newer review has started on this pull request.',
         });
+      }
+
+      // Step 4c — POST the in-progress check-run (best-effort) and cache
+      // its id on the reserved row. Runs on EVERY review so the bot shows
+      // "in progress" in the PR checks section. tryPostInProgressCheckRun
+      // returns null when the installation lacks the Checks permission or
+      // the POST fails; in that case we simply don't persist an id.
+      const checkRunId = await this.tryPostInProgressCheckRun({
+        octokit,
+        owner: data.owner,
+        repo: data.repo,
+        head_sha: data.head_sha,
+        installation_id: data.installation_id,
+      });
+      if (checkRunId !== null) {
+        this.reviewsRepo.setCheckRunId(reviewId, checkRunId);
+      }
+
+      // Step 4d — POST the in-progress walkthrough ONLY on a PR's first
+      // review (createIfAbsent). On re-reviews the walkthrough already
+      // exists, so we leave the prior result up and let the terminal post
+      // update it in place — we never flip an existing walkthrough back to
+      // "in progress". The missing-permission note is shown when the
+      // Checks C-POST above could not run. Order matters: Step 4c's 403
+      // path flips the permission cache (markChecksPermissionMissing) that
+      // this hasChecksPermission read observes, so 4c must precede 4d.
+      // Tolerated on failure.
+      const inProgressBody = formatWalkthroughInProgressBody({
+        prNodeId: data.pr_node_id,
+        missingChecksPermission: !this.githubAuth.hasChecksPermission(
+          data.installation_id,
+        ),
+      });
+      try {
+        await this.upsertWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          body: inProgressBody,
+          createIfAbsent: true,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `${jobLogPrefix} worker.walkthrough.in_progress_post_failed ${formatBriefError(err)}`,
+        );
       }
 
       // Step 5 — unified diff via mediaType.
@@ -525,8 +578,11 @@ export class ReviewsProcessor
         outsideDiff: partition.outsideDiff,
       });
 
-      // Step 10a — Walkthrough upsert. Failure here is terminal.
-      let walkthroughPosted: 'created' | 'patched';
+      // Step 10a — Walkthrough upsert. Failure here is terminal. The
+      // terminal post omits createIfAbsent, so in practice this resolves
+      // to 'created' or 'patched' ('skipped' is a createIfAbsent-only
+      // outcome); the wider type just mirrors the method signature.
+      let walkthroughPosted: 'created' | 'patched' | 'skipped';
       try {
         walkthroughPosted = await this.upsertWalkthrough({
           octokit,
@@ -691,6 +747,14 @@ export class ReviewsProcessor
   // existing comment in-place so the PR thread isn't flooded.
   // PATCH 404 (comment manually deleted) clears the cache and falls
   // through to the scan/POST path below.
+  //
+  // createIfAbsent (Step 4d's in-progress post): NEVER patch an
+  // existing comment — only create one when none exists. A cached id
+  // (or a marker found by scanning the thread on a cold cache) means
+  // a walkthrough already exists, so we return 'skipped' and leave the
+  // prior result up rather than flipping it back to "in progress". The
+  // scan-before-create is required so a cold cache after a process
+  // restart does not create a duplicate comment.
   private async upsertWalkthrough(args: {
     octokit: Octokit;
     owner: string;
@@ -698,10 +762,45 @@ export class ReviewsProcessor
     pr_number: number;
     pr_node_id: string;
     body: string;
-  }): Promise<'created' | 'patched'> {
-    const { octokit, owner, repo, pr_number, pr_node_id, body } = args;
+    createIfAbsent?: boolean;
+  }): Promise<'created' | 'patched' | 'skipped'> {
+    const { octokit, owner, repo, pr_number, pr_node_id, body, createIfAbsent } =
+      args;
 
     const cachedId = this.pullRequestsRepo.getWalkthroughCommentId(pr_node_id);
+    if (createIfAbsent) {
+      // A cached id means a walkthrough already exists — do not
+      // overwrite it. Leave the prior result up.
+      if (cachedId !== null) {
+        return 'skipped';
+      }
+      // Cold cache: scan the thread before creating so a process
+      // restart (warm thread, empty cache) doesn't create a duplicate.
+      const existing = await this.callWithOneRetry(() =>
+        findWalkthroughCommentId(octokit, {
+          owner,
+          repo,
+          pr_number,
+          pr_node_id,
+        }),
+      );
+      if (existing !== null) {
+        this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, existing);
+        return 'skipped';
+      }
+      const createdId = await this.callWithOneRetry(async () => {
+        const res = await octokit.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: pr_number,
+          body,
+        });
+        return (res.data as { id: number }).id;
+      });
+      this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, createdId);
+      return 'created';
+    }
+
     if (cachedId !== null) {
       try {
         await this.callWithOneRetry(() =>
