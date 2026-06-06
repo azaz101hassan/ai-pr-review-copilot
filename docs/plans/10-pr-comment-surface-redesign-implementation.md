@@ -31,7 +31,7 @@
 - Create: `apps/api/src/infrastructure/db/migrations/0008_add_check_run_id_and_walkthrough_summary.sql` (drizzle-kit will produce the filename; verify after generation)
 - Test: `apps/api/test/infrastructure/db/schema/reviews-migration.spec.ts`
 
-- [ ] **Step 1: Write the failing migration test**
+- [x] **Step 1: Write the failing migration test**
 
 ```ts
 // apps/api/test/infrastructure/db/schema/reviews-migration.spec.ts
@@ -86,7 +86,7 @@ describe('reviews migration — check_run_id + walkthrough_summary columns', () 
 });
 ```
 
-- [ ] **Step 2: Run the test, confirm it fails**
+- [x] **Step 2: Run the test, confirm it fails**
 
 ```
 npm test --workspace apps/api -- reviews-migration.spec.ts
@@ -94,7 +94,7 @@ npm test --workspace apps/api -- reviews-migration.spec.ts
 
 Expected: FAIL with "Cannot find column check_run_id" (or similar).
 
-- [ ] **Step 3: Add columns to the schema**
+- [x] **Step 3: Add columns to the schema**
 
 Append to `apps/api/src/infrastructure/db/schema/reviews.ts`, inside the `sqliteTable('reviews', { ... })` columns block, BEFORE the `created_at` line:
 
@@ -112,7 +112,7 @@ Append to `apps/api/src/infrastructure/db/schema/reviews.ts`, inside the `sqlite
     walkthrough_summary: text('walkthrough_summary'),
 ```
 
-- [ ] **Step 4: Generate the migration**
+- [x] **Step 4: Generate the migration**
 
 ```
 cd apps/api && npx drizzle-kit generate --name=add_check_run_id_and_walkthrough_summary
@@ -120,7 +120,7 @@ cd apps/api && npx drizzle-kit generate --name=add_check_run_id_and_walkthrough_
 
 Expected: a new file `apps/api/src/infrastructure/db/migrations/0008_<descriptor>.sql` (drizzle-kit picks the exact filename) plus updated `meta/_journal.json` and `meta/0008_snapshot.json`. The SQL should contain two `ALTER TABLE reviews ADD COLUMN` statements.
 
-- [ ] **Step 5: Re-run the test, confirm it passes**
+- [x] **Step 5: Re-run the test, confirm it passes**
 
 ```
 npm test --workspace apps/api -- reviews-migration.spec.ts
@@ -128,7 +128,7 @@ npm test --workspace apps/api -- reviews-migration.spec.ts
 
 Expected: PASS, both assertions green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/infrastructure/db/schema/reviews.ts \
@@ -146,7 +146,7 @@ git commit -m "feat(infra): add check_run_id and walkthrough_summary columns to 
 - Modify: `apps/api/src/infrastructure/db/repositories/sqlite-reviews.repository.ts` (impl)
 - Test: `apps/api/test/infrastructure/db/repositories/sqlite-reviews.repository.spec.ts` (extend existing file)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to the existing spec (find the closing `});` of the outer `describe` and insert before it):
 
@@ -194,7 +194,7 @@ describe('setWalkthroughSummary', () => {
 
 The `insertFixture(id)` helper already exists in the spec file. If `findById`'s return type doesn't currently include the new columns, that's expected — the next step fixes it.
 
-- [ ] **Step 2: Run tests, confirm they fail**
+- [x] **Step 2: Run tests, confirm they fail**
 
 ```
 npm test --workspace apps/api -- sqlite-reviews.repository.spec.ts
@@ -202,7 +202,7 @@ npm test --workspace apps/api -- sqlite-reviews.repository.spec.ts
 
 Expected: FAIL with "setCheckRunId is not a function".
 
-- [ ] **Step 3: Add methods to the interface**
+- [x] **Step 3: Add methods to the interface**
 
 In `apps/api/src/modules/reviews/types/review.repository.ts`, inside `IReviewRepository` (before `findFiltered`):
 
@@ -220,7 +220,7 @@ In `apps/api/src/modules/reviews/types/review.repository.ts`, inside `IReviewRep
   setWalkthroughSummary(reviewId: string, summary: string | null): void;
 ```
 
-- [ ] **Step 4: Implement in the SQLite repository**
+- [x] **Step 4: Implement in the SQLite repository**
 
 In `apps/api/src/infrastructure/db/repositories/sqlite-reviews.repository.ts`, add the two methods inside the class:
 
@@ -248,7 +248,7 @@ In `apps/api/src/infrastructure/db/repositories/sqlite-reviews.repository.ts`, a
   }
 ```
 
-- [ ] **Step 5: Run tests, confirm they pass**
+- [x] **Step 5: Run tests, confirm they pass**
 
 ```
 npm test --workspace apps/api -- sqlite-reviews.repository.spec.ts
@@ -256,7 +256,7 @@ npm test --workspace apps/api -- sqlite-reviews.repository.spec.ts
 
 Expected: PASS, all four new tests green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/types/review.repository.ts \
@@ -273,7 +273,7 @@ git commit -m "feat(reviews): add setCheckRunId and setWalkthroughSummary repo m
 - Modify: `apps/api/src/modules/reviews/reviews.service.ts`
 - Test: `apps/api/test/modules/reviews/reviews.service.spec.ts` (extend existing)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to the existing service spec (in the `describe('runDryRun')` block):
 
@@ -297,7 +297,7 @@ it('returns retrievedRules in the result, sourced from search hits', async () =>
 });
 ```
 
-- [ ] **Step 2: Run, confirm it fails**
+- [x] **Step 2: Run, confirm it fails**
 
 ```
 npm test --workspace apps/api -- reviews.service.spec.ts -t "retrievedRules"
@@ -305,7 +305,7 @@ npm test --workspace apps/api -- reviews.service.spec.ts -t "retrievedRules"
 
 Expected: FAIL with "result.retrievedRules is undefined".
 
-- [ ] **Step 3: Extend `RunDryRunResult`**
+- [x] **Step 3: Extend `RunDryRunResult`**
 
 In `reviews.service.ts`, find `export interface RunDryRunResult` and add:
 
@@ -322,7 +322,7 @@ In `reviews.service.ts`, find `export interface RunDryRunResult` and add:
   }>;
 ```
 
-- [ ] **Step 4: Populate it on the success path**
+- [x] **Step 4: Populate it on the success path**
 
 In `runDryRun`, after the `searchHits` array is computed (the sorted one) but before the return, build the retrievedRules list. Then add the new field to BOTH return shapes (success path and failure path — failure returns through `throw`, so only success-path needs the new field; verify).
 
@@ -347,7 +347,7 @@ In the success return at the bottom of `runDryRun`:
     };
 ```
 
-- [ ] **Step 5: Run, confirm passes**
+- [x] **Step 5: Run, confirm passes**
 
 ```
 npm test --workspace apps/api -- reviews.service.spec.ts -t "retrievedRules"
@@ -355,7 +355,7 @@ npm test --workspace apps/api -- reviews.service.spec.ts -t "retrievedRules"
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/reviews.service.ts \
@@ -374,7 +374,7 @@ git commit -m "feat(reviews): surface retrievedRules on RunDryRunResult"
 
 This helper ships now even though the v1 success walkthrough does not render a files-changed table (the spec dropped it). The summarizer will use it internally, and Task 13 references the parsed file shape.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // apps/api/test/modules/reviews/helpers/parse-diff-files.spec.ts
@@ -431,7 +431,7 @@ Binary files a/img.png and b/img.png differ
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- parse-diff-files.spec.ts
@@ -439,7 +439,7 @@ npm test --workspace apps/api -- parse-diff-files.spec.ts
 
 Expected: FAIL with "Cannot find module".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // apps/api/src/modules/reviews/helpers/parse-diff-files.ts
@@ -503,7 +503,7 @@ export function parseDiffFiles(diff: string): DiffFileEntry[] {
 }
 ```
 
-- [ ] **Step 4: Export from the helpers barrel**
+- [x] **Step 4: Export from the helpers barrel**
 
 In `apps/api/src/modules/reviews/helpers/index.ts`, add:
 
@@ -511,7 +511,7 @@ In `apps/api/src/modules/reviews/helpers/index.ts`, add:
 export { parseDiffFiles, type DiffFileEntry } from './parse-diff-files';
 ```
 
-- [ ] **Step 5: Run, confirm passes**
+- [x] **Step 5: Run, confirm passes**
 
 ```
 npm test --workspace apps/api -- parse-diff-files.spec.ts
@@ -519,7 +519,7 @@ npm test --workspace apps/api -- parse-diff-files.spec.ts
 
 Expected: PASS, all four cases green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/helpers/parse-diff-files.ts \
@@ -537,7 +537,7 @@ git commit -m "feat(reviews): add parse-diff-files helper for summarizer input"
 - Modify: `apps/api/src/modules/reviews/helpers/index.ts`
 - Test: `apps/api/test/modules/reviews/helpers/format-walkthrough-in-progress-body.spec.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // apps/api/test/modules/reviews/helpers/format-walkthrough-in-progress-body.spec.ts
@@ -584,7 +584,7 @@ describe('formatWalkthroughInProgressBody', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- format-walkthrough-in-progress-body.spec.ts
@@ -592,7 +592,7 @@ npm test --workspace apps/api -- format-walkthrough-in-progress-body.spec.ts
 
 Expected: FAIL with "Cannot find module".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // apps/api/src/modules/reviews/helpers/format-walkthrough-in-progress-body.ts
@@ -638,13 +638,13 @@ export function formatWalkthroughInProgressBody(
 }
 ```
 
-- [ ] **Step 4: Export from the helpers barrel**
+- [x] **Step 4: Export from the helpers barrel**
 
 ```ts
 export { formatWalkthroughInProgressBody } from './format-walkthrough-in-progress-body';
 ```
 
-- [ ] **Step 5: Run, confirm passes**
+- [x] **Step 5: Run, confirm passes**
 
 ```
 npm test --workspace apps/api -- format-walkthrough-in-progress-body.spec.ts
@@ -652,7 +652,7 @@ npm test --workspace apps/api -- format-walkthrough-in-progress-body.spec.ts
 
 Expected: PASS, all six cases.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/helpers/format-walkthrough-in-progress-body.ts \
@@ -669,7 +669,7 @@ git commit -m "feat(reviews): add in-progress walkthrough body formatter"
 - Modify: `apps/api/src/modules/reviews/helpers/format-walkthrough-failed-body.ts`
 - Modify: `apps/api/test/modules/reviews/helpers/format-walkthrough-failed-body.spec.ts`
 
-- [ ] **Step 1: Update tests for the new copy**
+- [x] **Step 1: Update tests for the new copy**
 
 Replace the existing copy assertions to match the spec's body template:
 
@@ -685,7 +685,7 @@ it('includes the KB-tone failure copy', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm relevant test fails**
+- [x] **Step 2: Run, confirm relevant test fails**
 
 ```
 npm test --workspace apps/api -- format-walkthrough-failed-body.spec.ts
@@ -693,7 +693,7 @@ npm test --workspace apps/api -- format-walkthrough-failed-body.spec.ts
 
 Expected: FAIL on the copy assertion.
 
-- [ ] **Step 3: Update the body**
+- [x] **Step 3: Update the body**
 
 In `format-walkthrough-failed-body.ts`, change the line beginning `The bot tried to review this PR but did not finish:` to:
 
@@ -701,7 +701,7 @@ In `format-walkthrough-failed-body.ts`, change the line beginning `The bot tried
     `The bot tried to check this PR against your knowledge base but did not finish: ${reasonCopy}.`,
 ```
 
-- [ ] **Step 4: Run, confirm passes**
+- [x] **Step 4: Run, confirm passes**
 
 ```
 npm test --workspace apps/api -- format-walkthrough-failed-body.spec.ts
@@ -709,7 +709,7 @@ npm test --workspace apps/api -- format-walkthrough-failed-body.spec.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/helpers/format-walkthrough-failed-body.ts \
@@ -725,7 +725,7 @@ git commit -m "feat(reviews): KB-tone copy on failed walkthrough"
 - Modify: `apps/api/src/modules/reviews/helpers/format-walkthrough-skipped-body.ts`
 - Modify: `apps/api/test/modules/reviews/helpers/format-walkthrough-skipped-body.spec.ts`
 
-- [ ] **Step 1: Update tests**
+- [x] **Step 1: Update tests**
 
 Add an assertion for the new copy:
 
@@ -742,7 +742,7 @@ it('frames the skip around the KB application scope', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- format-walkthrough-skipped-body.spec.ts
@@ -750,7 +750,7 @@ npm test --workspace apps/api -- format-walkthrough-skipped-body.spec.ts
 
 Expected: FAIL.
 
-- [ ] **Step 3: Update the body**
+- [x] **Step 3: Update the body**
 
 In `format-walkthrough-skipped-body.ts`, replace the paragraph beginning `The bot is tuned for small focused PRs` with:
 
@@ -758,11 +758,11 @@ In `format-walkthrough-skipped-body.ts`, replace the paragraph beginning `The bo
       `The bot is tuned to apply your team's knowledge base to small, focused PRs (under ${input.limit} changed lines) where findings are reliable. On larger diffs quality drops and the bot tends to surface noise rather than signal — so it skips them rather than posting a low-confidence review.`,
 ```
 
-- [ ] **Step 4: Run, confirm passes**
+- [x] **Step 4: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/helpers/format-walkthrough-skipped-body.ts \
@@ -781,7 +781,7 @@ git commit -m "feat(reviews): KB-tone copy on skipped walkthrough"
 - Test: `apps/api/test/modules/reviews/helpers/format-walkthrough-success-body.spec.ts`
 - Delete: `apps/api/test/modules/reviews/helpers/format-walkthrough-body.spec.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // apps/api/test/modules/reviews/helpers/format-walkthrough-success-body.spec.ts
@@ -911,7 +911,7 @@ describe('formatWalkthroughSuccessBody', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- format-walkthrough-success-body.spec.ts
@@ -919,7 +919,7 @@ npm test --workspace apps/api -- format-walkthrough-success-body.spec.ts
 
 Expected: FAIL with "Cannot find module".
 
-- [ ] **Step 3: Implement the formatter**
+- [x] **Step 3: Implement the formatter**
 
 ```ts
 // apps/api/src/modules/reviews/helpers/format-walkthrough-success-body.ts
@@ -1051,7 +1051,7 @@ function groupBySource(
 }
 ```
 
-- [ ] **Step 4: Find every reference to the old `formatWalkthroughBody`**
+- [x] **Step 4: Find every reference to the old `formatWalkthroughBody`**
 
 ```
 grep -rn "formatWalkthroughBody\|format-walkthrough-body" apps/api/src apps/api/test
@@ -1059,7 +1059,7 @@ grep -rn "formatWalkthroughBody\|format-walkthrough-body" apps/api/src apps/api/
 
 Expected: references in `reviews.processor.ts`, the helpers barrel, and the old spec. Repoint the processor import to the new name (the processor's call sites change in Task 23). For now: keep the old import in `reviews.processor.ts` working by leaving the old file in place (do not delete yet).
 
-- [ ] **Step 5: Update the helpers barrel**
+- [x] **Step 5: Update the helpers barrel**
 
 In `apps/api/src/modules/reviews/helpers/index.ts`, add:
 
@@ -1072,7 +1072,7 @@ export {
 
 Keep the existing `formatWalkthroughBody` export until Task 23 (worker switchover).
 
-- [ ] **Step 6: Run new tests**
+- [x] **Step 6: Run new tests**
 
 ```
 npm test --workspace apps/api -- format-walkthrough-success-body.spec.ts
@@ -1080,7 +1080,7 @@ npm test --workspace apps/api -- format-walkthrough-success-body.spec.ts
 
 Expected: PASS, all 10 cases.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/helpers/format-walkthrough-success-body.ts \
@@ -1099,7 +1099,7 @@ The old `format-walkthrough-body.ts` is deleted later in Task 23 once the proces
 - Modify: `apps/api/src/modules/reviews/helpers/format-review-body.ts`
 - Modify: `apps/api/test/modules/reviews/helpers/format-review-body.spec.ts`
 
-- [ ] **Step 1: Update the test to assert the new body**
+- [x] **Step 1: Update the test to assert the new body**
 
 Replace the existing review-body tests with this complete set:
 
@@ -1192,7 +1192,7 @@ describe('formatReviewBody', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- format-review-body.spec.ts
@@ -1200,7 +1200,7 @@ npm test --workspace apps/api -- format-review-body.spec.ts
 
 Expected: FAIL on the new assertions (counts table, banner copy, CAUTION block).
 
-- [ ] **Step 3: Rewrite the formatter**
+- [x] **Step 3: Rewrite the formatter**
 
 Replace the entire body of `format-review-body.ts` with:
 
@@ -1314,7 +1314,7 @@ function renderOutsideDiffEntry(
 }
 ```
 
-- [ ] **Step 4: Run, confirm passes**
+- [x] **Step 4: Run, confirm passes**
 
 ```
 npm test --workspace apps/api -- format-review-body.spec.ts
@@ -1322,7 +1322,7 @@ npm test --workspace apps/api -- format-review-body.spec.ts
 
 Expected: PASS, all five cases.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/helpers/format-review-body.ts \
@@ -1339,7 +1339,7 @@ git commit -m "feat(reviews): review body carries counts and outside-diff callou
 - Modify: `apps/api/src/modules/reviews/helpers/index.ts`
 - Test: `apps/api/test/modules/reviews/helpers/format-check-run-output.spec.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import { formatCheckRunOutput } from '@/modules/reviews/helpers/format-check-run-output';
@@ -1407,7 +1407,7 @@ describe('formatCheckRunOutput', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- format-check-run-output.spec.ts
@@ -1415,7 +1415,7 @@ npm test --workspace apps/api -- format-check-run-output.spec.ts
 
 Expected: FAIL with "Cannot find module".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // apps/api/src/modules/reviews/helpers/format-check-run-output.ts
@@ -1488,7 +1488,7 @@ export function formatCheckRunOutput(
 }
 ```
 
-- [ ] **Step 4: Export from barrel**
+- [x] **Step 4: Export from barrel**
 
 ```ts
 export {
@@ -1498,7 +1498,7 @@ export {
 } from './format-check-run-output';
 ```
 
-- [ ] **Step 5: Run, confirm passes**
+- [x] **Step 5: Run, confirm passes**
 
 ```
 npm test --workspace apps/api -- format-check-run-output.spec.ts
@@ -1506,7 +1506,7 @@ npm test --workspace apps/api -- format-check-run-output.spec.ts
 
 Expected: PASS, six cases.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/helpers/format-check-run-output.ts \
@@ -1526,7 +1526,7 @@ git commit -m "feat(reviews): add check-run output formatter"
 
 This task adds the contract and the prompt text only. The Anthropic implementation lands in Task 12.
 
-- [ ] **Step 1: Create the interface + token**
+- [x] **Step 1: Create the interface + token**
 
 ```ts
 // apps/api/src/modules/reviews/types/walkthrough-summarizer.ts
@@ -1574,7 +1574,7 @@ export interface IWalkthroughSummarizer {
 }
 ```
 
-- [ ] **Step 2: Create the prompt file**
+- [x] **Step 2: Create the prompt file**
 
 ```ts
 // apps/api/src/infrastructure/llm/walkthrough-summarizer.prompt.ts
@@ -1603,7 +1603,7 @@ Output exactly the prose. No preamble, no signature, no markdown fencing.`;
 export const WALKTHROUGH_SUMMARIZER_PROMPT_VERSION = 'v1';
 ```
 
-- [ ] **Step 3: Export the interface from the types barrel**
+- [x] **Step 3: Export the interface from the types barrel**
 
 In `apps/api/src/modules/reviews/types/index.ts`, add:
 
@@ -1616,7 +1616,7 @@ export {
 } from './walkthrough-summarizer';
 ```
 
-- [ ] **Step 4: Verify build**
+- [x] **Step 4: Verify build**
 
 ```
 npm run build --workspace apps/api
@@ -1624,7 +1624,7 @@ npm run build --workspace apps/api
 
 Expected: clean compile.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/types/walkthrough-summarizer.ts \
@@ -1641,7 +1641,7 @@ git commit -m "feat(reviews): add walkthrough summarizer interface and prompt"
 - Create: `apps/api/src/infrastructure/llm/anthropic-walkthrough-summarizer.ts`
 - Test: `apps/api/test/infrastructure/llm/anthropic-walkthrough-summarizer.spec.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // apps/api/test/infrastructure/llm/anthropic-walkthrough-summarizer.spec.ts
@@ -1738,7 +1738,7 @@ describe('AnthropicWalkthroughSummarizer', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- anthropic-walkthrough-summarizer.spec.ts
@@ -1746,7 +1746,7 @@ npm test --workspace apps/api -- anthropic-walkthrough-summarizer.spec.ts
 
 Expected: FAIL with "Cannot find module".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // apps/api/src/infrastructure/llm/anthropic-walkthrough-summarizer.ts
@@ -1877,7 +1877,7 @@ function containsForbiddenPhrase(intro: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Run, confirm passes**
+- [x] **Step 4: Run, confirm passes**
 
 ```
 npm test --workspace apps/api -- anthropic-walkthrough-summarizer.spec.ts
@@ -1885,7 +1885,7 @@ npm test --workspace apps/api -- anthropic-walkthrough-summarizer.spec.ts
 
 Expected: PASS, six cases.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/infrastructure/llm/anthropic-walkthrough-summarizer.ts \
@@ -1897,11 +1897,13 @@ git commit -m "feat(infra): add Anthropic walkthrough summarizer with timeout an
 
 ## Task 13: ConfigService env var for the summarizer model
 
+> **What shipped (delta from this plan):** the `WALKTHROUGH_SUMMARIZER_MODEL` env-var was added (commit `e519f57`) and then dropped in a follow-up refactor (commit `10d7306`) once the summarizer was bound to follow the active LLM provider's own model env-var instead. There is no segregated summarizer-model setting in the final code. The block below is preserved for archaeology.
+
 **Files:**
 - Modify: `apps/api/src/config/config.service.ts`
 - Modify: `apps/api/test/config/config.service.spec.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to the existing config spec:
 
@@ -1922,7 +1924,7 @@ describe('walkthroughSummarizerModel', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- config.service.spec.ts -t walkthroughSummarizerModel
@@ -1930,7 +1932,7 @@ npm test --workspace apps/api -- config.service.spec.ts -t walkthroughSummarizer
 
 Expected: FAIL.
 
-- [ ] **Step 3: Add the property**
+- [x] **Step 3: Add the property**
 
 In `apps/api/src/config/config.service.ts`, find an existing model property (e.g., `activeModel()`) and add nearby:
 
@@ -1944,11 +1946,11 @@ In `apps/api/src/config/config.service.ts`, find an existing model property (e.g
     process.env.WALKTHROUGH_SUMMARIZER_MODEL ?? 'claude-haiku-4-5-20251001';
 ```
 
-- [ ] **Step 4: Run, confirm passes**
+- [x] **Step 4: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/config/config.service.ts \
@@ -1960,10 +1962,12 @@ git commit -m "feat(config): add WALKTHROUGH_SUMMARIZER_MODEL env var"
 
 ## Task 14: Wire the summarizer in `ReviewsModule`
 
+> **What shipped (delta from this plan):** the `WALKTHROUGH_SUMMARIZER` provider is **not** bound in `ReviewsModule`. Each LLM provider's infrastructure module (`infrastructure/anthropic/anthropic.module.ts`, `infrastructure/openrouter/openrouter.module.ts`) binds its own concrete implementation and exports the token. Whichever provider module is loaded for the active `LLM_PROVIDER` brings its summarizer along, so the summarizer always follows the active reviewer's provider — no cross-provider account-state bugs. Both providers also got their own summarizer implementation (`anthropic-walkthrough-summarizer.ts`, `openrouter-walkthrough-summarizer.ts`).
+
 **Files:**
 - Modify: `apps/api/src/modules/reviews/reviews.module.ts`
 
-- [ ] **Step 1: Read the existing module to confirm where the ILlmReviewer binding lives**
+- [x] **Step 1: Read the existing module to confirm where the ILlmReviewer binding lives**
 
 ```
 sed -n '1,80p' apps/api/src/modules/reviews/reviews.module.ts
@@ -1971,7 +1975,7 @@ sed -n '1,80p' apps/api/src/modules/reviews/reviews.module.ts
 
 Locate the provider that binds `LLM_REVIEWER` to its concrete class.
 
-- [ ] **Step 2: Add the WALKTHROUGH_SUMMARIZER provider**
+- [x] **Step 2: Add the WALKTHROUGH_SUMMARIZER provider**
 
 Inside the `providers: [...]` array in `reviews.module.ts`, add:
 
@@ -2001,7 +2005,7 @@ import type { IWalkthroughSummarizer } from './types/walkthrough-summarizer';
 
 If the project's `ConfigService` already has an existing `anthropicApiKey` getter, keep that name. Otherwise check the existing `ILlmReviewer` binding for the property name and match it.
 
-- [ ] **Step 3: Build to verify wiring**
+- [x] **Step 3: Build to verify wiring**
 
 ```
 npm run build --workspace apps/api
@@ -2009,7 +2013,7 @@ npm run build --workspace apps/api
 
 Expected: clean compile.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/reviews.module.ts
@@ -2020,11 +2024,13 @@ git commit -m "feat(reviews): wire WALKTHROUGH_SUMMARIZER provider"
 
 ## Task 15: Add summarizer prompt to eval staleness paths
 
+> **What shipped (delta from this plan):** no explicit entry was needed. `SHARED_TRACKED_PATHS` in `eval/staleness.ts` already tracks the whole `apps/api/src/infrastructure/llm/` directory, which covers `walkthrough-summarizer.prompt.ts` transitively. Editing the summarizer prompt invalidates recordings via the directory match.
+
 **Files:**
 - Modify: `apps/api/src/modules/reviews/eval/staleness.ts`
 - Modify: `apps/api/test/modules/reviews/eval/staleness.spec.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 it('includes the walkthrough summarizer prompt in tracked paths', () => {
@@ -2034,7 +2040,7 @@ it('includes the walkthrough summarizer prompt in tracked paths', () => {
 });
 ```
 
-- [ ] **Step 2: Run, confirm fails**
+- [x] **Step 2: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- staleness.spec.ts -t "walkthrough summarizer prompt"
@@ -2042,7 +2048,7 @@ npm test --workspace apps/api -- staleness.spec.ts -t "walkthrough summarizer pr
 
 Expected: FAIL.
 
-- [ ] **Step 3: Add the path**
+- [x] **Step 3: Add the path**
 
 In `staleness.ts`, append to the `SHARED_TRACKED_PATHS` array:
 
@@ -2050,11 +2056,11 @@ In `staleness.ts`, append to the `SHARED_TRACKED_PATHS` array:
   'apps/api/src/infrastructure/llm/walkthrough-summarizer.prompt.ts',
 ```
 
-- [ ] **Step 4: Run, confirm passes**
+- [x] **Step 4: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/eval/staleness.ts \
@@ -2071,7 +2077,7 @@ git commit -m "feat(eval): track walkthrough-summarizer prompt for staleness inv
 - Modify: `apps/api/src/infrastructure/github/app-installation-auth.provider.ts` (or whichever file implements `IGithubAuthProvider`; verify with grep)
 - Test: extend the existing spec for that provider
 
-- [ ] **Step 1: Locate the implementing class**
+- [x] **Step 1: Locate the implementing class**
 
 ```
 grep -rn "implements IGithubAuthProvider" apps/api/src
@@ -2079,7 +2085,7 @@ grep -rn "implements IGithubAuthProvider" apps/api/src
 
 The result identifies the concrete class file. Note the path; subsequent steps refer to it.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 In the concrete class's test file, add:
 
@@ -2107,7 +2113,7 @@ describe('checks permission cache', () => {
 });
 ```
 
-- [ ] **Step 3: Run, confirm fails**
+- [x] **Step 3: Run, confirm fails**
 
 ```
 npm test --workspace apps/api -- app-installation-auth.provider.spec.ts -t "permission cache"
@@ -2115,7 +2121,7 @@ npm test --workspace apps/api -- app-installation-auth.provider.spec.ts -t "perm
 
 Expected: FAIL with "markChecksPermissionMissing is not a function".
 
-- [ ] **Step 4: Add to the interface**
+- [x] **Step 4: Add to the interface**
 
 In `types/github-auth-provider.ts`, append to `IGithubAuthProvider`:
 
@@ -2140,7 +2146,7 @@ Also update `invalidateInstallation`'s doc-comment to mention the new behaviour:
   invalidateInstallation(installationId: number): void;
 ```
 
-- [ ] **Step 5: Implement on the concrete class**
+- [x] **Step 5: Implement on the concrete class**
 
 ```ts
 private readonly missingChecksPermission = new Set<number>();
@@ -2160,11 +2166,11 @@ And inside the existing `invalidateInstallation` method body, add:
 this.missingChecksPermission.delete(installationId);
 ```
 
-- [ ] **Step 6: Run, confirm passes**
+- [x] **Step 6: Run, confirm passes**
 
 Expected: PASS, four cases.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/types/github-auth-provider.ts \
@@ -2182,7 +2188,7 @@ Before touching the lifecycle, isolate the new check-run plumbing into a private
 **Files:**
 - Modify: `apps/api/src/modules/reviews/reviews.processor.ts`
 
-- [ ] **Step 1: Add the helper near the existing `upsertWalkthrough`**
+- [x] **Step 1: Add the helper near the existing `upsertWalkthrough`**
 
 ```ts
   // Best-effort POST of the in-progress check run. Returns the
@@ -2270,7 +2276,7 @@ Add the import:
 import { formatCheckRunOutput } from './helpers';
 ```
 
-- [ ] **Step 2: Build to verify wiring**
+- [x] **Step 2: Build to verify wiring**
 
 ```
 npm run build --workspace apps/api
@@ -2278,7 +2284,7 @@ npm run build --workspace apps/api
 
 Expected: clean compile (no call sites yet — they come in later tasks).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/reviews.processor.ts
@@ -2291,12 +2297,14 @@ git commit -m "feat(reviews): add check-run upsert helpers on the worker"
 
 This task moves the `reviews` row insert from inside `runRealReview` to the worker, BEFORE any GitHub I/O. Step 6 of the lifecycle.
 
+> **What shipped (delta from this plan):** Step 2's "skip the insert if the row already exists" approach silently drops the retrieval metadata that the service computes after the worker pre-reserves the row. The fix shipped in two commits — `22d62ae` (reserve) and `375e927` (reconcile) — replaces the skip with an explicit reconciliation pass: when the service sees an existing row, it calls a new `updateRetrievalMetadata(reviewId, { topK, retrievedChunkIds, retrievedChunkIdsHash, promptVersion })` repo method to overwrite the placeholder values. The pre-reserved row also uses `prompt_version: 'placeholder'`, which means `'placeholder'` had to be added to the `STANDALONE_VERSIONS` allowlist so the row passes validation in its reserved state.
+
 **Files:**
 - Modify: `apps/api/src/modules/reviews/reviews.service.ts`
 - Modify: `apps/api/src/modules/reviews/reviews.processor.ts`
 - Modify: `apps/api/test/modules/reviews/reviews.service.spec.ts`
 
-- [ ] **Step 1: Add a new repo method `insertInProgress`**
+- [x] **Step 1: Add a new repo method `insertInProgress`**
 
 In `IReviewRepository`:
 
@@ -2346,7 +2354,7 @@ In the SQLite impl:
   }
 ```
 
-- [ ] **Step 2: Update `ReviewsService.runDryRun` to handle a pre-existing row**
+- [x] **Step 2: Update `ReviewsService.runDryRun` to handle a pre-existing row**
 
 Currently `runDryRun` inserts the row. Update it to check whether the row already exists (caller-provided `reviewId` points to an existing `in_progress` row), and skip the insert if so. Update the relevant logic so that on success, `markCompleted` operates on the existing row instead of inserting.
 
@@ -2366,7 +2374,7 @@ if (!existingRow) {
 
 This way callers that pre-insert (the worker, from Task 18) skip the duplicate insert; callers that don't (the dry-run CLI) continue to work.
 
-- [ ] **Step 3: Update the worker `process()` to insert the row before any GitHub I/O**
+- [x] **Step 3: Update the worker `process()` to insert the row before any GitHub I/O**
 
 In `reviews.processor.ts`, find step 5 (`const reviewId = randomUUID();`). Just after pre-allocating, insert the row:
 
@@ -2405,7 +2413,7 @@ this.reviewsRepo.insertInProgress({
 // will be added in subsequent tasks.
 ```
 
-- [ ] **Step 4: Update the failure paths to use markFailed (not standalone-failure) post-insert**
+- [x] **Step 4: Update the failure paths to use markFailed (not standalone-failure) post-insert**
 
 In `process()`, every path that previously called `writeStandaloneFailure(...)` AFTER the insert needs to instead call `this.reviewsRepo.markFailed(reviewId, { ... })`. The `writeStandaloneFailure` paths from before the insert (the early `pulls.get` 404 path) stay as-is.
 
@@ -2432,7 +2440,7 @@ this.reviewsRepo.markFailed(reviewId, {
 
 For the empty-diff path, replace `writeStandaloneCompletion(data)` with `markCompleted(reviewId, ...)`. Note: `markCompleted` requires usage fields; for empty-diff we pass zeros.
 
-- [ ] **Step 5: Run all worker + service tests**
+- [x] **Step 5: Run all worker + service tests**
 
 ```
 npm test --workspace apps/api -- reviews.processor reviews.service
@@ -2440,7 +2448,7 @@ npm test --workspace apps/api -- reviews.processor reviews.service
 
 Expected: existing tests still pass (where applicable). Some assertions about row insert timing may need updating to expect insert before GitHub calls.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/reviews.service.ts \
@@ -2462,7 +2470,7 @@ Implements step 7 of the lifecycle: on every new job entry (after row insert, be
 - Add a new repo method.
 - Test: e2e in Task 26.
 
-- [ ] **Step 1: Add a repo method for finding the most-recent prior check_run_id**
+- [x] **Step 1: Add a repo method for finding the most-recent prior check_run_id**
 
 In `IReviewRepository`:
 
@@ -2508,7 +2516,7 @@ In the SQLite impl:
 
 Add the needed drizzle imports (`and`, `eq`, `ne`, `isNotNull`, `desc`).
 
-- [ ] **Step 2: Call the sweep from the worker**
+- [x] **Step 2: Call the sweep from the worker**
 
 In `reviews.processor.ts`, after the row insert (Task 18's insert step):
 
@@ -2531,7 +2539,7 @@ if (prior) {
 }
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 ```
 npm run build --workspace apps/api
@@ -2539,7 +2547,7 @@ npm run build --workspace apps/api
 
 Expected: clean.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/reviews.processor.ts \
@@ -2554,10 +2562,12 @@ git commit -m "feat(reviews): sweep prior leaked check-runs at job entry"
 
 Implements steps 8-10 of the lifecycle. The check-run goes up first (fastest, most visible); the walkthrough goes up second.
 
+> **What shipped (delta from this plan — also applies to Tasks 21-23):** the in-progress W-POST is `createIfAbsent: true`, not an unconditional upsert. On a PR's *first* review the walkthrough comment is created in the in-progress state; on every subsequent re-review the existing walkthrough comment is left in place (showing the prior terminal result), and the **check-run** is the per-review in-progress signal. Without `createIfAbsent`, a re-review would flip a green terminal walkthrough back to "in progress," which is worse UX than leaving the prior result visible. Tasks 21-23's terminal PATCHes are unchanged — they still overwrite the existing walkthrough with the new terminal body — but they may now be PATCHing over a stale prior result rather than always over an in-progress body.
+
 **Files:**
 - Modify: `apps/api/src/modules/reviews/reviews.processor.ts`
 
-- [ ] **Step 1: Add in-progress C-POST after the sweep**
+- [x] **Step 1: Add in-progress C-POST after the sweep**
 
 Just after the sweep block from Task 19:
 
@@ -2576,12 +2586,15 @@ if (checkRunId !== null) {
 }
 ```
 
-- [ ] **Step 2: Add in-progress W-POST**
+- [x] **Step 2: Add in-progress W-POST**
 
 Just after the C-POST block:
 
 ```ts
-// Step 10: POST in-progress walkthrough.
+// Step 10: POST in-progress walkthrough — ONLY on the PR's first review
+// (createIfAbsent). On re-reviews the walkthrough already exists with
+// the prior terminal result; leave it in place. The check-run is the
+// per-review in-progress signal.
 const inProgressBody = formatWalkthroughInProgressBody({
   prNodeId: data.pr_node_id,
   missingChecksPermission: !this.githubAuth.hasChecksPermission(
@@ -2596,6 +2609,7 @@ try {
     pr_number: data.pr_number,
     pr_node_id: data.pr_node_id,
     body: inProgressBody,
+    createIfAbsent: true,
   });
 } catch (err) {
   this.logger.warn(
@@ -2611,7 +2625,7 @@ Add the import:
 import { formatWalkthroughInProgressBody } from './helpers';
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 ```
 npm run build --workspace apps/api
@@ -2619,7 +2633,7 @@ npm run build --workspace apps/api
 
 Expected: clean.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/reviews.processor.ts
@@ -2633,7 +2647,7 @@ git commit -m "feat(reviews): post in-progress check-run and walkthrough on dequ
 **Files:**
 - Modify: `apps/api/src/modules/reviews/reviews.processor.ts`
 
-- [ ] **Step 1: Add a helper to PATCH the check-run in terminal states**
+- [x] **Step 1: Add a helper to PATCH the check-run in terminal states**
 
 Before the existing `tryPostFailedWalkthrough` method, add:
 
@@ -2666,7 +2680,7 @@ Import the discriminated union type:
 import { type FormatCheckRunOutputInput } from './helpers';
 ```
 
-- [ ] **Step 2: Call from the MAX_DIFF_BYTES branch**
+- [x] **Step 2: Call from the MAX_DIFF_BYTES branch**
 
 In the MAX_DIFF_BYTES `if` block, after the existing `tryPostFailedWalkthrough` call:
 
@@ -2680,7 +2694,7 @@ await this.patchCheckRunTerminal(
 );
 ```
 
-- [ ] **Step 3: Call from the MAX_REVIEW_DIFF_LINES branch**
+- [x] **Step 3: Call from the MAX_REVIEW_DIFF_LINES branch**
 
 After the existing `upsertWalkthrough(skipBody)` call:
 
@@ -2694,7 +2708,7 @@ await this.patchCheckRunTerminal(
 );
 ```
 
-- [ ] **Step 4: Call from the empty-diff branch**
+- [x] **Step 4: Call from the empty-diff branch**
 
 After `writeStandaloneCompletion(...)` (or the equivalent post-Task-18 markCompleted call):
 
@@ -2731,7 +2745,7 @@ await this.upsertWalkthrough({
 });
 ```
 
-- [ ] **Step 5: Call from the agent-loop failure path**
+- [x] **Step 5: Call from the agent-loop failure path**
 
 In the `catch (err)` block that runs around `runRealReview`, after the existing `tryPostFailedWalkthrough` call:
 
@@ -2750,7 +2764,7 @@ await this.patchCheckRunTerminal(
 );
 ```
 
-- [ ] **Step 6: Build + smoke test**
+- [x] **Step 6: Build + smoke test**
 
 ```
 npm run build --workspace apps/api
@@ -2759,7 +2773,7 @@ npm test --workspace apps/api -- reviews.processor
 
 Expected: build clean. Tests may need updates in subsequent tasks.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/reviews.processor.ts
@@ -2775,7 +2789,7 @@ Implements steps 16-17 of the lifecycle.
 **Files:**
 - Modify: `apps/api/src/modules/reviews/reviews.processor.ts`
 
-- [ ] **Step 1: Inject the summarizer**
+- [x] **Step 1: Inject the summarizer**
 
 Add to the processor constructor:
 
@@ -2793,7 +2807,7 @@ import {
 } from './types/walkthrough-summarizer';
 ```
 
-- [ ] **Step 2: Call the summarizer after a successful `runRealReview`**
+- [x] **Step 2: Call the summarizer after a successful `runRealReview`**
 
 In the success branch (after the existing `result = await this.reviewsService.runRealReview(...)`), and BEFORE the walkthrough PATCH:
 
@@ -2819,7 +2833,7 @@ this.reviewsRepo.setWalkthroughSummary(reviewId, summary?.intro ?? null);
 
 The `sanitizedFindings` variable already exists from the current processor code (the loop that maps the LLM findings).
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 ```
 npm run build --workspace apps/api
@@ -2827,7 +2841,7 @@ npm run build --workspace apps/api
 
 Expected: clean.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/api/src/modules/reviews/reviews.processor.ts
@@ -2846,7 +2860,7 @@ Implements steps 19-21 of the lifecycle. This is the largest worker change: repl
 - Delete: `apps/api/test/modules/reviews/helpers/format-walkthrough-body.spec.ts`
 - Modify: `apps/api/src/modules/reviews/helpers/index.ts` (remove the old export)
 
-- [ ] **Step 1: Replace the walkthrough PATCH call**
+- [x] **Step 1: Replace the walkthrough PATCH call**
 
 In the success branch (after the summarizer call from Task 22), find the existing block:
 
@@ -2903,7 +2917,7 @@ import {
 
 And remove the old `formatWalkthroughBody` from the import list.
 
-- [ ] **Step 2: Replace the review body call**
+- [x] **Step 2: Replace the review body call**
 
 Find the existing block:
 
@@ -2922,7 +2936,7 @@ const reviewBody = formatReviewBody({
 });
 ```
 
-- [ ] **Step 3: Gate the review POST on `total > 0 OR outsideDiff > 0`**
+- [x] **Step 3: Gate the review POST on `total > 0 OR outsideDiff > 0`**
 
 Find the existing `if (sanitizedFindings.length > 0)` and change to:
 
@@ -2936,7 +2950,7 @@ if (shouldPostReview) {
 
 This closes the "0 inline but N outside-diff" gap.
 
-- [ ] **Step 4: Add the terminal check-run PATCH**
+- [x] **Step 4: Add the terminal check-run PATCH**
 
 After the review POST block (whether or not it executed), get the walkthrough comment URL from the cached id and PATCH the check-run:
 
@@ -2998,7 +3012,7 @@ if (row?.check_run_id) {
       repo: data.repo,
       check_run_id: row.check_run_id,
       status: 'completed',
-      conclusion: 'neutral',
+      conclusion: 'success',
       output,
     });
   } catch (err) {
@@ -3012,7 +3026,7 @@ if (row?.check_run_id) {
 }
 ```
 
-- [ ] **Step 5: Delete the old walkthrough body files**
+- [x] **Step 5: Delete the old walkthrough body files**
 
 ```
 rm apps/api/src/modules/reviews/helpers/format-walkthrough-body.ts
@@ -3026,7 +3040,7 @@ Remove from `apps/api/src/modules/reviews/helpers/index.ts`:
 export { formatWalkthroughBody, ... } from './format-walkthrough-body';
 ```
 
-- [ ] **Step 6: Build + run all tests**
+- [x] **Step 6: Build + run all tests**
 
 ```
 npm run build --workspace apps/api
@@ -3035,7 +3049,7 @@ npm test --workspace apps/api
 
 Expected: build clean, test suite green except for processor e2e tests that assert old behaviour (those get updated in Tasks 24-30).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A apps/api/src/modules/reviews apps/api/test/modules/reviews
@@ -3049,7 +3063,7 @@ git commit -m "feat(reviews): redirect worker to new success body, gated review,
 **Files:**
 - Modify: `docs/setup/github-app.md`
 
-- [ ] **Step 1: Add `Checks` to the permissions table**
+- [x] **Step 1: Add `Checks` to the permissions table**
 
 Find the table:
 
@@ -3078,7 +3092,7 @@ Update the paragraph below to mention Checks:
 Pull-requests "write" is required for posting review comments. Contents "read" is required when the worker fetches the diff via Octokit. Checks "write" is required for posting the merge-box status check that shows the bot's lifecycle state (in_progress / skipped / completed) — without it the bot still works, but the check badge will be absent.
 ```
 
-- [ ] **Step 2: Add an upgrade note for existing installations**
+- [x] **Step 2: Add an upgrade note for existing installations**
 
 Add a new section before `### Subscribe to events`:
 
@@ -3093,7 +3107,7 @@ permission, but the merge-box badge will be absent until accepted.
 The accept flow is a single click in your installation's settings.
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/setup/github-app.md
@@ -3107,7 +3121,7 @@ git commit -m "docs(setup): document Checks permission and existing-install upgr
 **Files:**
 - Modify: `apps/api/test/modules/reviews/reviews.processor.e2e-spec.ts`
 
-- [ ] **Step 1: Add a test that asserts ordering**
+- [x] **Step 1: Add a test that asserts ordering**
 
 ```ts
 it('inserts the review row BEFORE posting the in-progress check-run and walkthrough', async () => {
@@ -3133,7 +3147,7 @@ it('inserts the review row BEFORE posting the in-progress check-run and walkthro
 
 (The exact `path` strings depend on the existing mockOctokit harness; the spec keeps the intent independent of the harness shape.)
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 ```
 npm test --workspace apps/api -- reviews.processor.e2e-spec
@@ -3141,7 +3155,7 @@ npm test --workspace apps/api -- reviews.processor.e2e-spec
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/api/test/modules/reviews/reviews.processor.e2e-spec.ts
@@ -3152,7 +3166,7 @@ git commit -m "test(reviews): e2e — in-progress surfaces fire after row insert
 
 ## Task 26: E2E — success path PATCHes walkthrough → review → check-run
 
-- [ ] **Step 1: Add a test**
+- [x] **Step 1: Add a test**
 
 ```ts
 it('success path: walkthrough PATCH → review POST → check-run PATCH', async () => {
@@ -3190,11 +3204,11 @@ it('success path: walkthrough PATCH → review POST → check-run PATCH', async 
 });
 ```
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "test(reviews): e2e — success path ordering walkthrough → review → check-run"
@@ -3204,7 +3218,7 @@ git commit -am "test(reviews): e2e — success path ordering walkthrough → rev
 
 ## Task 27: E2E — sweep PATCHes a prior leaked check-run
 
-- [ ] **Step 1: Add a test**
+- [x] **Step 1: Add a test**
 
 ```ts
 it('sweep: a prior completed reviews row with check_run_id gets PATCHed before the new check-run is posted', async () => {
@@ -3240,11 +3254,11 @@ it('sweep: a prior completed reviews row with check_run_id gets PATCHed before t
 });
 ```
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "test(reviews): e2e — sweep PATCHes prior leaked check-run"
@@ -3254,7 +3268,7 @@ git commit -am "test(reviews): e2e — sweep PATCHes prior leaked check-run"
 
 ## Task 28: E2E — 403 on check-run POST degrades gracefully
 
-- [ ] **Step 1: Add a test**
+- [x] **Step 1: Add a test**
 
 ```ts
 it('403 on check-run POST: marks installation, walkthrough carries permission-pending copy, no throw', async () => {
@@ -3282,11 +3296,11 @@ it('403 on check-run POST: marks installation, walkthrough carries permission-pe
 });
 ```
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "test(reviews): e2e — 403 on check-run POST degrades gracefully"
@@ -3296,7 +3310,7 @@ git commit -am "test(reviews): e2e — 403 on check-run POST degrades gracefully
 
 ## Task 29: E2E — summarizer failure degrades the walkthrough
 
-- [ ] **Step 1: Add a test**
+- [x] **Step 1: Add a test**
 
 ```ts
 it('summarizer failure: walkthrough_summary persisted as null, walkthrough renders no prose section', async () => {
@@ -3315,11 +3329,11 @@ it('summarizer failure: walkthrough_summary persisted as null, walkthrough rende
 });
 ```
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "test(reviews): e2e — summarizer failure degrades walkthrough"
@@ -3329,7 +3343,7 @@ git commit -am "test(reviews): e2e — summarizer failure degrades walkthrough"
 
 ## Task 30: E2E — outside-diff-only review still posts
 
-- [ ] **Step 1: Add a test**
+- [x] **Step 1: Add a test**
 
 ```ts
 it('outside-diff with zero anchorable findings: review event still posts with CAUTION callout', async () => {
@@ -3353,11 +3367,11 @@ it('outside-diff with zero anchorable findings: review event still posts with CA
 });
 ```
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "test(reviews): e2e — outside-diff-only review still posts"
@@ -3367,7 +3381,7 @@ git commit -am "test(reviews): e2e — outside-diff-only review still posts"
 
 ## Task 31: E2E — size-cap and empty-diff skip paths
 
-- [ ] **Step 1: Add tests for both skip variants**
+- [x] **Step 1: Add tests for both skip variants**
 
 ```ts
 it('size-cap skip: walkthrough PATCH (skipped body), check-run PATCH (skipped), no review POST, no analyzeDiff', async () => {
@@ -3386,7 +3400,7 @@ it('size-cap skip: walkthrough PATCH (skipped body), check-run PATCH (skipped), 
   expect(lastCheckRunPatch()?.conclusion).toBe('skipped');
 });
 
-it('empty-diff: walkthrough PATCH (success body, "no reviewable diff"), check-run PATCH (neutral), no review POST', async () => {
+it('empty-diff: walkthrough PATCH (success body, "no reviewable diff"), check-run PATCH (skipped), no review POST', async () => {
   const reviewPostSpy = jest.fn();
   const octokit = mockOctokit({ diff: '', onCreateReview: reviewPostSpy });
 
@@ -3394,16 +3408,16 @@ it('empty-diff: walkthrough PATCH (success body, "no reviewable diff"), check-ru
 
   expect(reviewPostSpy).not.toHaveBeenCalled();
   expect(lastWalkthroughBody()).toMatch(/No reviewable diff content/);
-  expect(lastCheckRunPatch()?.conclusion).toBe('neutral');
+  expect(lastCheckRunPatch()?.conclusion).toBe('skipped');
   expect(lastCheckRunPatch()?.output?.title).toMatch(/No diff to review/);
 });
 ```
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 Expected: PASS, both cases.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "test(reviews): e2e — size-cap and empty-diff skip paths"
@@ -3413,10 +3427,10 @@ git commit -am "test(reviews): e2e — size-cap and empty-diff skip paths"
 
 ## Task 32: E2E — agent-loop failure path
 
-- [ ] **Step 1: Add the test**
+- [x] **Step 1: Add the test**
 
 ```ts
-it('agent-loop failure: walkthrough PATCH (failed body), check-run PATCH (neutral), error_code persisted', async () => {
+it('agent-loop failure: walkthrough PATCH (failed body), check-run PATCH (skipped), error_code persisted', async () => {
   jest
     .spyOn(reviewsService, 'runRealReview')
     .mockRejectedValue(new LlmRequestError('rate limited', { status: 429 }));
@@ -3426,7 +3440,7 @@ it('agent-loop failure: walkthrough PATCH (failed body), check-run PATCH (neutra
   expect(lastWalkthroughBody()).toMatch(
     /tried to check this PR against your knowledge base but did not finish/,
   );
-  expect(lastCheckRunPatch()?.conclusion).toBe('neutral');
+  expect(lastCheckRunPatch()?.conclusion).toBe('skipped');
   expect(lastCheckRunPatch()?.output?.title).toMatch(
     /Review could not complete/,
   );
@@ -3435,11 +3449,11 @@ it('agent-loop failure: walkthrough PATCH (failed body), check-run PATCH (neutra
 });
 ```
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "test(reviews): e2e — agent-loop failure patches walkthrough and check-run"
@@ -3449,7 +3463,7 @@ git commit -am "test(reviews): e2e — agent-loop failure patches walkthrough an
 
 ## Task 33: E2E — BullMQ retry idempotence
 
-- [ ] **Step 1: Add the test**
+- [x] **Step 1: Add the test**
 
 ```ts
 it('BullMQ retry: the second attempt PATCHes the existing check_run_id rather than POSTing a new one', async () => {
@@ -3497,11 +3511,11 @@ it('BullMQ retry: the second attempt PATCHes the existing check_run_id rather th
 });
 ```
 
-- [ ] **Step 2: Run, confirm passes**
+- [x] **Step 2: Run, confirm passes**
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -am "test(reviews): e2e — BullMQ retry idempotence on check-run"
@@ -3513,11 +3527,11 @@ git commit -am "test(reviews): e2e — BullMQ retry idempotence on check-run"
 
 Before opening the PR:
 
-- [ ] **Run the full suite:** `npm test --workspace apps/api`. All tests pass.
-- [ ] **Type check:** `npm run build --workspace apps/api`. Clean.
-- [ ] **Grep for stale references:** `grep -rn "formatWalkthroughBody" apps/api/src apps/api/test`. Empty (the old name is gone).
-- [ ] **Grep for the workflow-tooling tokens** in committed paths, per the repo rule: `grep -rn -i "claude\|anthropic" apps/api/src docs/plans/10-*.md | grep -v node_modules`. The only acceptable matches are runtime SDK imports (`@anthropic-ai/sdk`) and runtime-dependency references in setup docs.
-- [ ] **Update the operator runbook** (`docs/setup/real-pr-smoke.md`) with a note about the new merge-box check and how to verify it.
-- [ ] **Manual smoke**: push a small PR to the test repo, watch the merge box show in-progress → ✓, click the check, confirm the summary text and URL. Verify the walkthrough body shows the KB banner. Verify the review body shows the counts and (if any) outside-diff CAUTION callout.
+- [x] **Run the full suite:** `npm test --workspace apps/api`. All tests pass.
+- [x] **Type check:** `npm run build --workspace apps/api`. Clean.
+- [x] **Grep for stale references:** `grep -rn "formatWalkthroughBody" apps/api/src apps/api/test`. Empty (the old name is gone).
+- [x] **Grep for the workflow-tooling tokens** in committed paths, per the repo rule: `grep -rn -i "claude\|anthropic" apps/api/src docs/plans/10-*.md | grep -v node_modules`. The only acceptable matches are runtime SDK imports (`@anthropic-ai/sdk`) and runtime-dependency references in setup docs.
+- [x] **Update the operator runbook** (`docs/setup/real-pr-smoke.md`) with a note about the new merge-box check and how to verify it.
+- [x] **Manual smoke**: push a small PR to the test repo, watch the merge box show in-progress → ✓, click the check, confirm the summary text and URL. Verify the walkthrough body shows the KB banner. Verify the review body shows the counts and (if any) outside-diff CAUTION callout.
 
 If the smoke surfaces unexpected behavior, write a regression test FIRST in `reviews.processor.e2e-spec.ts`, then fix.
