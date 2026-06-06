@@ -45,3 +45,7 @@ export {
   formatWalkthroughInProgressBody,
   FormatWalkthroughInProgressBodyInput,
 } from './format-walkthrough-in-progress-body';
+export {
+  formatWalkthroughSuccessBody,
+  FormatWalkthroughSuccessBodyInput,
+} from './format-walkthrough-success-body';
