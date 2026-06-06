@@ -29,6 +29,13 @@ export class ConfigService {
   readonly anthropicApiKey: string;
   readonly anthropicModel: string;
 
+  // Model id passed to the walkthrough summarizer's Anthropic
+  // client. Defaults to a Haiku-class model since the call is
+  // short-prose-only and ~$0.001-0.003 per review. Tunable so
+  // operators can downgrade to nano-tier or upgrade to Sonnet
+  // for testing.
+  readonly walkthroughSummarizerModel: string;
+
   /** Active LLM provider. Set via `LLM_PROVIDER`. Defaults to anthropic. */
   readonly llmProvider: LlmProvider;
 
@@ -137,6 +144,8 @@ export class ConfigService {
         process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
       );
     }
+    this.walkthroughSummarizerModel =
+      process.env.WALKTHROUGH_SUMMARIZER_MODEL ?? 'claude-haiku-4-5-20251001';
     this.llmSpikeVerbose = parseBooleanFlag(process.env.LLM_SPIKE_VERBOSE, false);
     this.enableDryRun = this.resolveEnableDryRun(
       process.env.ENABLE_DRY_RUN,
