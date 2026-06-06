@@ -73,6 +73,17 @@ export const reviews = sqliteTable(
       .notNull()
       .default(0),
     cache_hit_count: integer('cache_hit_count').notNull().default(0),
+    // GitHub Check Run id, cached per-review (per head_sha) so the
+    // worker can PATCH the in-progress check to its terminal
+    // conclusion after the agent loop completes. Null when the
+    // installation has not accepted the Checks permission (the
+    // C-POST returns 403; the worker logs and skips the PATCH).
+    check_run_id: integer('check_run_id'),
+    // 1-2 paragraph LLM-generated prose intro embedded in the
+    // walkthrough's success body. Null when the summarizer call
+    // failed (graceful degrade: the walkthrough renders the
+    // mechanical scaffold without prose).
+    walkthrough_summary: text('walkthrough_summary'),
     created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
     completed_at: integer('completed_at', { mode: 'timestamp_ms' }),
   },
