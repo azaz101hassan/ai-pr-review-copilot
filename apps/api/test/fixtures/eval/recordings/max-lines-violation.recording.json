@@ -233,7 +233,7 @@
     "seedCorpusVersion": "v1",
     "expectedSetHash": "80878730eb1078d6de9e168103498e51f79470182b1e64046f24682bbfd9cd7b",
     "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
-    "trackedPathsHash": "5ddf0d49502beec825a0950ef08bcd479ce4bfe2bb2183f2dd97fad7e448738f",
+    "trackedPathsHash": "5b4c6c64344a91b6bf282566cf4e742b8160ffa98972a271a9e285e773c44c13",
     "llmProvider": "openrouter"
   }
 }
