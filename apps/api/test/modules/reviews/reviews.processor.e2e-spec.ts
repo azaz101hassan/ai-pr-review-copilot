@@ -605,4 +605,69 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     const checksCreate = authProvider.octokit.rest.checks.create as unknown as jest.Mock;
     expect(checksCreate).toHaveBeenCalledTimes(1);
   });
+
+  it('summarizer failure persists a null walkthrough_summary and the success body omits the prose section but keeps the knowledge-base banner', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Exercise the summarizer-failure path for this test only.
+    summarizer.summarize.mockResolvedValue(null);
+
+    // Spy on insertInProgress (callThrough) to recover the worker-allocated
+    // review id so we can read the real SQLite row back after process().
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const issuesUpdateComment = octokit.rest.issues.updateComment as unknown as jest.Mock;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+
+    // process() must NOT throw -- the summarizer is best-effort and a
+    // null result is a normal (non-fatal) outcome.
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // Recover the worker-allocated review id from the spy.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+
+    // --- Assertion 1: real-DB (the net-new fact) ---
+    // setWalkthroughSummary was called with null (summary?.intro ?? null
+    // when summary is null). Prove the value round-tripped through REAL
+    // SQLite as a genuine NULL -- the unit spec (which mocks
+    // setWalkthroughSummary) cannot assert this.
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.walkthrough_summary).toBeNull();
+    // The review still completed -- the summarizer is best-effort.
+    expect(row?.status).toBe('completed');
+
+    // --- Assertion 2: terminal walkthrough body omits the prose intro ---
+    // Step 8 POSTed the in-progress comment (cold cache -> createComment).
+    // Step 13a then PATCHes it to the terminal success body (updateComment).
+    // The terminal body is updateComment.mock.calls[0][0].body.
+    // When intro is null the formatter never pushes the "### Summary" block
+    // (format-walkthrough-success-body.ts line 64-66: `if (input.intro) {
+    //   lines.push('', '### Summary', ...)`), so the heading must be absent.
+    expect(issuesUpdateComment).toHaveBeenCalledTimes(1);
+    const terminalBody = issuesUpdateComment.mock.calls[0][0].body as string;
+    expect(terminalBody).not.toContain('### Summary');
+
+    // --- Assertion 3: success body still carries the KB banner ---
+    // The knowledge-base banner is always emitted regardless of the intro
+    // (format-walkthrough-success-body.ts line 61: the blockquote line is
+    // pushed unconditionally before the intro guard). Assert the static
+    // prefix that appears on every success body.
+    expect(terminalBody).toContain(
+      "Reviewed against your team's knowledge base",
+    );
+
+    // --- Assertion 4: it IS the success body ---
+    // The mode marker distinguishes this from the in-progress or failed body.
+    expect(terminalBody).toContain('<!-- ai-pr-review-copilot:v1:mode=success -->');
+
+    // --- Assertion 5: sanity --- summarizer called once, review still posted ---
+    expect(summarizer.summarize).toHaveBeenCalledTimes(1);
+    // The stub LLM emits one finding for the no-var fixture so shouldPostReview
+    // is true and createReview fires even though the summarizer returned null.
+    expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+  });
 });
