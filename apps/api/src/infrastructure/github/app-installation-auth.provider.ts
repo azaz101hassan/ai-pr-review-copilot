@@ -32,6 +32,7 @@ const OCTOKIT_REQUEST_TIMEOUT_MS = 30_000;
 export class AppInstallationAuthProvider implements IGithubAuthProvider {
   private readonly logger = new Logger(AppInstallationAuthProvider.name);
   private readonly cache = new Map<number, Octokit>();
+  private readonly missingChecksPermission = new Set<number>();
 
   constructor(private readonly config: ConfigService) {}
 
@@ -51,9 +52,23 @@ export class AppInstallationAuthProvider implements IGithubAuthProvider {
 
   // Reset the cached Octokit for a given installation. Useful when a
   // 401 surfaces and the operator has rotated the PEM or uninstalled
-  // the App.
+  // the App. Also clears the missing-checks-permission flag so the
+  // next review re-detects after a re-auth.
   invalidateInstallation(installationId: number): void {
     this.cache.delete(installationId);
+    this.missingChecksPermission.delete(installationId);
+  }
+
+  // Track installations where the worker has observed a 403 on a
+  // check-run POST — the "Checks" permission was not granted. Once
+  // recorded, hasChecksPermission returns false so the worker skips
+  // check-run calls rather than hammering a known-forbidden endpoint.
+  markChecksPermissionMissing(installationId: number): void {
+    this.missingChecksPermission.add(installationId);
+  }
+
+  hasChecksPermission(installationId: number): boolean {
+    return !this.missingChecksPermission.has(installationId);
   }
 
   // Test seam — overridden in spec to return a stub Octokit without

@@ -130,6 +130,8 @@ function setup(opts: SetupOpts = {}) {
   const authProvider: IGithubAuthProvider = {
     forInstallation: jest.fn().mockReturnValue(octokit),
     invalidateInstallation: jest.fn(),
+    markChecksPermissionMissing: jest.fn(),
+    hasChecksPermission: jest.fn().mockReturnValue(true),
   };
 
   const runRealReview = jest.fn().mockImplementation(async (input: {

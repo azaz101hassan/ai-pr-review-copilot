@@ -56,4 +56,26 @@ describe('AppInstallationAuthProvider', () => {
     expect(a).not.toBe(b);
     expect(provider.callLog).toEqual([42, 42]);
   });
+
+  describe('checks permission cache', () => {
+    it('hasChecksPermission returns true by default', () => {
+      expect(provider.hasChecksPermission(42)).toBe(true);
+    });
+
+    it('markChecksPermissionMissing flips hasChecksPermission to false', () => {
+      provider.markChecksPermissionMissing(42);
+      expect(provider.hasChecksPermission(42)).toBe(false);
+    });
+
+    it('is scoped per installation', () => {
+      provider.markChecksPermissionMissing(42);
+      expect(provider.hasChecksPermission(43)).toBe(true);
+    });
+
+    it('invalidateInstallation clears the missing-permission flag', () => {
+      provider.markChecksPermissionMissing(42);
+      provider.invalidateInstallation(42);
+      expect(provider.hasChecksPermission(42)).toBe(true);
+    });
+  });
 });

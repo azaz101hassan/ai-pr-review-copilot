@@ -120,6 +120,8 @@ function makeProcessor(
   const authProvider: IGithubAuthProvider = {
     forInstallation: jest.fn().mockReturnValue(octokit),
     invalidateInstallation: jest.fn(),
+    markChecksPermissionMissing: jest.fn(),
+    hasChecksPermission: jest.fn().mockReturnValue(true),
   };
 
   const runRealReview = jest.fn();
@@ -733,6 +735,8 @@ describe('ReviewsProcessor.drainGracefully', () => {
     const authProvider: IGithubAuthProvider = {
       forInstallation: jest.fn(),
       invalidateInstallation: jest.fn(),
+      markChecksPermissionMissing: jest.fn(),
+      hasChecksPermission: jest.fn().mockReturnValue(true),
     };
     const markRowsFailedByIdSet = jest.fn();
     const reviewsService = {

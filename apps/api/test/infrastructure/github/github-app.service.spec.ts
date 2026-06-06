@@ -18,6 +18,16 @@ const stubAuthProvider: IGithubAuthProvider = {
       'invalidateInstallation should not be called from the probe path',
     );
   },
+  markChecksPermissionMissing: () => {
+    throw new Error(
+      'markChecksPermissionMissing should not be called from the probe path',
+    );
+  },
+  hasChecksPermission: () => {
+    throw new Error(
+      'hasChecksPermission should not be called from the probe path',
+    );
+  },
 };
 
 // Subclass exposes a settable probe-client behavior so tests can stub
