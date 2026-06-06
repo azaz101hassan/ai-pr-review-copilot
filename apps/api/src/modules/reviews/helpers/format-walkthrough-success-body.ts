@@ -22,6 +22,11 @@ export interface FormatWalkthroughSuccessBodyInput {
     severity: FindingWithSeverity['severity'];
   }>;
   intro: string | null;
+  // True when the worker is also posting a Review (inline findings and/or
+  // an outside-diff callout). Only then do we render the footer pointing at
+  // "the review below"; on a fully clean review no Review is posted, so the
+  // footer would be misleading and is omitted.
+  reviewPosted: boolean;
   missingChecksPermission?: boolean;
   sanitize?: SanitizeFn;
 }
@@ -75,7 +80,9 @@ export function formatWalkthroughSuccessBody(
     lines.push('</details>');
   }
 
-  lines.push('', '_See the review below for the per-line findings and severity rollup._');
+  if (input.reviewPosted) {
+    lines.push('', '_See the review below for the per-line findings and severity rollup._');
+  }
 
   if (input.missingChecksPermission) {
     lines.push(

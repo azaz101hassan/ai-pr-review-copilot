@@ -1,7 +1,7 @@
-// Severity-rollup counts used by the two body formatters. Both
-// format-review-body (the slim Review body) and
-// format-walkthrough-body (the editable Walkthrough body) carry
-// the same 3-column counts table, so the shape is shared.
+// Severity-rollup counts used across the body/check-run formatters —
+// the slim Review body (format-review-body) and the terminal check-run
+// output (format-check-run-output) both carry the same 3-column rollup,
+// so the shape is shared.
 
 export interface FindingCounts {
   error: number;

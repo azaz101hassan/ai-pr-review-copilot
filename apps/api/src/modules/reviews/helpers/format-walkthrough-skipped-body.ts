@@ -1,8 +1,8 @@
 // Walkthrough body posted when the worker skips a PR because its diff
 // exceeds MAX_REVIEW_DIFF_LINES. Distinct from the normal-review body
-// (format-walkthrough-body.ts) — different shape, no counts table, no
-// outside-diff details — but uses the same outer marker so
-// upsertWalkthrough can PATCH it in place on re-runs of the same PR.
+// (format-walkthrough-success-body.ts) — different shape, no rules-cited
+// block, no summary — but uses the same outer marker so upsertWalkthrough
+// can PATCH it in place on re-runs of the same PR.
 
 export interface FormatWalkthroughSkippedBodyInput {
   prNodeId: string;

@@ -12,6 +12,7 @@ function baseInput(): FormatWalkthroughSuccessBodyInput {
     retrievedRulesCount: 40,
     firingRules: [],
     intro: null,
+    reviewPosted: true,
     missingChecksPermission: false,
     // Inject identity sanitizer: the sanitize-finding-markdown module
     // is stubbed under Jest (ESM-only pipeline). Using the real stub
@@ -101,5 +102,32 @@ describe('formatWalkthroughSuccessBody', () => {
   it('appends the permission-pending line when missingChecksPermission is true', () => {
     const body = formatWalkthroughSuccessBody({ ...baseInput(), missingChecksPermission: true });
     expect(body).toMatch(/merge-box status badge is unavailable/);
+  });
+
+  it('renders the "see the review below" footer when reviewPosted is true', () => {
+    const body = formatWalkthroughSuccessBody({ ...baseInput(), reviewPosted: true });
+    expect(body).toContain(
+      'See the review below for the per-line findings and severity rollup.',
+    );
+  });
+
+  it('omits the "see the review below" footer when reviewPosted is false (clean review, no Review posted)', () => {
+    const body = formatWalkthroughSuccessBody({
+      ...baseInput(),
+      reviewPosted: false,
+      intro: 'This PR is clean.',
+      firingRules: [
+        { rule_id: 'r1', source: 'a.json', title: 'A rule', severity: 'info' },
+      ],
+    });
+    // The misleading footer is gone...
+    expect(body).not.toContain('See the review below');
+    // ...but the rest of the body still renders: markers, KB banner,
+    // the Summary intro, and the Rules cited block.
+    expect(body).toContain('<!-- ai-pr-review-copilot:v1:mode=success -->');
+    expect(body).toMatch(/top \*\*40\*\* rules retrieved/);
+    expect(body).toContain('### Summary');
+    expect(body).toContain('This PR is clean.');
+    expect(body).toContain('Rules cited (1)');
   });
 });

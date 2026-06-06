@@ -296,6 +296,109 @@ describe('ReviewsProcessor.process — happy path', () => {
   });
 });
 
+describe('ReviewsProcessor.process — terminal check-run (Step 13c)', () => {
+  it('PATCHes the check-run to success on a completed review', async () => {
+    const parts = makeProcessor();
+    await parts.processor.process(makeJob());
+
+    const checksUpdate = parts.octokit.rest.checks.update as unknown as jest.Mock;
+    // The only checks.update on this happy path is the terminal Step 13c
+    // PATCH (no prior leaked run → no sweep). The in-progress check-run id
+    // is 1 (the checks.create stub), so the PATCH targets check_run_id 1
+    // and flips it to a green completed/success.
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    expect(checksUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        check_run_id: 1,
+        status: 'completed',
+        conclusion: 'success',
+      }),
+    );
+    // The output carries a success title (1 finding on the happy path).
+    expect(checksUpdate.mock.calls[0][0].output.title).toContain('against your knowledge base');
+  });
+
+  it('fails the row and throws when the success check-run PATCH fails', async () => {
+    const err: Error & { status?: number } = new Error('Internal Server Error');
+    err.status = 500;
+    const octokit = makeOctokit();
+    // The terminal Step 13c PATCH is the only checks.update on this path
+    // (no sweep), so rejecting checks.update outright exercises the
+    // check_run_patch_failed branch.
+    (octokit.rest.checks.update as unknown as jest.Mock).mockRejectedValue(err);
+    const parts = makeProcessor({ octokit });
+
+    const { UnrecoverableError } = jest.requireActual('bullmq');
+    await expect(parts.processor.process(makeJob())).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+    expect(parts.markFailed).toHaveBeenCalledTimes(1);
+    const [reviewId, patch] = parts.markFailed.mock.calls[0];
+    expect(typeof reviewId).toBe('string');
+    expect(patch.error_code).toBe('check_run_patch_failed');
+    expect(patch.error_status).toBe(500);
+  });
+
+  it('posts the Review when there are outside-diff findings but zero inline (gap closed)', async () => {
+    // A finding whose location_hint parses but points at a file NOT in the
+    // diff → partition.outsideDiff is non-empty while partition.anchorable
+    // stays empty. The old gate (sanitizedFindings.length > 0) and the new
+    // gate (shouldPostReview) both post here, but the new gate makes the
+    // intent explicit: a Review still goes up carrying only the
+    // outside-diff callout, with an empty inline comments[] array.
+    const parts = makeProcessor();
+    parts.runRealReview.mockImplementation(async (input: { reviewId?: string }) => ({
+      ...happyServiceResult(input.reviewId),
+      findings: [
+        {
+          id: 'f-out',
+          review_id: input.reviewId,
+          rule_id: 'rule.out',
+          severity: 'warning' as const,
+          title: 'Outside-diff finding',
+          message: 'Points at a file not in this diff.',
+          location_hint: 'totally/other.ts:5',
+          citation: 'n/a',
+          created_at: new Date(),
+        },
+      ],
+    }));
+
+    await parts.processor.process(makeJob());
+
+    const createReview = parts.octokit.rest.pulls.createReview as unknown as jest.Mock;
+    expect(createReview).toHaveBeenCalledTimes(1);
+    // No inline comments anchored — the Review posts with an empty
+    // comments[] array plus the outside-diff callout in the body.
+    expect(createReview.mock.calls[0][0].comments).toEqual([]);
+  });
+
+  it('clean review (0 findings) posts no Review, a success "No findings" check-run, and a walkthrough WITHOUT the "see the review below" footer', async () => {
+    const parts = makeProcessor();
+    parts.runRealReview.mockImplementation(async (input: { reviewId?: string }) => ({
+      ...happyServiceResult(input.reviewId),
+      findings: [],
+    }));
+
+    await parts.processor.process(makeJob());
+
+    // No Review posted on a fully clean review.
+    expect(parts.octokit.rest.pulls.createReview as unknown as jest.Mock).not.toHaveBeenCalled();
+    // The terminal check-run PATCH is a SUCCESS with the "No findings" title.
+    const checksUpdate = parts.octokit.rest.checks.update as unknown as jest.Mock;
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    expect(checksUpdate.mock.calls[0][0].conclusion).toBe('success');
+    expect(checksUpdate.mock.calls[0][0].output.title).toContain('No findings');
+    // The terminal walkthrough (warm cache → updateComment) carries the
+    // success body but omits the misleading "see the review below" footer.
+    const updateComment = parts.octokit.rest.issues.updateComment as unknown as jest.Mock;
+    expect(updateComment).toHaveBeenCalledTimes(1);
+    const walkthroughBody = updateComment.mock.calls[0][0].body;
+    expect(walkthroughBody).toContain('mode=success');
+    expect(walkthroughBody).not.toContain('See the review below');
+  });
+});
+
 describe('ReviewsProcessor.process — walkthrough summarizer (Step 11/12)', () => {
   it('calls the summarizer with the diff, findings, and retrieved rules on success, and persists the intro', async () => {
     const parts = makeProcessor();
@@ -389,7 +492,10 @@ describe('ReviewsProcessor.process — check-run sweep', () => {
       excludingReviewId: expect.any(String),
     });
     const checksUpdate = parts.octokit.rest.checks.update as unknown as jest.Mock;
-    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    // Two PATCHes on this happy path: the sweep retires the prior leaked
+    // run (4242) to neutral, then Step 13c PATCHes THIS review's
+    // in-progress check-run (id 1) to its terminal success state.
+    expect(checksUpdate).toHaveBeenCalledTimes(2);
     expect(checksUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         owner: baseData.owner,
@@ -403,13 +509,30 @@ describe('ReviewsProcessor.process — check-run sweep', () => {
         },
       }),
     );
+    // The terminal Step 13c PATCH is a SUCCESS conclusion against the
+    // current review's own in-progress check-run.
+    expect(checksUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        check_run_id: 1,
+        status: 'completed',
+        conclusion: 'success',
+      }),
+    );
   });
 
-  it('does not PATCH any check-run when there is no prior leaked run', async () => {
+  it('does not PATCH a sweep (neutral) check-run when there is no prior leaked run', async () => {
     const parts = makeProcessor();
     // findMostRecentPriorCheckRun defaults to mockReturnValue(undefined)
     await parts.processor.process(makeJob());
-    expect(parts.octokit.rest.checks.update as unknown as jest.Mock).not.toHaveBeenCalled();
+    const checksUpdate = parts.octokit.rest.checks.update as unknown as jest.Mock;
+    // No sweep PATCH (no prior leaked run) — so the ONLY checks.update is
+    // the terminal Step 13c success PATCH against this review's own
+    // in-progress check-run; no neutral "superseded" PATCH fires.
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    expect(checksUpdate.mock.calls[0][0].conclusion).toBe('success');
+    expect(checksUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ conclusion: 'neutral' }),
+    );
   });
 });
 

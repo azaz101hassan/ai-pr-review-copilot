@@ -22,7 +22,7 @@ import {
   formatCheckRunOutput,
   formatInlineCommentBody,
   formatReviewBody,
-  formatWalkthroughBody,
+  formatWalkthroughSuccessBody,
   formatWalkthroughEmptyBody,
   formatWalkthroughFailedBody,
   formatWalkthroughInProgressBody,
@@ -102,12 +102,18 @@ import {
 //       setWalkthroughSummary — for the success body (wired in a later
 //       task) and the dashboard.
 //   13. Format the body with the self-identifying header + UUID-validated
-//       marker; then POST in two steps that match the inline
-//       `Step 13a`/`Step 13b` markers:
-//        13a. upsert the walkthrough comment (terminal body).
+//       marker; then POST in three steps that match the inline
+//       `Step 13a`/`Step 13b`/`Step 13c` markers:
+//        13a. upsert the walkthrough success comment (terminal body).
 //        13b. POST the inlined Review (event=COMMENT, commit_id OMITTED
 //             so GitHub defaults to the PR's current branch tip);
-//             skipped on zero findings.
+//             posted when there is anything to show inline OR an
+//             outside-diff callout (shouldPostReview), skipped on a
+//             fully clean review.
+//        13c. PATCH the Step 7 in-progress check-run to its terminal
+//             SUCCESS state (a completed review shows a green check),
+//             linking the freshly-posted walkthrough. Skipped only when
+//             no in-progress check-run was posted (no Checks permission).
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -680,11 +686,26 @@ export class ReviewsProcessor
       });
       const counts = countBySeverity(sanitizedFindings);
 
-      const walkthroughBody = formatWalkthroughBody({
+      // A Review is posted when there is anything to show inline OR an
+      // outside-diff callout. Drives both the body footer and the POST gate
+      // below (closes the "0 inline but N outside-diff" gap).
+      const shouldPostReview =
+        sanitizedFindings.length > 0 || partition.outsideDiff.length > 0;
+
+      const firingRules = computeFiringRules(
+        sanitizedFindings,
+        result.retrievedRules,
+      );
+      const walkthroughBody = formatWalkthroughSuccessBody({
         prNodeId: data.pr_node_id,
         reviewId,
-        counts,
-        outsideDiff: partition.outsideDiff,
+        retrievedRulesCount: result.retrievedRules.length,
+        firingRules,
+        intro: summary?.intro ?? null,
+        reviewPosted: shouldPostReview,
+        missingChecksPermission: !this.githubAuth.hasChecksPermission(
+          data.installation_id,
+        ),
       });
 
       // Step 13a — Walkthrough upsert. Failure here is terminal. The
@@ -714,9 +735,11 @@ export class ReviewsProcessor
         throw new UnrecoverableError(formatBriefError(err));
       }
 
-      // Step 13b — inlined Review (skip on zero findings).
+      // Step 13b — inlined Review. Posted when there is anything to show
+      // inline OR an outside-diff callout (shouldPostReview); skipped on a
+      // fully clean review.
       let inlinePosted = false;
-      if (sanitizedFindings.length > 0) {
+      if (shouldPostReview) {
         const reviewBody = formatReviewBody({
           reviewId,
           counts,
@@ -793,6 +816,45 @@ export class ReviewsProcessor
             completed_at: new Date(),
             error_status: status,
             error_code: errorCode,
+          });
+          throw new UnrecoverableError(formatBriefError(err));
+        }
+      }
+
+      // Step 13c — terminal check-run PATCH. Posting order is load-bearing:
+      // walkthrough (13a) then Review (13b) then check-run, so the check's
+      // summary can link the freshly-posted walkthrough. NOT tolerated: a
+      // failure here flips the row to failed (the surface set did not fully
+      // land) and throws Unrecoverable, consistent with 13a/13b. Skipped only
+      // when no in-progress check-run was posted (no Checks permission).
+      if (checkRunId !== null) {
+        const walkthroughCommentId = this.pullRequestsRepo.getWalkthroughCommentId(
+          data.pr_node_id,
+        );
+        const walkthroughUrl = walkthroughCommentId
+          ? `https://github.com/${data.owner}/${data.repo}/pull/${data.pr_number}#issuecomment-${walkthroughCommentId}`
+          : `https://github.com/${data.owner}/${data.repo}/pull/${data.pr_number}`;
+        const output = formatCheckRunOutput({
+          mode: 'success',
+          findingsCount: sanitizedFindings.length,
+          retrievedRulesCount: result.retrievedRules.length,
+          walkthroughCommentUrl: walkthroughUrl,
+          counts,
+        });
+        try {
+          await octokit.rest.checks.update({
+            owner: data.owner,
+            repo: data.repo,
+            check_run_id: checkRunId,
+            status: 'completed',
+            conclusion: 'success',
+            output,
+          });
+        } catch (err) {
+          this.reviewsRepo.markFailed(reviewId, {
+            completed_at: new Date(),
+            error_status: readStatus(err),
+            error_code: 'check_run_patch_failed',
           });
           throw new UnrecoverableError(formatBriefError(err));
         }
@@ -1261,6 +1323,17 @@ function countBySeverity(findings: { severity: 'error' | 'warning' | 'info' }[])
     else info += 1;
   }
   return { error, warning, info, total: error + warning + info };
+}
+
+// The success body's "Rules cited" block lists only the retrieved rules
+// that actually produced a finding (a rule fires when at least one
+// finding carries its rule_id). Preserves the retrieval order/shape.
+function computeFiringRules(
+  findings: FindingWithSeverity[],
+  retrievedRules: Array<{ rule_id: string; source: string; title: string; severity: 'error' | 'warning' | 'info' }>,
+): Array<{ rule_id: string; source: string; title: string; severity: 'error' | 'warning' | 'info' }> {
+  const firingRuleIds = new Set(findings.map((f) => f.rule_id));
+  return retrievedRules.filter((r) => firingRuleIds.has(r.rule_id));
 }
 
 // Terminal Anthropic error codes — codes for which a retry would be

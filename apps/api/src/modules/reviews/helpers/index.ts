@@ -20,10 +20,6 @@ export {
   FormatInlineCommentBodyInput,
 } from './format-inline-comment';
 export {
-  formatWalkthroughBody,
-  FormatWalkthroughBodyInput,
-} from './format-walkthrough-body';
-export {
   formatWalkthroughSkippedBody,
   FormatWalkthroughSkippedBodyInput,
 } from './format-walkthrough-skipped-body';
