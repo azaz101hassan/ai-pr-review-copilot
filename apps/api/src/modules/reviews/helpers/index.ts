@@ -20,10 +20,6 @@ export {
   FormatInlineCommentBodyInput,
 } from './format-inline-comment';
 export {
-  formatWalkthroughBody,
-  FormatWalkthroughBodyInput,
-} from './format-walkthrough-body';
-export {
   formatWalkthroughSkippedBody,
   FormatWalkthroughSkippedBodyInput,
 } from './format-walkthrough-skipped-body';
@@ -37,3 +33,24 @@ export {
   findWalkthroughCommentId,
   FindWalkthroughCommentIdArgs,
 } from './find-walkthrough-comment-id';
+export {
+  parseDiffFiles,
+  DiffFileEntry,
+} from './parse-diff-files';
+export {
+  formatWalkthroughInProgressBody,
+  FormatWalkthroughInProgressBodyInput,
+} from './format-walkthrough-in-progress-body';
+export {
+  formatWalkthroughEmptyBody,
+  FormatWalkthroughEmptyBodyInput,
+} from './format-walkthrough-empty-body';
+export {
+  formatWalkthroughSuccessBody,
+  FormatWalkthroughSuccessBodyInput,
+} from './format-walkthrough-success-body';
+export {
+  formatCheckRunOutput,
+  FormatCheckRunOutputInput,
+  CheckRunOutput,
+} from './format-check-run-output';

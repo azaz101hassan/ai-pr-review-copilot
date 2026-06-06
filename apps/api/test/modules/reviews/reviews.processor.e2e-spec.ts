@@ -1,0 +1,1095 @@
+import { DynamicModule, INestApplication, ValidationPipe } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { Test } from '@nestjs/testing';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type { Job } from 'bullmq';
+import type { Octokit } from 'octokit';
+import { ConfigModule, ConfigService } from '@/config';
+import { DatabaseModule } from '@/infrastructure/db';
+import { EmbeddingsModule, EmbeddingsService } from '@/modules/embeddings';
+import { EMBEDDING_PROVIDER } from '@/modules/embeddings/types/embedding-provider';
+import { VECTOR_STORE } from '@/modules/embeddings/types/vector-store';
+import { LLM_REVIEWER } from '@/modules/reviews/types/llm-reviewer';
+import {
+  GITHUB_AUTH_PROVIDER,
+  IGithubAuthProvider,
+} from '@/modules/reviews/types/github-auth-provider';
+import {
+  WALKTHROUGH_SUMMARIZER,
+  IWalkthroughSummarizer,
+} from '@/modules/reviews/types/walkthrough-summarizer';
+import {
+  REVIEW_REPOSITORY,
+  REVIEW_FINDING_REPOSITORY,
+  IReviewRepository,
+  IReviewFindingRepository,
+} from '@/modules/reviews/types';
+import { PULL_REQUEST_REPOSITORY } from '@/modules/webhooks/types/pull-request.repository';
+import type { IPullRequestRepository } from '@/modules/webhooks/types/pull-request.repository';
+import type { PullRequestRecord } from '@/modules/webhooks/types/pull-request.types';
+import { ReviewsService } from '@/modules/reviews';
+import { ReviewsModule } from '@/modules/reviews/reviews.module';
+import { ReviewsProcessor } from '@/modules/reviews/reviews.processor';
+import type { ReviewJobData } from '@/modules/reviews/types/review-queue';
+import { HealthController } from '@/system';
+import {
+  EnvState,
+  StubEmbeddingProvider,
+  StubLlmReviewer,
+  StubVectorStore,
+  loadFixture,
+  restoreEnv,
+  snapshotEnv,
+} from './support/reviews-e2e-stubs';
+
+// Processor worker-lifecycle e2e. The sibling UNIT spec
+// (reviews.processor.spec.ts) already covers the octokit-surface
+// behavior with FULLY-MOCKED repositories. The net-new value HERE is
+// REAL persistence + REAL DI wiring: every test asserts at least one
+// fact about the live SQLite repositories that the unit spec cannot —
+// that the row actually round-trips through insertInProgress /
+// setCheckRunId / markCompleted, that the GitHub check-run id lands on
+// the real reviews row, etc.
+//
+// We boot the same module the dry-run e2e builds (mirroring AppModule),
+// but with SKIP_REDIS_PROBE=true so the BullMQ explorer never tries to
+// construct a Worker against the no-op queue. That means ReviewsProcessor
+// is NOT registered as a provider, so we construct it MANUALLY from the
+// booted app's real providers (the same manual-construction pattern the
+// unit spec's drainGracefully tests use). The processor's process() path
+// never touches `this.worker`, so no BullMQ handles leak.
+
+// Stable test ids returned by the recording mock octokit.
+const TEST_CHECK_RUN_ID = 4242;
+const TEST_WALKTHROUGH_COMMENT_ID = 555;
+
+function makeTestModule(): DynamicModule {
+  return {
+    module: class TestProcessorAppModule {},
+    imports: [
+      ConfigModule,
+      DatabaseModule,
+      ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 30 }]),
+      EmbeddingsModule,
+      ReviewsModule.forRoot(),
+    ],
+    controllers: [HealthController],
+    providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  };
+}
+
+// Recording mock Octokit. Each method is a jest.fn() with a sensible
+// default so the full success path runs; tests reach into specific
+// fns (e.g. checks.create) and read `.mock.invocationCallOrder` to
+// assert cross-surface ordering. Defaults:
+//   - pulls.get → an OPEN PR
+//   - request (the diff fetch) → a real no-var fixture so retrieval
+//     surfaces the no-var rule and the default echo-first-only stub
+//     LLM emits exactly one finding (full success path).
+//   - issues.createComment → a stable comment id
+//   - issues.listComments → empty (cold walkthrough thread)
+//   - checks.create → a stable check-run id
+//   - pulls.createReview → a stub review URL
+interface MakeOctokitOpts {
+  diff?: string;
+  prState?: string;
+  checkRunId?: number;
+  commentId?: number;
+}
+function makeOctokit(opts: MakeOctokitOpts = {}): Octokit {
+  const diff = opts.diff ?? loadFixture('no-var-violation.patch');
+  const prState = opts.prState ?? 'open';
+  const checkRunId = opts.checkRunId ?? TEST_CHECK_RUN_ID;
+  const commentId = opts.commentId ?? TEST_WALKTHROUGH_COMMENT_ID;
+  return {
+    rest: {
+      pulls: {
+        get: jest.fn().mockResolvedValue({ data: { state: prState } }),
+        createReview: jest
+          .fn()
+          .mockResolvedValue({ data: { html_url: 'https://example.test/r/1' } }),
+      },
+      issues: {
+        createComment: jest.fn().mockResolvedValue({ data: { id: commentId } }),
+        updateComment: jest.fn().mockResolvedValue({ data: {} }),
+        listComments: jest.fn().mockResolvedValue({ data: [] }),
+      },
+      checks: {
+        create: jest.fn().mockResolvedValue({ data: { id: checkRunId } }),
+        update: jest.fn().mockResolvedValue({ data: {} }),
+      },
+    },
+    request: jest.fn().mockResolvedValue({ data: diff }),
+  } as unknown as Octokit;
+}
+
+// Controllable stub auth provider. forInstallation returns whatever
+// octokit the current test installed; the checks-permission flags are
+// per-installation booleans that markChecksPermissionMissing flips off
+// and invalidateInstallation clears. All resettable in beforeEach.
+class StubGithubAuthProvider implements IGithubAuthProvider {
+  public octokit: Octokit = makeOctokit();
+  // installation_id -> hasChecksPermission. Absent means default true.
+  private readonly missingChecks = new Set<number>();
+
+  forInstallation(): Octokit {
+    return this.octokit;
+  }
+  invalidateInstallation(installationId: number): void {
+    this.missingChecks.delete(installationId);
+  }
+  markChecksPermissionMissing(installationId: number): void {
+    this.missingChecks.add(installationId);
+  }
+  hasChecksPermission(installationId: number): boolean {
+    return !this.missingChecks.has(installationId);
+  }
+  reset(octokit: Octokit): void {
+    this.octokit = octokit;
+    this.missingChecks.clear();
+  }
+}
+
+const SNAPSHOT_KEYS = [
+  'GITHUB_WEBHOOK_SECRET',
+  'VOYAGE_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'DATABASE_PATH',
+  'ENABLE_DRY_RUN',
+  'NODE_ENV',
+  'SKIP_REDIS_PROBE',
+];
+
+describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
+  let app: INestApplication;
+  let tmpDir: string;
+  let envSnapshot: EnvState;
+
+  let processor: ReviewsProcessor;
+  let reviewsRepo: IReviewRepository;
+  let findingsRepo: IReviewFindingRepository;
+  let pullRequestsRepo: IPullRequestRepository;
+  let authProvider: StubGithubAuthProvider;
+  // The SAME stub LLM instance the processor's runRealReview drives.
+  // Held as an outer ref so per-test scenarios can set its mode/script;
+  // beforeEach resets it to the default echo-first-only behavior so a
+  // test that drove it cannot leak state into the next.
+  let stubLlm: StubLlmReviewer;
+  // The default summarizer returns a deterministic prose intro; later
+  // tasks reassign the mock to return null (failure path). Typed with a
+  // jest.Mock summarize so tests can drive it without re-casting.
+  let summarizer: IWalkthroughSummarizer & { summarize: jest.Mock };
+
+  // Per-test unique PR identity. Each test gets a fresh pr_node_id +
+  // head_sha so the persisted reviews rows and the walkthrough-comment-id
+  // cache do not bleed across tests in this single describe (the real DB
+  // persists). Re-review tests reuse one id within a single test.
+  let prCounter = 0;
+
+  beforeAll(async () => {
+    envSnapshot = snapshotEnv(SNAPSHOT_KEYS);
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reviews-processor-e2e-'));
+    process.env.GITHUB_WEBHOOK_SECRET = 'reviews-test-secret-1234567890';
+    process.env.VOYAGE_API_KEY = 'voyage-test-key-0123456789abcdef';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key-0123456789abcdef';
+    process.env.DATABASE_PATH = path.join(tmpDir, 'reviews-processor.sqlite');
+    // We call the processor directly — no HTTP route needed.
+    process.env.ENABLE_DRY_RUN = 'false';
+    // Force NODE_ENV=development so the dev-default model resolves
+    // deterministically across local + CI.
+    process.env.NODE_ENV = 'development';
+    // CRITICAL: keep the BullMQ worker explorer OFF so the processor is
+    // not auto-registered against the no-op queue. We construct it by hand.
+    process.env.SKIP_REDIS_PROBE = 'true';
+
+    authProvider = new StubGithubAuthProvider();
+    summarizer = {
+      summarize: jest.fn().mockResolvedValue({ intro: 'A concise summary.' }),
+    };
+
+    // Build the stub LLM into a local and keep an outer ref so tests can
+    // drive its mode/script. The processor's runRealReview resolves the
+    // SAME instance via the LLM_REVIEWER token below, so driving stubLlm
+    // here changes what the worker's agent loop sees.
+    stubLlm = new StubLlmReviewer();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [makeTestModule()],
+    })
+      .overrideProvider(EMBEDDING_PROVIDER)
+      .useValue(new StubEmbeddingProvider())
+      .overrideProvider(VECTOR_STORE)
+      .useValue(new StubVectorStore())
+      .overrideProvider(LLM_REVIEWER)
+      .useValue(stubLlm)
+      .overrideProvider(GITHUB_AUTH_PROVIDER)
+      .useValue(authProvider)
+      .overrideProvider(WALKTHROUGH_SUMMARIZER)
+      .useValue(summarizer)
+      .compile();
+
+    app = moduleRef.createNestApplication({ rawBody: true });
+    app.useGlobalPipes(
+      new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }),
+    );
+    await app.init();
+
+    await app.get(EmbeddingsService).indexCorpus();
+
+    reviewsRepo = app.get(REVIEW_REPOSITORY);
+    findingsRepo = app.get(REVIEW_FINDING_REPOSITORY);
+    pullRequestsRepo = app.get(PULL_REQUEST_REPOSITORY);
+
+    // Construct the processor MANUALLY from the real providers —
+    // app.get(ReviewsProcessor) would throw because the worker explorer
+    // is disabled (SKIP_REDIS_PROBE=true), so the processor is not a
+    // registered provider. The constructor order mirrors the source.
+    processor = new ReviewsProcessor(
+      authProvider,
+      app.get(ReviewsService),
+      reviewsRepo,
+      findingsRepo,
+      pullRequestsRepo,
+      app.get(ConfigService),
+      summarizer,
+    );
+  });
+
+  afterAll(async () => {
+    await app.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    restoreEnv(envSnapshot);
+  });
+
+  beforeEach(() => {
+    // Reset the auth provider's octokit + permission state, and restore
+    // the default happy-path summarizer for any test that flipped it.
+    authProvider.reset(makeOctokit());
+    (summarizer.summarize as jest.Mock).mockReset();
+    (summarizer.summarize as jest.Mock).mockResolvedValue({
+      intro: 'A concise summary.',
+    });
+    // Reset the shared stub LLM to its default behavior so a scenario
+    // test that flipped mode/script cannot leak into the next test. The
+    // default echo-first-only mode emits one finding for the no-var
+    // fixture - the behavior the existing happy-path tests rely on.
+    stubLlm.mode = 'echo-first-only';
+    stubLlm.script = [];
+    stubLlm.delayMs = 0;
+    stubLlm.lastInput = undefined;
+    stubLlm.turnCapToolCalls = [];
+  });
+
+  // Restore any jest.spyOn installed on the shared (booted-once)
+  // repositories so a spy can never leak across tests in this describe.
+  // jest.config has no global restoreMocks, and the repos persist for the
+  // whole describe — without this, a test that throws mid-assertion would
+  // leave its spy installed and corrupt later tests' invocationCallOrder /
+  // call-count assertions. restoreAllMocks only touches spyOn-created
+  // spies; the standalone jest.fn() summarizer + per-test octokit are
+  // untouched.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // Mint a fresh PR identity and seed a real pull_requests row for it.
+  // The processor's walkthrough upsert calls
+  // pullRequestsRepo.setWalkthroughCommentId, whose real SQLite
+  // implementation THROWS when no pull_requests row exists (the row is
+  // upserted on webhook ingestion before any worker code runs in prod).
+  // So a real row must exist first.
+  function seedPr(): { prNodeId: string; headSha: string; prNumber: number } {
+    prCounter += 1;
+    const prNodeId = `PR_e2e_${prCounter}`;
+    const headSha = prCounter.toString(16).padStart(40, '0');
+    const prNumber = 100 + prCounter;
+    const now = new Date();
+    const record: PullRequestRecord = {
+      node_id: prNodeId,
+      repo_full_name: 'octocat/demo',
+      number: prNumber,
+      title: `Test PR ${prCounter}`,
+      state: 'open',
+      head_sha: headSha,
+      base_sha: 'b'.repeat(40),
+      author_login: 'octocat',
+      created_at: now,
+      updated_at: now,
+      raw_payload: '{}',
+      walkthrough_comment_id: null,
+    };
+    pullRequestsRepo.save(record);
+    return { prNodeId, headSha, prNumber };
+  }
+
+  function makeJob(
+    data: Partial<ReviewJobData> & Pick<ReviewJobData, 'pr_node_id' | 'head_sha' | 'pr_number'>,
+    id = `bullmq-job-${prCounter}`,
+  ): Job<ReviewJobData> {
+    const full: ReviewJobData = {
+      owner: 'octocat',
+      repo: 'demo',
+      installation_id: 12345,
+      ...data,
+    };
+    return { id, data: full } as unknown as Job<ReviewJobData>;
+  }
+
+  it('inserts the review row in the DB before posting the in-progress check-run and walkthrough, and persists the check-run id', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Spy on the REAL repo to capture call order WITHOUT breaking it —
+    // jest.spyOn calls through by default, so the row is still really
+    // inserted into SQLite.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+    const issuesCreateComment = octokit.rest.issues.createComment as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // Ordering via the global monotonic invocation counter: the row is
+    // reserved (insertInProgress) BEFORE the in-progress check-run POST
+    // (checks.create) AND before the in-progress walkthrough comment POST
+    // (issues.createComment).
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    expect(checksCreate).toHaveBeenCalled();
+    expect(issuesCreateComment).toHaveBeenCalled();
+
+    const insertOrder = insertSpy.mock.invocationCallOrder[0];
+    const checksCreateOrder = checksCreate.mock.invocationCallOrder[0];
+    const createCommentOrder = issuesCreateComment.mock.invocationCallOrder[0];
+    expect(insertOrder).toBeLessThan(checksCreateOrder);
+    expect(checksCreateOrder).toBeLessThan(createCommentOrder);
+
+    // REAL persistence: read the row back out of SQLite by the
+    // worker-allocated id and prove the GitHub check-run id round-tripped
+    // onto the reviews row. This is the net-new fact the unit spec (which
+    // mocks setCheckRunId) cannot assert.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+    // Happy path completes terminally.
+    expect(row?.status).toBe('completed');
+
+    // Real review_findings round-trip: the echo-first-only stub LLM emits
+    // exactly one finding for the no-var fixture, and the real
+    // runRealReview transaction persists it — the unit spec (insertMany is
+    // a jest.fn) cannot prove this.
+    expect(findingsRepo.findByReviewId(reservedId)).toHaveLength(1);
+    // Real walkthrough-comment-id cache round-trip on the pull_requests
+    // row: Step 8 created the in-progress comment (cold cache) and cached
+    // its id. The next review's terminal post PATCHes this same comment.
+    expect(pullRequestsRepo.getWalkthroughCommentId(prNodeId)).toBe(
+      TEST_WALKTHROUGH_COMMENT_ID,
+    );
+
+    // The afterEach restoreAllMocks() restores insertSpy — no explicit
+    // mockRestore needed (and none here, so a thrown assertion above can
+    // never leak the spy onto the shared repo).
+  });
+
+  it('success path posts in order walkthrough(PATCH) -> review -> check-run(PATCH success), and persists a completed row with summary + findings', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Capture the worker-allocated review id by spying on insertInProgress
+    // with callThrough so the row is still really written to SQLite.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const issuesUpdateComment = octokit.rest.issues.updateComment as unknown as jest.Mock;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // --- Assertion 1: POST ordering via the global monotonic counter ---
+    // Step 8 created the in-progress comment (cold cache -> createComment).
+    // Step 13a then PATCHes it to the terminal walkthrough body (updateComment).
+    // Step 13b posts the inlined Review (createReview).
+    // Step 13c PATCHes the check-run to its terminal success state (checks.update).
+    // Each fires exactly once on a first-review success (no Step 4b sweep on a
+    // fresh PR id), so checks.update calls[0] below is unambiguously the success
+    // PATCH rather than a stray neutral sweep.
+    expect(issuesUpdateComment).toHaveBeenCalledTimes(1);
+    expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+
+    const updateCommentOrder = issuesUpdateComment.mock.invocationCallOrder[0];
+    const createReviewOrder = pullsCreateReview.mock.invocationCallOrder[0];
+    const checksUpdateOrder = checksUpdate.mock.invocationCallOrder[0];
+
+    expect(updateCommentOrder).toBeLessThan(createReviewOrder);
+    expect(createReviewOrder).toBeLessThan(checksUpdateOrder);
+
+    // --- Assertion 2: check-run conclusion = 'success' ---
+    const checksUpdateArg = checksUpdate.mock.calls[0][0] as {
+      status: string;
+      conclusion: string;
+      check_run_id: number;
+    };
+    expect(checksUpdateArg.status).toBe('completed');
+    expect(checksUpdateArg.conclusion).toBe('success');
+    expect(checksUpdateArg.check_run_id).toBe(TEST_CHECK_RUN_ID);
+
+    // --- Assertion 3: real-DB completion with check_run_id + walkthrough_summary ---
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('completed');
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+    // The stub summarizer returns { intro: 'A concise summary.' }; the worker
+    // calls setWalkthroughSummary with summary.intro. Assert the value
+    // round-tripped through REAL SQLite (the unit spec cannot prove this).
+    expect(row?.walkthrough_summary).toBe('A concise summary.');
+
+    // --- Assertion 4: real findings persisted ---
+    // The echo-first-only stub LLM emits exactly one finding for the no-var
+    // fixture; runRealReview persists it via the REAL findingsRepo.insertMany.
+    expect(findingsRepo.findByReviewId(reservedId)).toHaveLength(1);
+  });
+
+  it('sweep: PATCHes a prior leaked in_progress check-run to neutral, leaves the older in_progress and any terminal priors untouched (real findMostRecentPriorCheckRun query)', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Seed three prior rows for this prNodeId, all OLDER than
+    // GUARD_LOOKBACK_MS (10 min) so the per-PR in-flight guard does
+    // not skip the new job. findMostRecentPriorCheckRun targets
+    // `status = 'in_progress'` rows with a non-null check_run_id,
+    // orders by created_at DESC, and returns one row.
+    //
+    //   1. An OLD leaked in_progress (check_run_id=888) — eligible
+    //      by status but not by recency, must be left alone.
+    //   2. A NEWER leaked in_progress (check_run_id=999) — eligible
+    //      by both status and recency, must be the swept target.
+    //   3. A still-newer COMPLETED row (check_run_id=777) — even
+    //      though it is the most recent prior, the status filter
+    //      added to the sweep query must skip it. PATCHing it
+    //      would overwrite a green check-run with "Superseded by
+    //      newer review", which is exactly the bug T1 prevents.
+    //
+    // Seeding all three makes both the recency ordering AND the
+    // status filter load-bearing in one assertion.
+    const olderPriorId = randomUUID();
+    reviewsRepo.insertInProgress({
+      id: olderPriorId,
+      pr_node_id: prNodeId,
+      model: 'stub-model',
+      created_at: new Date(Date.now() - 900_000),
+    });
+    reviewsRepo.setCheckRunId(olderPriorId, 888);
+
+    const priorId = randomUUID();
+    reviewsRepo.insertInProgress({
+      id: priorId,
+      pr_node_id: prNodeId,
+      model: 'stub-model',
+      created_at: new Date(Date.now() - 800_000),
+    });
+    reviewsRepo.setCheckRunId(priorId, 999);
+
+    const completedPriorId = randomUUID();
+    reviewsRepo.insertInProgress({
+      id: completedPriorId,
+      pr_node_id: prNodeId,
+      model: 'stub-model',
+      created_at: new Date(Date.now() - 700_000),
+    });
+    reviewsRepo.markCompleted(completedPriorId, {
+      completed_at: new Date(Date.now() - 695_000),
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+    });
+    reviewsRepo.setCheckRunId(completedPriorId, 777);
+
+    // Confirm the leaked prior rows were written correctly before running the job.
+    expect(reviewsRepo.findById(priorId)?.status).toBe('in_progress');
+    expect(reviewsRepo.findById(priorId)?.check_run_id).toBe(999);
+    expect(reviewsRepo.findById(completedPriorId)?.status).toBe('completed');
+
+    const octokit = authProvider.octokit;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+
+    await processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }));
+
+    // The sweep fires ONCE (for the leaked prior check-run id=999). The
+    // new review's success PATCH fires ONCE (for TEST_CHECK_RUN_ID).
+    // Total: 2 calls to checks.update.
+    expect(checksUpdate).toHaveBeenCalledTimes(2);
+
+    // Locate the sweep PATCH by check_run_id=999 among all update calls.
+    const sweepCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number }]) => args[0].check_run_id === 999,
+    ) as [{ check_run_id: number; status: string; conclusion: string; output: { title: string; summary: string } }] | undefined;
+    expect(sweepCall).toBeDefined();
+    const sweepArg = sweepCall![0];
+    expect(sweepArg.status).toBe('completed');
+    expect(sweepArg.conclusion).toBe('neutral');
+    expect(sweepArg.output.title).toBe('Superseded by newer review on this PR.');
+
+    // The OLDER in_progress prior (888) must NOT be swept — recency
+    // ordering keeps it out. The COMPLETED prior (777) — even though
+    // it is the MOST RECENT prior — must also be left alone because
+    // its check-run is already terminal. PATCHing it would overwrite
+    // a green check-run with "Superseded by newer review".
+    const olderSweepCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number }]) => args[0].check_run_id === 888,
+    );
+    expect(olderSweepCall).toBeUndefined();
+    const completedSweepCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number }]) => args[0].check_run_id === 777,
+    );
+    expect(completedSweepCall).toBeUndefined();
+
+    // Locate the success PATCH by check_run_id=TEST_CHECK_RUN_ID.
+    const successCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number }]) => args[0].check_run_id === TEST_CHECK_RUN_ID,
+    ) as [{ check_run_id: number; status: string; conclusion: string }] | undefined;
+    expect(successCall).toBeDefined();
+    const successArg = successCall![0];
+    expect(successArg.status).toBe('completed');
+    expect(successArg.conclusion).toBe('success');
+
+    // The sweep PATCH (Step 4b) must fire BEFORE the new check-run POST
+    // (Step 7's checks.create). Verified via the global monotonic
+    // invocation-call-order counter.
+    const sweepCallIdx = checksUpdate.mock.calls.indexOf(sweepCall!);
+    const sweepOrder = checksUpdate.mock.invocationCallOrder[sweepCallIdx];
+    const createOrder = checksCreate.mock.invocationCallOrder[0];
+    expect(sweepOrder).toBeLessThan(createOrder);
+  });
+
+  it('403 on the in-progress check-run POST degrades gracefully: marks the installation missing-Checks, the walkthrough carries the permission-pending note, no check-run id is persisted, and the job does not throw', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Use a distinct installation_id so the missing-permission flag we
+    // assert is scoped to this test and cannot bleed from/into the
+    // shared authProvider state (which uses installation_id 12345).
+    const installationId = 999;
+
+    // Make the in-progress check-run POST reject with 403 Forbidden.
+    const err403 = Object.assign(new Error('Forbidden'), { status: 403 });
+    (authProvider.octokit.rest.checks.create as unknown as jest.Mock).mockRejectedValue(err403);
+
+    // Spy on insertInProgress (callThrough) to recover the worker-allocated
+    // review id so we can read the real SQLite row back after process().
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    // The job must NOT throw even though checks.create returns 403 --
+    // tryPostInProgressCheckRun is best-effort and handles 403 internally.
+    await expect(
+      processor.process(
+        makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber, installation_id: installationId }),
+      ),
+    ).resolves.not.toThrow();
+
+    // --- Assertion 1: permission flag flipped ---
+    // Step 7's 403 handler calls markChecksPermissionMissing(999) on the
+    // real StubGithubAuthProvider. hasChecksPermission must now return false.
+    expect(authProvider.hasChecksPermission(installationId)).toBe(false);
+
+    // --- Assertion 2: in-progress walkthrough body carried the note ---
+    // Step 8 runs AFTER Step 7 flipped the flag. The in-progress body is
+    // built with missingChecksPermission: true, so it must contain the
+    // unavailable-badge copy. issues.createComment[0] is the in-progress
+    // POST (cold cache -- fresh PR id, no prior walkthrough comment).
+    const createComment = authProvider.octokit.rest.issues.createComment as unknown as jest.Mock;
+    expect(createComment).toHaveBeenCalled();
+    const inProgressBody = createComment.mock.calls[0][0].body as string;
+    expect(inProgressBody).toContain('merge-box status badge is unavailable');
+    // Pin the in-progress body specifically — the missing-permission copy is
+    // shared by the empty/success formatters too, so the mode marker proves
+    // this is the Step 8 in-progress walkthrough, not some other body.
+    expect(inProgressBody).toContain('mode=in-progress');
+
+    // --- Assertion 3: real-DB -- check_run_id IS NULL ---
+    // setCheckRunId was never called (checkRunId === null after the 403),
+    // so the real SQLite row must still have check_run_id = null. This is
+    // the net-new fact over the unit spec (which mocks setCheckRunId).
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.check_run_id).toBeNull();
+    // The review agent loop ran normally and completed -- only the check-run
+    // badge is absent; the row itself must be completed.
+    expect(row?.status).toBe('completed');
+
+    // --- Assertion 4: no terminal check-run PATCH ---
+    // Step 13c is guarded by `if (checkRunId !== null)`. With checkRunId
+    // null there is no success PATCH. No prior leaked check-run exists for
+    // this fresh PR id (no Step 4b sweep either). Total checks.update calls
+    // must be zero.
+    const checksUpdate = authProvider.octokit.rest.checks.update as unknown as jest.Mock;
+    expect(checksUpdate).not.toHaveBeenCalled();
+
+    // --- Assertion 5: checks.create was attempted exactly once (the 403) ---
+    const checksCreate = authProvider.octokit.rest.checks.create as unknown as jest.Mock;
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('summarizer failure persists a null walkthrough_summary and the success body omits the prose section but keeps the knowledge-base banner', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Exercise the summarizer-failure path for this test only.
+    summarizer.summarize.mockResolvedValue(null);
+
+    // Spy on insertInProgress (callThrough) to recover the worker-allocated
+    // review id so we can read the real SQLite row back after process().
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const issuesUpdateComment = octokit.rest.issues.updateComment as unknown as jest.Mock;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+
+    // process() must NOT throw -- the summarizer is best-effort and a
+    // null result is a normal (non-fatal) outcome.
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // Recover the worker-allocated review id from the spy.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+
+    // --- Assertion 1: real-DB (the net-new fact) ---
+    // setWalkthroughSummary was called with null (summary?.intro ?? null
+    // when summary is null). Prove the value round-tripped through REAL
+    // SQLite as a genuine NULL -- the unit spec (which mocks
+    // setWalkthroughSummary) cannot assert this.
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.walkthrough_summary).toBeNull();
+    // The review still completed -- the summarizer is best-effort.
+    expect(row?.status).toBe('completed');
+
+    // --- Assertion 2: terminal walkthrough body omits the prose intro ---
+    // Step 8 POSTed the in-progress comment (cold cache -> createComment).
+    // Step 13a then PATCHes it to the terminal success body (updateComment).
+    // The terminal body is updateComment.mock.calls[0][0].body.
+    // When intro is null the formatter never pushes the "### Summary" block
+    // (format-walkthrough-success-body.ts line 64-66: `if (input.intro) {
+    //   lines.push('', '### Summary', ...)`), so the heading must be absent.
+    expect(issuesUpdateComment).toHaveBeenCalledTimes(1);
+    const terminalBody = issuesUpdateComment.mock.calls[0][0].body as string;
+    expect(terminalBody).not.toContain('### Summary');
+
+    // --- Assertion 3: success body still carries the KB banner ---
+    // The knowledge-base banner is always emitted regardless of the intro
+    // (format-walkthrough-success-body.ts line 61: the blockquote line is
+    // pushed unconditionally before the intro guard). Assert the static
+    // prefix that appears on every success body.
+    expect(terminalBody).toContain(
+      "Reviewed against your team's knowledge base",
+    );
+
+    // --- Assertion 4: it IS the success body ---
+    // The mode marker distinguishes this from the in-progress or failed body.
+    expect(terminalBody).toContain('<!-- ai-pr-review-copilot:v1:mode=success -->');
+
+    // --- Assertion 5: sanity --- summarizer called once, review still posted ---
+    expect(summarizer.summarize).toHaveBeenCalledTimes(1);
+    // The stub LLM emits one finding for the no-var fixture so shouldPostReview
+    // is true and createReview fires even though the summarizer returned null.
+    expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+  });
+
+  it('size-cap: posts a skipped check-run + skip walkthrough, no review, and finalizes a standalone-skipped-too-large completed row', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Build a diff whose changed-line count is maxReviewDiffLines + 1 (default
+    // 1000 + 1 = 1001 lines starting with '+') but whose byte size is well
+    // under maxDiffBytes (default 262144). The lines are "+0".."+1000", so the
+    // total is ~5 KB -- far below the byte cap, so Step 6b (size) fires, not
+    // Step 6a (diff_too_large).
+    const LINE_COUNT = 1001;
+    const bigDiff = Array.from({ length: LINE_COUNT }, (_, i) => `+${i}`).join('\n');
+
+    // Override the request mock so the diff fetch returns the big diff.
+    (authProvider.octokit.request as unknown as jest.Mock).mockResolvedValue({
+      data: bigDiff,
+    });
+
+    // Spy (callThrough) to capture the worker-allocated review id from the
+    // real SQLite insert so we can read the row back after process() returns.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+    const issuesCreateComment = octokit.rest.issues.createComment as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // --- Assertion 1: no review posted ---
+    expect(pullsCreateReview).not.toHaveBeenCalled();
+
+    // --- Assertion 2: one terminal skipped check-run POSTed (no in-progress) ---
+    // The size-cap exit short-circuits BEFORE Step 7, so checks.create fires
+    // exactly once via postTerminalCheckRun with status 'completed', conclusion
+    // 'skipped'. checks.update (the in-progress PATCH) is never called.
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    const checksCreateArg = checksCreate.mock.calls[0][0] as {
+      status: string;
+      conclusion: string;
+      output: { title: string };
+    };
+    expect(checksCreateArg.status).toBe('completed');
+    expect(checksCreateArg.conclusion).toBe('skipped');
+    expect(checksCreateArg.output.title).toMatch(/Review skipped/i);
+    expect(checksUpdate).not.toHaveBeenCalled();
+
+    // --- Assertion 3: skip walkthrough body contains the expected copy ---
+    // The size-cap exit calls upsertWalkthrough (cold cache -> createComment).
+    expect(issuesCreateComment).toHaveBeenCalledTimes(1);
+    const skipBody = issuesCreateComment.mock.calls[0][0].body as string;
+    expect(skipBody).toContain('review skipped');
+
+    // --- Assertion 4: real-DB round-trip (net-new over unit spec) ---
+    // The unit spec mocks updateRetrievalMetadata/markCompleted; here we read
+    // the real SQLite row to prove the markers actually persisted.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('completed');
+    expect(row?.prompt_version).toBe('standalone-skipped-too-large');
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+  });
+
+  it('empty-diff: posts a skipped check-run (not neutral) + empty-diff walkthrough, no review, and finalizes a standalone-empty-diff completed row', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Override the diff fetch to return an empty string so Step 6c fires.
+    (authProvider.octokit.request as unknown as jest.Mock).mockResolvedValue({
+      data: '',
+    });
+
+    // Spy (callThrough) to capture the worker-allocated review id.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+    const issuesCreateComment = octokit.rest.issues.createComment as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // --- Assertion 1: no review posted ---
+    expect(pullsCreateReview).not.toHaveBeenCalled();
+
+    // --- Assertion 2: one terminal skipped check-run POSTed, NOT neutral ---
+    // The empty-diff exit short-circuits BEFORE Step 7 so no in-progress
+    // check-run runs. postTerminalCheckRun fires once with conclusion 'skipped'
+    // (not 'neutral'). The unit spec confirms the copy; here we confirm the
+    // conclusion value and that the check-run is never updated (no PATCH).
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    const checksCreateArg = checksCreate.mock.calls[0][0] as {
+      status: string;
+      conclusion: string;
+      output: { title: string };
+    };
+    expect(checksCreateArg.status).toBe('completed');
+    expect(checksCreateArg.conclusion).toBe('skipped');
+    expect(checksCreateArg.output.title).toBe('No diff to review');
+    expect(checksUpdate).not.toHaveBeenCalled();
+
+    // --- Assertion 3: empty-diff walkthrough body carries the expected markers ---
+    // Step 6c calls upsertWalkthrough (cold cache -> createComment).
+    expect(issuesCreateComment).toHaveBeenCalledTimes(1);
+    const emptyBody = issuesCreateComment.mock.calls[0][0].body as string;
+    expect(emptyBody).toContain('mode=empty-diff');
+    expect(emptyBody).toContain('no reviewable diff content');
+
+    // --- Assertion 4: real-DB round-trip (net-new over unit spec) ---
+    // Read the real SQLite row back to prove prompt_version, status, and
+    // check_run_id all persisted correctly (unit spec mocks these calls).
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('completed');
+    expect(row?.prompt_version).toBe('standalone-empty-diff');
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+  });
+
+  it('a finding located outside the diff still posts a Review with the outside-diff CAUTION callout and zero inline comments', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Drive the stub to emit ONE finding whose location_hint references a
+    // file NOT present in the no-var diff's hunks. rule_id='no-var' is in
+    // the retrieved rule set for no-var-violation.patch (the default
+    // fixture), so it survives the stub's hallucination filter
+    // (step.findings.filter on inputRuleIds). The location
+    // 'totally/other.ts:5' parses to a path:line, but src/totals.js is the
+    // only file in the diff, so anchorFindingsToDiff partitions it into
+    // outsideDiff (file-not-in-diff branch) and anchorable stays empty.
+    stubLlm.mode = 'multi-turn-script';
+    stubLlm.script = [
+      {
+        kind: 'emit',
+        findings: [
+          {
+            rule_id: 'no-var',
+            title: 'Outside-diff finding',
+            message: 'This references a file not in the diff.',
+            location_hint: 'totally/other.ts:5',
+            citation: null,
+          },
+        ],
+      },
+    ];
+
+    // Spy on the REAL repo (callThrough) to recover the worker-allocated
+    // review id so we can read the persisted findings back out of SQLite.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+
+    await processor.process(
+      makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }),
+    );
+
+    // --- Assertion 1: a Review IS posted exactly once ---
+    // shouldPostReview is true via the outside-diff branch
+    // (partition.outsideDiff.length > 0) even though nothing anchors inline.
+    expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+
+    const createReviewArg = pullsCreateReview.mock.calls[0][0] as {
+      body: string;
+      comments: unknown[];
+    };
+
+    // --- Assertion 2: the body carries the outside-diff CAUTION callout ---
+    // Literals derived verbatim from format-review-body.ts: the '> [!CAUTION]'
+    // admonition line and the summary line with the one-finding count. We do
+    // NOT assert on the prose line below the admonition (it contains a
+    // straight apostrophe in "can't"); the two literals below are stable.
+    expect(createReviewArg.body).toContain('> [!CAUTION]');
+    expect(createReviewArg.body).toContain('Outside diff range comments (1)');
+    // The outside-diff entry renders the parsed path:line for the finding.
+    expect(createReviewArg.body).toContain('totally/other.ts:5');
+
+    // --- Assertion 3: zero inline comments ---
+    // Nothing anchored to a hunk (the file is not in the diff), so the
+    // comments array the worker built from partition.anchorable is empty.
+    expect(createReviewArg.comments).toEqual([]);
+
+    // --- Assertion 4: real-DB round-trip (the net-new fact) ---
+    // The emitted finding flowed through real runRealReview persistence into
+    // real SQLite. Read it back by the worker-allocated id: exactly one row,
+    // and the review row itself completed terminally.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const persisted = findingsRepo.findByReviewId(reservedId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].rule_id).toBe('no-var');
+    const row = reviewsRepo.findById(reservedId);
+    expect(row?.status).toBe('completed');
+
+    // --- Assertion 5: success check-run PATCH still fired ---
+    // The outside-diff-only outcome is still a completed review: the Step 13c
+    // check-run PATCH lands its terminal success conclusion.
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    const checksUpdateArg = checksUpdate.mock.calls[0][0] as {
+      conclusion: string;
+    };
+    expect(checksUpdateArg.conclusion).toBe('success');
+  });
+
+  it('agent-loop failure (429) PATCHes the in-progress check-run to skipped (not neutral) + failed walkthrough, re-throws, and persists a failed row', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Drive the shared stub LLM to throw a retryable 429 so the agent loop
+    // fails mid-review (Step 9). runRealReview catches the error, marks the
+    // row failed internally, and re-throws; the outer catch in process() then
+    // posts the failed walkthrough (tryPostFailedWalkthrough via updateComment
+    // because Step 8 already created the in-progress comment) and PATCHes the
+    // Step 7 in-progress check-run to conclusion='skipped' (patchCheckRunTerminal).
+    // Finally process() re-throws the original LlmRequestError -- NOT an
+    // UnrecoverableError -- because 429 is retryable.
+    stubLlm.mode = 'throw-rate-limit';
+
+    // Spy (callThrough) to capture the worker-allocated review id from the
+    // real insertInProgress call so we can read the failed row back from SQLite.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    const octokit = authProvider.octokit;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+    const pullsCreateReview = octokit.rest.pulls.createReview as unknown as jest.Mock;
+    const issuesUpdateComment = octokit.rest.issues.updateComment as unknown as jest.Mock;
+
+    // process() must RE-THROW (retryable 429) -- BullMQ will schedule
+    // the job for retry. The throw is the original LlmRequestError, not
+    // an UnrecoverableError.
+    const { UnrecoverableError } = jest.requireActual<typeof import('bullmq')>('bullmq');
+    let caughtErr: unknown;
+    try {
+      await processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }));
+    } catch (err) {
+      caughtErr = err;
+    }
+
+    // --- Assertion 1: re-throw is retryable (not UnrecoverableError) ---
+    // 429 is in the retryable set -- the worker must NOT wrap it in
+    // UnrecoverableError (that is reserved for terminal codes like
+    // credit_balance_too_low, turn_cap_exceeded, etc.).
+    expect(caughtErr).toBeDefined();
+    expect(caughtErr).not.toBeInstanceOf(UnrecoverableError);
+
+    // --- Assertion 2: check-run lifecycle ---
+    // Step 7 POSTed the in-progress check-run (checks.create, once).
+    // The Step 9 catch called patchCheckRunTerminal which called tryPatchCheckRun
+    // -> checks.update, once, with conclusion='skipped' (NOT 'neutral') and the
+    // canonical title 'Review could not complete'. No prior leaked check-run
+    // exists for this fresh PR id so there is no Step 4b sweep update.
+    expect(checksCreate).toHaveBeenCalledTimes(1);
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+
+    const checksUpdateArg = checksUpdate.mock.calls[0][0] as {
+      status: string;
+      conclusion: string;
+      check_run_id: number;
+      output: { title: string };
+    };
+    expect(checksUpdateArg.status).toBe('completed');
+    expect(checksUpdateArg.conclusion).toBe('skipped');
+    expect(checksUpdateArg.check_run_id).toBe(TEST_CHECK_RUN_ID);
+    expect(checksUpdateArg.output.title).toBe('Review could not complete');
+
+    // --- Assertion 3: pulls.createReview never called ---
+    // The agent loop threw before runRealReview returned any findings, so
+    // no Review surface was posted.
+    expect(pullsCreateReview).not.toHaveBeenCalled();
+
+    // --- Assertion 4: failed walkthrough body landed on updateComment ---
+    // Step 8 created the in-progress comment (cold cache -> createComment, cached id).
+    // The Step 9 catch called tryPostFailedWalkthrough -> upsertWalkthrough.
+    // upsertWalkthrough found the cached id and called updateComment (PATCH),
+    // NOT createComment. The body must carry the mode=failed marker.
+    expect(issuesUpdateComment).toHaveBeenCalled();
+    const failedBody = issuesUpdateComment.mock.calls[0][0].body as string;
+    expect(failedBody).toContain('<!-- ai-pr-review-copilot:v1:mode=failed -->');
+
+    // --- Assertion 5: real-DB round-trip (net-new over unit spec) ---
+    // The unit spec mocks markFailed and setCheckRunId; here we read the
+    // real SQLite row back to prove the error fields AND the check_run_id
+    // all persisted correctly through real runRealReview / markFailed.
+    const reservedId = insertSpy.mock.calls[0][0].id;
+    const row = reviewsRepo.findById(reservedId);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('failed');
+    expect(row?.error_status).toBe(429);
+    expect(row?.error_code).toBe('rate_limit_error');
+    // Step 7 persisted the check-run id before the failure; the failed row
+    // must carry it so the next sweep can retire the dangling check-run.
+    expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
+  });
+
+  it('BullMQ retry: attempt 1 terminalizes its own check-run on failure, attempt 2 posts a fresh one and finds nothing to sweep', async () => {
+    // ONE PR identity shared by both attempts.
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Install the spy BEFORE attempt 1 so it captures insertInProgress calls
+    // from both attempts. afterEach restores it — no explicit mockRestore needed.
+    const insertSpy = jest.spyOn(reviewsRepo, 'insertInProgress');
+
+    // Queue two distinct check-run ids. makeOctokit() (installed by beforeEach)
+    // already returns { data: { id: 4242 } } by default, but we override
+    // explicitly so the two one-shot values are unambiguous and self-documenting.
+    const checksCreate = authProvider.octokit.rest.checks.create as unknown as jest.Mock;
+    checksCreate
+      .mockResolvedValueOnce({ data: { id: 4242 } })
+      .mockResolvedValueOnce({ data: { id: 5151 } });
+
+    const checksUpdate = authProvider.octokit.rest.checks.update as unknown as jest.Mock;
+    const pullsCreateReview = authProvider.octokit.rest.pulls.createReview as unknown as jest.Mock;
+
+    // --- Attempt 1 (fails with retryable 429) ---
+    stubLlm.mode = 'throw-rate-limit';
+    await expect(
+      processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber })),
+    ).rejects.toThrow();
+    // Attempt 1 row is now: status='failed', check_run_id=4242.
+    // The failure-path PATCH already terminalized 4242 to 'skipped' inline,
+    // so the row's status='failed' AND the check-run is terminal on GitHub —
+    // there is nothing left for the next sweep to clean.
+
+    // --- Attempt 2 (succeeds) ---
+    stubLlm.mode = 'echo-first-only';
+    await processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }));
+
+    // --- Assertion 1: checks.create called exactly TWICE ---
+    // Each attempt posts a fresh in-progress check-run. The retry does NOT
+    // reuse attempt 1's id — it POSTs a brand-new check-run at Step 7.
+    expect(checksCreate).toHaveBeenCalledTimes(2);
+
+    // --- Assertion 2: NO sweep PATCH on attempt 2 ---
+    // The sweep query (findMostRecentPriorCheckRun) only targets rows with
+    // status='in_progress'. Attempt 1's failure-path already PATCHed 4242 to
+    // 'skipped' and marked its row 'failed', so the sweep finds nothing.
+    // Targeting a terminal check-run would overwrite the "skipped" conclusion
+    // with "Superseded by newer review", erasing the original failure signal —
+    // exactly the regression T1 prevents.
+    const sweepNeutralCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number; conclusion: string }]) =>
+        args[0].check_run_id === 4242 && args[0].conclusion === 'neutral',
+    );
+    expect(sweepNeutralCall).toBeUndefined();
+
+    // --- Assertion 3: attempt 1's own terminal PATCH targets 4242 (skipped) ---
+    // The failure-path PATCH attempt 1 performed itself is observable in the
+    // call log — exactly one update on 4242, conclusion='skipped'.
+    const attempt1FailedCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number; conclusion: string }]) =>
+        args[0].check_run_id === 4242 && args[0].conclusion === 'skipped',
+    ) as [{ check_run_id: number; conclusion: string }] | undefined;
+    expect(attempt1FailedCall).toBeDefined();
+
+    // --- Assertion 4: attempt 2's terminal success PATCH targets 5151 ---
+    const successCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number; conclusion: string }]) =>
+        args[0].check_run_id === 5151 && args[0].conclusion === 'success',
+    ) as [{ check_run_id: number; status: string; conclusion: string }] | undefined;
+    expect(successCall).toBeDefined();
+    expect(successCall![0].status).toBe('completed');
+
+    // --- Assertion 5: real-DB — TWO reviews rows for this prNodeId ---
+    // insertSpy captured both insertInProgress calls in order.
+    expect(insertSpy).toHaveBeenCalledTimes(2);
+    const attempt1Id = insertSpy.mock.calls[0][0].id;
+    const attempt2Id = insertSpy.mock.calls[1][0].id;
+
+    const attempt1Row = reviewsRepo.findById(attempt1Id);
+    expect(attempt1Row).toBeDefined();
+    expect(attempt1Row?.status).toBe('failed');
+    expect(attempt1Row?.check_run_id).toBe(4242);
+
+    const attempt2Row = reviewsRepo.findById(attempt2Id);
+    expect(attempt2Row).toBeDefined();
+    expect(attempt2Row?.status).toBe('completed');
+    expect(attempt2Row?.check_run_id).toBe(5151);
+
+    // --- Assertion 6: pulls.createReview called exactly once (attempt 2 only) ---
+    // Attempt 1 threw before reaching Step 13b; attempt 2 completed and emitted
+    // one finding for the no-var fixture, so shouldPostReview is true.
+    expect(pullsCreateReview).toHaveBeenCalledTimes(1);
+  });
+});

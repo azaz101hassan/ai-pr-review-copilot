@@ -5,58 +5,106 @@
     {
       "rule_id": "max-lines-per-function",
       "title": "Keep functions short — under ~50 lines",
-      "message": "The `processOrder` function is now 65 lines long, exceeding the ~50 line threshold. Extract sub-helpers for validation, discount calculation, tax calculation, shipping calculation, and notification/analytics/loyalty logic to keep the main function focused and easier to understand.",
-      "location_hint": "src/process-order.js:7-70",
+      "message": "Function `processOrder` exceeds 50 lines. Extract sub-helpers for validation, subtotal calculation, discount application, tax computation, persistence, notifications, analytics, loyalty points, inventory updates, and audit logging.",
+      "location_hint": "src/process-order.js:8-71",
       "citation": null,
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The `processOrder` function is 65 lines long.",
+            "claim": "Function `processOrder` exceeds 50 lines.",
             "kind": "",
-            "reason": "The diff shows the `processOrder` function spans from line 7 to line 70 (as indicated by the location hint and the diff context). Counting the added lines in the diff: lines 8-70 represent the function body, which is 63 lines of code. The function declaration itself is on line 7, making the total span 64 lines. The finding states 65 lines, which is approximately correct and within a reasonable margin of counting variations (including or excluding blank lines, declaration line, etc.).",
+            "reason": "The diff shows the function implementation from line 8 to line 71, which spans 64 lines, exceeding the 50-line limit.",
             "verdict": "supported"
           },
           {
-            "claim": "The `processOrder` function exceeds the ~50 line threshold.",
+            "claim": "Function `processOrder` contains validation logic.",
             "kind": "",
-            "reason": "The rule document establishes a ~50 line threshold for function length. The diff shows the `processOrder` function is approximately 64-65 lines long, which clearly exceeds 50 lines.",
+            "reason": "Lines 9-16 in the diff show validation checks for order properties and items.",
             "verdict": "supported"
           },
           {
-            "claim": "The `processOrder` function should have sub-helpers extracted for validation logic.",
+            "claim": "Function `processOrder` contains subtotal calculation logic.",
             "kind": "",
-            "reason": "The rule document states 'Extract sub-helpers' and provides an example showing validation extracted into a separate `validate()` function. The diff shows validation logic (lines 8-16) inline in the `processOrder` function. The finding recommends extracting validation as a sub-helper, which aligns with the rule's guidance.",
+            "reason": "Lines 18-21 in the diff show computation of the subtotal from order items.",
             "verdict": "supported"
           },
           {
-            "claim": "The `processOrder` function should have sub-helpers extracted for discount calculation logic.",
+            "claim": "Function `processOrder` contains discount application logic.",
             "kind": "",
-            "reason": "The rule document states 'Extract sub-helpers' for functions that do multiple things. The diff shows discount calculation logic (lines 23-28) inline in the `processOrder` function. The finding recommends extracting discount calculation as a sub-helper, which aligns with the rule's guidance to break up long functions.",
+            "reason": "Lines 23-32 in the diff show logic for applying coupon-based and premium-tier discounts.",
             "verdict": "supported"
           },
           {
-            "claim": "The `processOrder` function should have sub-helpers extracted for tax calculation logic.",
+            "claim": "Function `processOrder` contains tax computation logic.",
             "kind": "",
-            "reason": "The rule document states 'Extract sub-helpers' for functions that do multiple things. The diff shows tax calculation logic (lines 29-34) inline in the `processOrder` function. The finding recommends extracting tax calculation as a sub-helper, which aligns with the rule's guidance.",
+            "reason": "Lines 34-41 in the diff show tax calculations based on shipping region.",
             "verdict": "supported"
           },
           {
-            "claim": "The `processOrder` function should have sub-helpers extracted for shipping calculation logic.",
+            "claim": "Function `processOrder` contains persistence logic.",
             "kind": "",
-            "reason": "The rule document states 'Extract sub-helpers' for functions that do multiple things. The diff shows shipping calculation logic (lines 35-39) inline in the `processOrder` function. The finding recommends extracting shipping calculation as a sub-helper, which aligns with the rule's guidance.",
+            "reason": "Lines 47-49 in the diff show saving the order record to the database.",
             "verdict": "supported"
           },
           {
-            "claim": "The `processOrder` function should have sub-helpers extracted for notification, analytics, and loyalty logic.",
+            "claim": "Function `processOrder` contains notification logic.",
             "kind": "",
-            "reason": "The rule document states 'Extract sub-helpers' and provides an example showing notification extracted into a separate `notify()` function. The diff shows notification logic (lines 47-50), analytics logic (lines 51-52), and loyalty logic (lines 53-57) inline in the `processOrder` function. The finding recommends extracting these as sub-helpers, which aligns with the rule's guidance.",
+            "reason": "Lines 51-57 in the diff show sending email and SMS notifications.",
             "verdict": "supported"
           },
           {
-            "claim": "Extracting sub-helpers will keep the main `processOrder` function focused and easier to understand.",
+            "claim": "Function `processOrder` contains analytics tracking logic.",
             "kind": "",
-            "reason": "The rule document states that functions spanning many lines 'are hard to keep in working memory and usually do more than one thing' and that extracting sub-helpers helps. The finding's recommendation to extract sub-helpers is consistent with the rule's rationale that this improves focus and understandability.",
+            "reason": "Line 59 in the diff shows tracking of the 'order_placed' event.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Function `processOrder` contains loyalty points logic.",
+            "kind": "",
+            "reason": "Lines 60-65 in the diff show adding loyalty points based on user tier.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Function `processOrder` contains inventory update logic.",
+            "kind": "",
+            "reason": "Lines 67-70 in the diff show decrementing inventory for each ordered item.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Function `processOrder` contains audit logging logic.",
+            "kind": "",
+            "reason": "Line 71 in the diff shows writing to an audit log.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "no-magic-numbers",
+      "title": "Name your magic numbers",
+      "message": "Replace magic numbers like `0.0725`, `0.08875`, `0.0625`, `0.05`, `25`, `50`, `8`, and `0.05` with named constants. For example: `const CA_TAX_RATE = 0.0725;`.",
+      "location_hint": "src/process-order.js:8-71",
+      "citation": "tax = subtotal * 0.0725;",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The code contains magic numbers like 0.0725, 0.08875, 0.0625, 0.05, 25, 50, and 8.",
+            "kind": "",
+            "reason": "The diff shows literal numbers such as 0.0725, 0.08875, 0.0625, 0.05, 25, 50, and 8 used directly in calculations without being defined as named constants.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Magic numbers should be replaced with named constants according to the style guide.",
+            "kind": "",
+            "reason": "The rule document explicitly states that numeric literals encoding domain values like tax rates, thresholds, and fees should be replaced with named constants.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "An example of a good replacement is const CA_TAX_RATE = 0.0725;",
+            "kind": "",
+            "reason": "The rule document provides this exact example as a recommended practice for replacing magic numbers with named constants.",
             "verdict": "supported"
           }
         ]
@@ -65,35 +113,101 @@
     {
       "rule_id": "guard-clauses",
       "title": "Use guard clauses for invalid inputs",
-      "message": "Guard clauses are correctly used at the start of the function for validation (lines 7-14), but the subsequent logic (especially the coupon and shipping sections) contains else-if chains that would benefit from early returns or extraction into helper functions to keep the happy path flat.",
-      "location_hint": "src/process-order.js:25-44",
+      "message": "Move all input guarding logic (null checks, empty conditions) to the start of the function to cleanly separate validations from core logic.",
+      "location_hint": "src/process-order.js:8-12",
       "citation": null,
       "faithfulness": {
-        "score": 0.75,
+        "score": 1,
         "claims": [
           {
-            "claim": "Guard clauses are correctly used at the start of the function for validation (lines 7-14).",
+            "claim": "The function processOrder contains input guarding logic such as null checks and empty conditions.",
             "kind": "",
-            "reason": "The diff shows lines 7-14 contain validation guard clauses: `if (!order) throw new Error('no order');`, `if (!order.user) throw new Error('no user');`, `if (!order.items) throw new Error('no items');`, and `if (order.items.length === 0) throw new Error('empty');`. These are guard clauses that handle invalid inputs with early returns at the top of the function, consistent with the rule document's definition of correct guard clause usage.",
+            "reason": "The diff shows multiple guard clauses at the start of the function processOrder, including checks for order, order.user, order.items, and item.id, which are forms of input guarding logic.",
             "verdict": "supported"
           },
           {
-            "claim": "The coupon section contains else-if chains.",
+            "claim": "The input guarding logic in processOrder is placed at the start of the function.",
             "kind": "",
-            "reason": "The diff shows lines 25-29 contain coupon logic with an else-if chain: `if (order.coupon.type === 'percent') { ... } else if (order.coupon.type === 'fixed') { ... }`. This is an else-if chain as claimed.",
+            "reason": "The diff shows that all the guard clauses (null checks, empty conditions) are located at the beginning of the function processOrder, right after the function definition and before the core logic.",
             "verdict": "supported"
           },
           {
-            "claim": "The shipping section contains else-if chains.",
+            "claim": "The core logic of processOrder begins after the input guarding logic.",
             "kind": "",
-            "reason": "The diff shows lines 41-44 contain shipping logic with else-if chains: `if (order.shipping?.express) shipping = 25; else if (subtotal > 50) shipping = 0; else shipping = 8;`. This is an else-if chain as claimed.",
+            "reason": "The diff shows that after the guard clauses, the core logic begins with '// compute subtotal', indicating a clear separation between input validation and the main function logic.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "complexity",
+      "title": "Keep cyclomatic complexity low",
+      "message": "Function `processOrder` contains many nested conditionals and loops increasing cyclomatic complexity. Break down into smaller focused functions e.g. for applying discounts, computing taxes, handling shipping costs.",
+      "location_hint": "src/process-order.js:8-71",
+      "citation": null,
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "Function `processOrder` contains many nested conditionals and loops.",
+            "kind": "",
+            "reason": "The diff shows multiple sequential blocks of conditionals and loops within the `processOrder` function, including validation loops, discount conditionals, tax conditionals, shipping conditionals, notification conditionals, loyalty conditionals, and inventory loops.",
             "verdict": "supported"
           },
           {
-            "claim": "The subsequent logic (especially the coupon and shipping sections) would benefit from early returns or extraction into helper functions to keep the happy path flat.",
+            "claim": "The cyclomatic complexity of function `processOrder` is increased by its nested conditionals and loops.",
             "kind": "",
-            "reason": "The rule document states that guard clauses should be used to 'keep the happy path at one level of indentation and remove the need for trailing else branches.' The coupon and shipping sections use else-if chains rather than early returns or helper functions, which increases indentation and nesting. However, the claim is a subjective recommendation ('would benefit from') rather than a statement of fact about what the code does. The rule document supports the principle that such refactoring would improve code structure, but the claim itself is a prescriptive recommendation rather than a descriptive statement about the code's current state.",
-            "verdict": "unclear"
+            "reason": "The rule document states that deeply nested conditionals and many independent branches increase cyclomatic complexity, and the diff shows such nesting in `processOrder`.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Function `processOrder` should be broken down into smaller focused functions for applying discounts, computing taxes, and handling shipping costs.",
+            "kind": "",
+            "reason": "The rule document advises extracting logic into smaller functions to reduce complexity, and the diff shows distinct logical sections (discounts, taxes, shipping) that could be extracted.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "no-business-logic-in-controllers",
+      "title": "Controllers must delegate; business logic belongs in the service",
+      "message": "This function appears to contain significant business logic including validation, pricing calculations, notifications, and persistence. These responsibilities should be split across dedicated services/modules to maintain separation of concerns.",
+      "location_hint": "src/process-order.js:8-71",
+      "citation": null,
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The function in src/process-order.js contains validation logic.",
+            "kind": "",
+            "reason": "The diff shows multiple validation checks such as 'if (!order) throw new Error('no order');' and 'if (!item.id) throw new Error('item missing id');'.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The function in src/process-order.js performs pricing calculations.",
+            "kind": "",
+            "reason": "The diff includes code for computing subtotal, applying discounts, calculating tax, and determining shipping costs.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The function in src/process-order.js includes notification logic.",
+            "kind": "",
+            "reason": "The diff contains code that sends emails and SMS messages based on user preferences.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The function in src/process-order.js handles data persistence.",
+            "kind": "",
+            "reason": "The diff shows the line 'db.orders.save(record);' which indicates direct persistence.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The function in src/process-order.js implements business logic that should be delegated to services.",
+            "kind": "",
+            "reason": "The rule states that controllers should delegate and not contain business logic such as validation, persistence, and enrichment, all of which are present in the diff.",
+            "verdict": "supported"
           }
         ]
       }
@@ -101,25 +215,25 @@
   ],
   "ruleSet": [
     "complexity",
+    "consistent-async-await",
+    "controller-input-shape-immutable",
     "guard-clauses",
+    "guard-status-transitions",
     "max-lines-per-function",
-    "no-await-in-loop",
-    "no-deeply-nested-callbacks",
-    "no-explicit-any",
-    "no-floating-promises",
-    "no-non-null-assertion",
-    "no-throw-literal",
-    "repository-pattern"
+    "no-business-logic-in-controllers",
+    "no-magic-numbers",
+    "prefer-typed-guard-over-bang",
+    "validate-input-at-system-boundary"
   ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "80878730eb1078d6de9e168103498e51f79470182b1e64046f24682bbfd9cd7b",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5b4c6c64344a91b6bf282566cf4e742b8160ffa98972a271a9e285e773c44c13",
+    "llmProvider": "openrouter"
   }
 }

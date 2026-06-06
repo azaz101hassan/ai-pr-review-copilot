@@ -1,20 +1,53 @@
 {
-  "status": "threw",
+  "status": "emitted",
   "fixtureId": "queue-process-env-violation",
-  "error": {
-    "errorCode": "credit_balance_too_low",
-    "turnCount": null,
-    "toolCalls": null
-  },
+  "findings": [
+    {
+      "rule_id": "no-process-env-outside-config",
+      "title": "Never read process.env outside ConfigService or main.ts",
+      "message": "Reading `process.env.SKIP_REDIS_PROBE` directly in `QueueModule.forRoot()` violates the rule. Use ConfigService instead.",
+      "location_hint": "apps/api/src/infrastructure/queue/queue.module.ts:103",
+      "citation": "const skip = parseSkipRedisProbe(process.env.SKIP_REDIS_PROBE, false);",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "Reading `process.env.SKIP_REDIS_PROBE` directly in `QueueModule.forRoot()` violates the rule",
+            "kind": "",
+            "reason": "The rule states 'Never read process.env outside ConfigService or main.ts' and specifies that the only exceptions are `main.ts` and `*.module.ts` files using a `parse*` helper. The diff shows `process.env.SKIP_REDIS_PROBE` being read directly in `QueueModule.forRoot()` in `queue.module.ts`, and although the file is a module, it is not using a `parse*` helper as per the exception. Therefore, this claim is supported by the evidence.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Use ConfigService instead of reading `process.env.SKIP_REDIS_PROBE` directly",
+            "kind": "",
+            "reason": "The rule document explicitly states that direct `process.env.X` access in feature code bypasses the typed gateway and defeats fail-fast validation, and it advises to 'Add a typed property + validator on ConfigService and inject ConfigService where you need the value.' This supports the claim that ConfigService should be used instead. The diff does not show ConfigService being used for this value, but the rule's guidance supports the claim.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "await-or-catch-promises",
+    "config-service-only",
+    "name-magic-numbers-as-const",
+    "no-console-in-app-code",
+    "no-leak-internal-errors",
+    "no-magic-numbers",
+    "no-mocks-for-the-db",
+    "no-process-env-outside-config",
+    "repository-pattern",
+    "throw-nest-http-exceptions"
+  ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "356e1332859c67b307349123ba17c33d13db4ddf3ea2a6b85d992dfd0f79725f",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5b4c6c64344a91b6bf282566cf4e742b8160ffa98972a271a9e285e773c44c13",
+    "llmProvider": "openrouter"
   }
 }

@@ -152,6 +152,19 @@ export interface IReviewRepository {
   // sweep then finalises it as 'failed'/'process_terminated'.
   insert(record: ReviewInsert): void;
 
+  // Insert a row marked in_progress with placeholder retrieval/usage
+  // fields. The worker uses this to reserve the row (the serialization
+  // point the in-flight guard depends on) BEFORE any GitHub I/O. The
+  // placeholders are reconciled to real values later via
+  // updateRetrievalMetadata (runDryRun, once retrieval has run) or by
+  // a skip/empty/failure path that sets the standalone marker.
+  insertInProgress(args: {
+    id: string;
+    pr_node_id: string;
+    model: string;
+    created_at: Date;
+  }): void;
+
   findById(id: string): ReviewRecord | undefined;
 
   // Listing API. Capped at 100 rows by default to keep the response
@@ -180,6 +193,38 @@ export interface IReviewRepository {
   // number of rows actually updated.
   markFailedIfInProgress(id: string, patch: ReviewFailurePatch): number;
 
+  // Persist the GitHub-assigned check-run id once the worker POSTs
+  // the in-progress check. Per-review (per head_sha), so this lives
+  // on the reviews row, not the pull_requests row. Throws when the
+  // row does not exist — the worker only calls this AFTER the
+  // in_progress row has been inserted.
+  setCheckRunId(reviewId: string, checkRunId: number): void;
+
+  // Persist the LLM-generated walkthrough prose intro. Nullable:
+  // when the summarizer call fails, the row records null and the
+  // walkthrough formatter renders the mechanical scaffold alone.
+  setWalkthroughSummary(reviewId: string, summary: string | null): void;
+
+  // Overwrite the placeholder retrieval-metadata columns written by
+  // insertInProgress with their real values, once known. runDryRun
+  // calls this (instead of insert) when the row was pre-reserved by
+  // the worker — landing the true diff_length / model / prompt_version
+  // / top_k / retrieved_chunk_ids so the dashboard and analytics see
+  // accurate data. A worker skip/empty/failure path can also call it
+  // to set the dedicated standalone-* prompt_version marker. Does NOT
+  // touch status, tokens, error fields, created_at, or completed_at.
+  updateRetrievalMetadata(
+    reviewId: string,
+    patch: {
+      diff_length: number;
+      model: string;
+      prompt_version: string;
+      top_k: number;
+      retrieved_chunk_ids: string;
+      retrieved_chunk_ids_hash: string;
+    },
+  ): void;
+
   // Startup sweep. Marks any `in_progress` row whose `created_at` is
   // older than the cutoff as `failed` with the given error_code (e.g.,
   // 'process_terminated'). Returns the number of rows updated.
@@ -196,6 +241,16 @@ export interface IReviewRepository {
     prNodeId: string,
     withinMs: number,
   ): ReviewRecord | undefined;
+
+  // For sweep at job entry — finds the most recent reviews row
+  // for the given pr_node_id (excluding the current reviewId)
+  // whose check_run_id is non-null. Used by the worker to PATCH
+  // a prior leaked in_progress check-run to a terminal state
+  // before posting the new in-progress check.
+  findMostRecentPriorCheckRun(opts: {
+    prNodeId: string;
+    excludingReviewId: string;
+  }): { reviewId: string; checkRunId: number } | undefined;
 
   // Dashboard read-side methods.
 

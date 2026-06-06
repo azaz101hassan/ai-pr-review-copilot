@@ -3,36 +3,24 @@
   "fixtureId": "clean-config-constant__top10",
   "findings": [
     {
-      "rule_id": "prefer-const",
-      "title": "Use const for variables that are never reassigned",
-      "message": "The variables SCHEMA_GLOB and MIGRATIONS_DIR are declared with `let` (implicitly, or if let is used) but should be declared with `const` since they are never reassigned. Using `const` signals intent and prevents accidental reassignment. However, examining the diff, these are actually declared as `const`, so this is not a violation.",
-      "location_hint": "drizzle.config.ts:3-4",
-      "citation": null,
+      "rule_id": "drizzle-schema-source-of-truth",
+      "title": "Never hand-edit generated Drizzle migrations",
+      "message": "Changes to drizzle.config.ts that affect migration generation violate the principle of treating schema files as the source of truth. The configuration should remain consistent with the schema files to ensure proper migration generation.",
+      "location_hint": "drizzle.config.ts:1-12",
+      "citation": "const SCHEMA_GLOB = './src/infrastructure/db/schema/*.ts';\nconst MIGRATIONS_DIR = './src/infrastructure/db/migrations';",
       "faithfulness": {
-        "score": 0.75,
+        "score": 1,
         "claims": [
           {
-            "claim": "The variables SCHEMA_GLOB and MIGRATIONS_DIR are declared with `let`.",
+            "claim": "Changes to drizzle.config.ts that affect migration generation violate the principle of treating schema files as the source of truth.",
             "kind": "",
-            "reason": "The diff shows that SCHEMA_GLOB and MIGRATIONS_DIR are declared with `const` (lines 3-4 of the new code), not `let`. The finding's message itself acknowledges this: 'However, examining the diff, these are actually declared as `const`, so this is not a violation.'",
-            "verdict": "not_supported"
-          },
-          {
-            "claim": "The variables SCHEMA_GLOB and MIGRATIONS_DIR are never reassigned.",
-            "kind": "",
-            "reason": "The diff shows these variables are declared once and used only as configuration values in the export statement. There is no evidence of reassignment in the diff.",
+            "reason": "The rule states that schema files are the source of truth and that migrations should be generated from them, not hand-edited. The diff shows changes to drizzle.config.ts that alter how migrations are generated, which aligns with the idea that such changes could violate the principle if they deviate from using schema files as the source of truth.",
             "verdict": "supported"
           },
           {
-            "claim": "The variables SCHEMA_GLOB and MIGRATIONS_DIR should be declared with `const`.",
+            "claim": "The configuration should remain consistent with the schema files to ensure proper migration generation.",
             "kind": "",
-            "reason": "The rule document states that if a binding is never reassigned, it should be declared with `const` to signal intent and prevent accidental reassignment. Since SCHEMA_GLOB and MIGRATIONS_DIR are never reassigned, they should be declared with `const` according to the rule.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The variables SCHEMA_GLOB and MIGRATIONS_DIR are actually declared as `const`.",
-            "kind": "",
-            "reason": "The diff clearly shows both variables declared with the `const` keyword on lines 3-4 of the new code.",
+            "reason": "The rule emphasizes that schema files are the source of truth and that migrations are generated from them. Consistency between configuration and schema files is implied to ensure proper migration generation, which is directly supported by the rule.",
             "verdict": "supported"
           }
         ]
@@ -42,24 +30,24 @@
   "ruleSet": [
     "config-service-only",
     "drizzle-schema-source-of-truth",
-    "explicit-function-return-type",
+    "epoch-ms-timestamps",
+    "inject-via-interface-token",
     "module-tier-dependencies",
-    "no-crud-on-database-service",
-    "no-explicit-any",
     "no-mocks-for-the-db",
-    "no-non-null-assertion",
+    "no-process-env-outside-config",
     "prefer-const",
+    "prefer-uuid-over-incrementing-id",
     "repository-pattern"
   ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5b4c6c64344a91b6bf282566cf4e742b8160ffa98972a271a9e285e773c44c13",
+    "llmProvider": "openrouter"
   }
 }

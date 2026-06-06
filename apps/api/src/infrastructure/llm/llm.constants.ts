@@ -1,7 +1,8 @@
 /**
- * Provider-neutral defaults for the agent loop. Anthropic and
- * OpenRouter adapters share these so the two paths stay comparable
- * across runs and so the troubleshooting docs need only one source.
+ * Provider-neutral defaults for the agent loop and the walkthrough
+ * summarizer. Anthropic and OpenRouter adapters share these so the two
+ * paths stay comparable across runs and so the troubleshooting docs
+ * need only one source.
  */
 
 export const MAX_TOKENS_PER_TURN = 2048;
@@ -24,3 +25,11 @@ export const DEFAULT_TURN_CAP = 6;
  * reason about output budget without parsing the schema.
  */
 export const MAX_FINDINGS_PER_EMIT = 10;
+
+// 250 tokens ~ the 80-160 word prose target for a 1-2 paragraph intro;
+// caps the response size and per-call cost.
+export const SUMMARIZER_MAX_TOKENS = 250;
+
+// 1500ms keeps this best-effort seam off the review critical path;
+// a slow LLM call returns null rather than delaying the whole review.
+export const SUMMARIZER_DEFAULT_TIMEOUT_MS = 1500;

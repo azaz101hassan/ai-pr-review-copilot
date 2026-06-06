@@ -19,14 +19,18 @@ import {
   anchorFindingsToDiff,
   countChangedLines,
   findWalkthroughCommentId,
+  formatCheckRunOutput,
   formatInlineCommentBody,
   formatReviewBody,
-  formatWalkthroughBody,
+  formatWalkthroughSuccessBody,
+  formatWalkthroughEmptyBody,
   formatWalkthroughFailedBody,
+  formatWalkthroughInProgressBody,
   formatWalkthroughSkippedBody,
   parseDiffHunks,
   FailureReason,
   FindingWithSeverity,
+  type FormatCheckRunOutputInput,
 } from './helpers';
 import {
   IPullRequestRepository,
@@ -50,6 +54,10 @@ import {
   REVIEW_QUEUE_NAME,
   ReviewJobData,
 } from './types/review-queue';
+import {
+  WALKTHROUGH_SUMMARIZER,
+  type IWalkthroughSummarizer,
+} from './types/walkthrough-summarizer';
 
 // BullMQ worker. One Processor instance per app boot — consumes jobs
 // off the `reviews` queue. The class extends WorkerHost (the modern
@@ -63,21 +71,49 @@ import {
 //      stalled-job replay racing the deterministic-jobId upsert.
 //   3. Mint installation-scoped Octokit from the cached provider.
 //   4. pulls.get → if state !== 'open' or 404, mark failed and exit.
-//   5. Fetch unified diff via mediaType.format='diff'.
-//   6. Pre-check: empty diff → mark completed with zero findings,
-//      do not call Anthropic, do not POST. MAX_DIFF_BYTES overflow
-//      → mark failed/diff_too_large, exit clean.
-//   7. Construct GitHubRepoContextProvider (per-job).
-//   8. Call reviewsService.runRealReview — runs the agent loop,
-//      persists the row and findings.
-//   9. Sanitize each finding's title/message; format the body with
-//      the self-identifying header + UUID-validated marker.
-//   10. POST octokit.rest.pulls.createReview (event=COMMENT,
-//       commit_id OMITTED so GitHub defaults to PR's current branch
-//       tip — eliminates stale-head-SHA window). retries: 0.
-//   11. On failure during steps 3-10: classifyError → markFailed
-//       with the right error_code; re-throw so BullMQ schedules a
-//       retry per the queue's attempts budget.
+//   4b. Reserve the lifecycle row (insertInProgress) right after the
+//       open-state check, then sweep any prior leaked check-run on this
+//       PR to a terminal 'neutral' state.
+//   5. Fetch unified diff via mediaType.format='diff'. We decide
+//      terminal-vs-review from the diff BEFORE posting any in-progress
+//      surface, so a no-review outcome never flickers "in progress".
+//   6. Terminal-without-review exits (each returns):
+//        6a. MAX_DIFF_BYTES → markFailed/diff_too_large + failed
+//            walkthrough + skipped check-run.
+//        6b. MAX_REVIEW_DIFF_LINES (size cap) → markCompleted + skip
+//            walkthrough + skipped check-run.
+//        6c. empty diff → markCompleted + dedicated empty-diff
+//            walkthrough + skipped check-run.
+//   7. Review path only: POST the in-progress check-run (best-effort);
+//      cache its id on the reserved row via setCheckRunId.
+//   8. Review path only, first review only (createIfAbsent): POST the
+//      in-progress walkthrough comment; re-reviews leave the existing
+//      walkthrough up and update it in place at the terminal post.
+//   9. Construct GitHubRepoContextProvider (per-job), then call
+//       reviewsService.runRealReview — runs the agent loop, persists
+//       the row and findings. On failure: post a failed walkthrough AND
+//       PATCH the Step 7 in-progress check-run to skipped, then re-throw
+//       (Unrecoverable on terminal Anthropic).
+//   10. Sanitize each finding's title/message into the working set used
+//       by the summarizer call and the body formatter below.
+//   11. Call the walkthrough summarizer (best-effort prose intro). It
+//       returns null on any failure and never throws into the worker.
+//   12. Persist the intro (or null) on the reserved row via
+//       setWalkthroughSummary — for the success body (wired in a later
+//       task) and the dashboard.
+//   13. Format the body with the self-identifying header + UUID-validated
+//       marker; then POST in three steps that match the inline
+//       `Step 13a`/`Step 13b`/`Step 13c` markers:
+//        13a. upsert the walkthrough success comment (terminal body).
+//        13b. POST the inlined Review (event=COMMENT, commit_id OMITTED
+//             so GitHub defaults to the PR's current branch tip);
+//             posted when there is anything to show inline OR an
+//             outside-diff callout (shouldPostReview), skipped on a
+//             fully clean review.
+//        13c. PATCH the Step 7 in-progress check-run to its terminal
+//             SUCCESS state (a completed review shows a green check),
+//             linking the freshly-posted walkthrough. Skipped only when
+//             no in-progress check-run was posted (no Checks permission).
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -128,6 +164,8 @@ export class ReviewsProcessor
     @Inject(PULL_REQUEST_REPOSITORY)
     private readonly pullRequestsRepo: IPullRequestRepository,
     private readonly config: ConfigService,
+    @Inject(WALKTHROUGH_SUMMARIZER)
+    private readonly summarizer: IWalkthroughSummarizer,
   ) {
     super();
   }
@@ -214,74 +252,300 @@ export class ReviewsProcessor
       return;
     }
 
-    // Step 5 — unified diff via mediaType.
-    let diff: string;
+    // Reserve the lifecycle row BEFORE any further I/O. The row's
+    // existence is the serialization point the in-flight guard depends
+    // on; reserving here (rather than at runRealReview) closes the race
+    // where two concurrent deliveries both pass the guard and proceed.
+    // Retrieval fields are placeholders until runRealReview reconciles
+    // them — or a pre-LLM exit path below sets a standalone marker via
+    // updateRetrievalMetadata + markFailed/markCompleted. The single
+    // outer try/finally below owns the activeReviewIds cleanup so the
+    // delete fires exactly once on every exit (return OR throw).
+    const reviewId = randomUUID();
+    this.activeReviewIds.add(reviewId);
+    this.reviewsRepo.insertInProgress({
+      id: reviewId,
+      pr_node_id: data.pr_node_id,
+      model: this.config.activeModel(),
+      created_at: new Date(),
+    });
+
     try {
-      const res = await octokit.request(
-        'GET /repos/{owner}/{repo}/pulls/{pull_number}',
-        {
+      // Step 4b — sweep any prior leaked check-run on this PR. A prior
+      // attempt may have left an in_progress check-run; retire the most
+      // recent one to a terminal neutral state before the new review's
+      // check goes up, so the PR's Checks tab shows a single live run.
+      const prior = this.reviewsRepo.findMostRecentPriorCheckRun({
+        prNodeId: data.pr_node_id,
+        excludingReviewId: reviewId,
+      });
+      if (prior) {
+        await this.tryPatchCheckRun({
+          octokit,
           owner: data.owner,
           repo: data.repo,
-          pull_number: data.pr_number,
-          mediaType: { format: 'diff' },
-        },
-      );
-      diff = String(res.data ?? '');
-    } catch (err) {
-      const status = readStatus(err);
-      await this.writeStandaloneFailure(data, 'github_api_error', status);
-      if (status === 401) {
-        this.githubAuth.invalidateInstallation(data.installation_id);
-        throw new UnrecoverableError(formatBriefError(err));
+          check_run_id: prior.checkRunId,
+          conclusion: 'neutral',
+          title: 'Superseded by newer review on this PR.',
+          summary: 'A newer review has started on this pull request.',
+        });
       }
-      // Retryable GitHub failure on the diff fetch — same rationale as
-      // the pulls.get retryable branch above.
-      await this.tryPostFailedWalkthrough({
+
+      // Step 5 — unified diff via mediaType.
+      let diff: string;
+      try {
+        const res = await octokit.request(
+          'GET /repos/{owner}/{repo}/pulls/{pull_number}',
+          {
+            owner: data.owner,
+            repo: data.repo,
+            pull_number: data.pr_number,
+            mediaType: { format: 'diff' },
+          },
+        );
+        diff = String(res.data ?? '');
+      } catch (err) {
+        // Finalize the reserved row in place as a standalone failure —
+        // overwrite the placeholder retrieval marker, then markFailed
+        // with the GitHub status so eval/dashboard see the attempt.
+        // Mirror the pulls.get branch above: 404/410 → pr_closed_during_review,
+        // other statuses → generic github_api_error.
+        const status = readStatus(err);
+        const errorCode =
+          status === 404 || status === 410
+            ? 'pr_closed_during_review'
+            : 'github_api_error';
+        this.reviewsRepo.updateRetrievalMetadata(reviewId, {
+          diff_length: 0,
+          model: this.config.activeModel(),
+          prompt_version: 'standalone-failure',
+          top_k: 0,
+          retrieved_chunk_ids: '[]',
+          retrieved_chunk_ids_hash: '0'.repeat(64),
+        });
+        this.reviewsRepo.markFailed(reviewId, {
+          completed_at: new Date(),
+          error_status: status,
+          error_code: errorCode,
+        });
+        // 401 means the cached Octokit's installation token is now
+        // invalid — drop the cache entry so the next forInstallation
+        // call mints fresh. 404/410 are gone-resource conditions;
+        // the auth is fine, no invalidate.
+        if (status === 401) {
+          this.githubAuth.invalidateInstallation(data.installation_id);
+        }
+        // 401 / 404 / 410 are terminal — no retry would help.
+        if (status === 401 || status === 404 || status === 410) {
+          throw new UnrecoverableError(formatBriefError(err));
+        }
+        // Retryable GitHub failure on the diff fetch — same rationale as
+        // the pulls.get retryable branch above.
+        await this.tryPostFailedWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          reason: 'github_api_error',
+          jobLogPrefix,
+        });
+        throw classifyToRequestError(err);
+      }
+
+      // Step 6a — MAX_DIFF_BYTES.
+      const diffBytes = Buffer.byteLength(diff, 'utf8');
+      if (diffBytes > this.config.maxDiffBytes) {
+        // Finalize the reserved row as a standalone failure
+        // (diff_too_large carries a zero status — no GitHub error
+        // involved, just our own size cap).
+        this.reviewsRepo.updateRetrievalMetadata(reviewId, {
+          diff_length: 0,
+          model: this.config.activeModel(),
+          prompt_version: 'standalone-failure',
+          top_k: 0,
+          retrieved_chunk_ids: '[]',
+          retrieved_chunk_ids_hash: '0'.repeat(64),
+        });
+        this.reviewsRepo.markFailed(reviewId, {
+          completed_at: new Date(),
+          error_status: 0,
+          error_code: 'diff_too_large',
+        });
+        await this.postTerminalCheckRun(octokit, data, reviewId, {
+          mode: 'failed',
+          reasonCopy: 'the diff exceeds the byte-size safety cap',
+        });
+        await this.tryPostFailedWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          reason: 'diff_too_large',
+          jobLogPrefix,
+        });
+        this.logger.warn(
+          `${jobLogPrefix} worker.job.failed diff_too_large bytes=${diffBytes} cap=${this.config.maxDiffBytes}`,
+        );
+        return;
+      }
+
+      // Step 6b — MAX_REVIEW_DIFF_LINES (soft size gate).
+      // Distinct from MAX_DIFF_BYTES above: that one is a silent
+      // failure for runaway-size system safety; this one is product
+      // policy. The reviewer's quality is reliable on small focused
+      // diffs and degrades sharply on whole-PR-scale ones, so over
+      // the threshold we POST a friendly skip-walkthrough and finalize
+      // the reserved row 'completed' marked with the dedicated
+      // prompt_version. No agent loop, no Anthropic call → ~$0 on
+      // big PRs.
+      const changedLines = countChangedLines(diff);
+      if (changedLines > this.config.maxReviewDiffLines) {
+        const skipBody = formatWalkthroughSkippedBody({
+          prNodeId: data.pr_node_id,
+          changedLines,
+          limit: this.config.maxReviewDiffLines,
+        });
+        try {
+          await this.upsertWalkthrough({
+            octokit,
+            owner: data.owner,
+            repo: data.repo,
+            pr_number: data.pr_number,
+            pr_node_id: data.pr_node_id,
+            body: skipBody,
+          });
+        } catch (err) {
+          // Best-effort POST. If GitHub rejects the comment we still
+          // want the audit row so dashboard / metrics see the skip.
+          // Don't retry, don't fail the job — the bot's decision was
+          // "skip", and the row records that decision regardless of
+          // whether the visible comment landed.
+          this.logger.warn(
+            `${jobLogPrefix} worker.skip.walkthrough_post_failed ${formatBriefError(err)}`,
+          );
+        }
+        // Reconcile the reserved row with the size-skip marker (carrying
+        // the actual diff_length) and mark it completed with zero usage.
+        this.reviewsRepo.updateRetrievalMetadata(reviewId, {
+          diff_length: diffBytes,
+          model: this.config.activeModel(),
+          prompt_version: 'standalone-skipped-too-large',
+          top_k: 0,
+          retrieved_chunk_ids: '[]',
+          retrieved_chunk_ids_hash: '0'.repeat(64),
+        });
+        this.reviewsRepo.markCompleted(reviewId, {
+          completed_at: new Date(),
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+        });
+        await this.postTerminalCheckRun(octokit, data, reviewId, {
+          mode: 'skipped',
+          changedLines,
+          limit: this.config.maxReviewDiffLines,
+        });
+        this.logger.log(
+          `${jobLogPrefix} worker.job.skipped diff_size changed_lines=${changedLines} cap=${this.config.maxReviewDiffLines}`,
+        );
+        return;
+      }
+
+      // Step 6c — empty diff. Mark completed cleanly without calling
+      // Anthropic and without POSTing. The standalone-empty-diff marker
+      // keeps the audit trail honest (eval sees the attempt + zero
+      // findings, rather than the operator wondering why a delivery
+      // vanished) while excluding it from quality metrics.
+      if (diff.trim().length === 0) {
+        // Build the honest empty-diff walkthrough body FIRST — before
+        // markCompleted. A body-builder throw must not strand an
+        // already-completed row in a BullMQ retry loop, so any failure
+        // here happens while the row is still in_progress. No retrieval
+        // ran and no Review is posted on this exit, so the body says
+        // exactly that (no "rules retrieved", no "see the review below").
+        const emptyBody = formatWalkthroughEmptyBody({
+          prNodeId: data.pr_node_id,
+          missingChecksPermission: !this.githubAuth.hasChecksPermission(
+            data.installation_id,
+          ),
+        });
+        this.reviewsRepo.updateRetrievalMetadata(reviewId, {
+          diff_length: 0,
+          model: this.config.activeModel(),
+          prompt_version: 'standalone-empty-diff',
+          top_k: 0,
+          retrieved_chunk_ids: '[]',
+          retrieved_chunk_ids_hash: '0'.repeat(64),
+        });
+        this.reviewsRepo.markCompleted(reviewId, {
+          completed_at: new Date(),
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+        });
+        // Post the "no diff" walkthrough (best-effort) so the PR author
+        // sees a terminal result rather than a missing comment, then a
+        // terminal skipped check-run. No in-progress surface ran for this
+        // exit, so the walkthrough goes straight to the empty body and the
+        // check-run goes straight to its terminal state.
+        try {
+          await this.upsertWalkthrough({
+            octokit,
+            owner: data.owner,
+            repo: data.repo,
+            pr_number: data.pr_number,
+            pr_node_id: data.pr_node_id,
+            body: emptyBody,
+          });
+        } catch (err) {
+          this.logger.warn(
+            `${jobLogPrefix} worker.empty.walkthrough_post_failed ${formatBriefError(err)}`,
+          );
+        }
+        await this.postTerminalCheckRun(octokit, data, reviewId, {
+          mode: 'empty-diff',
+        });
+        this.logger.log(`${jobLogPrefix} worker.review.empty diff was empty`);
+        return;
+      }
+
+      // Step 7 — POST the in-progress check-run (review path only). The
+      // size checks above all return before this point, so an in-progress
+      // surface goes up ONLY when a real review will run — no flicker on
+      // the terminal-without-review exits. Best-effort: tryPostInProgressCheckRun
+      // returns null when the installation lacks the Checks permission or
+      // the POST fails; in that case we simply don't persist an id. The
+      // local checkRunId stays in scope for the runRealReview catch below,
+      // which PATCHes it to skipped on an agent-loop failure.
+      const checkRunId = await this.tryPostInProgressCheckRun({
         octokit,
         owner: data.owner,
         repo: data.repo,
-        pr_number: data.pr_number,
-        pr_node_id: data.pr_node_id,
-        reason: 'github_api_error',
-        jobLogPrefix,
+        head_sha: data.head_sha,
+        installation_id: data.installation_id,
       });
-      throw classifyToRequestError(err);
-    }
+      if (checkRunId !== null) {
+        this.reviewsRepo.setCheckRunId(reviewId, checkRunId);
+      }
 
-    // Step 6a — MAX_DIFF_BYTES.
-    const diffBytes = Buffer.byteLength(diff, 'utf8');
-    if (diffBytes > this.config.maxDiffBytes) {
-      await this.writeStandaloneFailure(data, 'diff_too_large', 0);
-      await this.tryPostFailedWalkthrough({
-        octokit,
-        owner: data.owner,
-        repo: data.repo,
-        pr_number: data.pr_number,
-        pr_node_id: data.pr_node_id,
-        reason: 'diff_too_large',
-        jobLogPrefix,
-      });
-      this.logger.warn(
-        `${jobLogPrefix} worker.job.failed diff_too_large bytes=${diffBytes} cap=${this.config.maxDiffBytes}`,
-      );
-      return;
-    }
-
-    // Step 6a-bis — MAX_REVIEW_DIFF_LINES (soft size gate).
-    // Distinct from MAX_DIFF_BYTES above: that one is a silent
-    // failure for runaway-size system safety; this one is product
-    // policy. The reviewer's quality is reliable on small focused
-    // diffs and degrades sharply on whole-PR-scale ones, so over
-    // the threshold we POST a friendly skip-walkthrough and persist
-    // a 'completed' standalone row marked with the dedicated
-    // prompt_version. No agent loop, no Anthropic call → ~$0 on
-    // big PRs.
-    const changedLines = countChangedLines(diff);
-    if (changedLines > this.config.maxReviewDiffLines) {
-      const skipBody = formatWalkthroughSkippedBody({
+      // Step 8 — POST the in-progress walkthrough ONLY on a PR's first
+      // review (createIfAbsent). On re-reviews the walkthrough already
+      // exists, so we leave the prior result up and let the terminal post
+      // update it in place — we never flip an existing walkthrough back to
+      // "in progress". The missing-permission note is shown when the
+      // Checks C-POST above could not run. Order matters: Step 7's 403
+      // path flips the permission cache (markChecksPermissionMissing) that
+      // this hasChecksPermission read observes, so Step 7 must precede
+      // Step 8. Tolerated on failure.
+      const inProgressBody = formatWalkthroughInProgressBody({
         prNodeId: data.pr_node_id,
-        changedLines,
-        limit: this.config.maxReviewDiffLines,
+        missingChecksPermission: !this.githubAuth.hasChecksPermission(
+          data.installation_id,
+        ),
       });
       try {
         await this.upsertWalkthrough({
@@ -290,107 +554,106 @@ export class ReviewsProcessor
           repo: data.repo,
           pr_number: data.pr_number,
           pr_node_id: data.pr_node_id,
-          body: skipBody,
+          body: inProgressBody,
+          createIfAbsent: true,
         });
       } catch (err) {
-        // Best-effort POST. If GitHub rejects the comment we still
-        // want the audit row so dashboard / metrics see the skip.
-        // Don't retry, don't fail the job — the bot's decision was
-        // "skip", and the row records that decision regardless of
-        // whether the visible comment landed.
         this.logger.warn(
-          `${jobLogPrefix} worker.skip.walkthrough_post_failed ${formatBriefError(err)}`,
+          `${jobLogPrefix} worker.walkthrough.in_progress_post_failed ${formatBriefError(err)}`,
         );
       }
-      this.writeStandaloneSkipped(data, diffBytes);
-      this.logger.log(
-        `${jobLogPrefix} worker.job.skipped diff_size changed_lines=${changedLines} cap=${this.config.maxReviewDiffLines}`,
-      );
-      return;
-    }
 
-    // Step 6b — empty diff. Mark completed cleanly without calling
-    // Anthropic and without POSTing. A standalone-completion row with
-    // zero findings keeps the audit trail honest (eval sees the
-    // attempt + zero findings, rather than the operator wondering why
-    // a delivery vanished). Mirrors writeStandaloneFailure for symmetry.
-    if (diff.trim().length === 0) {
-      this.writeStandaloneCompletion(data);
-      this.logger.log(`${jobLogPrefix} worker.review.empty diff was empty`);
-      return;
-    }
-
-    // Step 7 — per-job context provider.
-    const repoContext = new GitHubRepoContextProvider({
-      octokit,
-      owner: data.owner,
-      repo: data.repo,
-      head_sha: data.head_sha,
-      pr_node_id: data.pr_node_id,
-      priorReviewRepo: this.findingsRepo,
-    });
-
-    // Pre-allocate the review_id at the worker so the activeReviewIds
-    // tracking Set is consistent with row existence for the entire
-    // lifecycle (add BEFORE runRealReview persists the row, delete in
-    // finally). Adding to the Set AFTER runRealReview returned would
-    // let a SIGTERM inside the agent loop miss the row entirely from
-    // the drain's perspective. The pre-allocated UUID is passed
-    // through runRealReview into runDryRun's insert (validated as a
-    // canonical UUID by the service).
-    const reviewId = randomUUID();
-    this.activeReviewIds.add(reviewId);
-
-    let result: RunDryRunResult;
-    try {
-      this.logger.log(
-        `${jobLogPrefix} worker.review.started review_id=${reviewId}`,
-      );
-      result = await this.reviewsService.runRealReview({
-        diff,
-        prNodeId: data.pr_node_id,
-        headSha: data.head_sha,
-        repoContext,
-        reviewId,
-      });
-    } catch (err) {
-      // runRealReview already wrote a failed row internally.
-      this.activeReviewIds.delete(reviewId);
-      this.logger.warn(
-        `${jobLogPrefix} worker.review.failed ${formatBriefError(err)}`,
-      );
-      // Post a failed-walkthrough so the PR author sees the bot's
-      // status. On retryable failures the next attempt — if it
-      // succeeds — will PATCH the same comment back to the success
-      // body. On terminal failures the failed-walkthrough is the
-      // final state.
-      const reason: FailureReason = isAnthropicErrorLike(err)
-        ? 'llm_error'
-        : 'internal_error';
-      await this.tryPostFailedWalkthrough({
+      // Step 9 — per-job context provider.
+      const repoContext = new GitHubRepoContextProvider({
         octokit,
         owner: data.owner,
         repo: data.repo,
-        pr_number: data.pr_number,
+        head_sha: data.head_sha,
         pr_node_id: data.pr_node_id,
-        reason,
-        jobLogPrefix,
+        priorReviewRepo: this.findingsRepo,
       });
-      // Terminal Anthropic errors (credit_balance_too_low,
-      // invalid_request_error, etc.) must not retry — a retry of the
-      // same agent loop would produce the same failure AND burn
-      // another $X of Anthropic credit. Wrap in UnrecoverableError so
-      // BullMQ skips remaining attempts.
-      if (isTerminalAnthropicError(err)) {
-        throw new UnrecoverableError(formatBriefError(err));
-      }
-      // Retryable (429, 5xx, transport) — re-throw the original.
-      // BullMQ's backoffStrategy reads err.retryAfterMs and honours
-      // Anthropic's hint when present.
-      throw err;
-    }
 
-    try {
+      let result: RunDryRunResult;
+      try {
+        this.logger.log(
+          `${jobLogPrefix} worker.review.started review_id=${reviewId}`,
+        );
+        result = await this.reviewsService.runRealReview({
+          diff,
+          prNodeId: data.pr_node_id,
+          headSha: data.head_sha,
+          repoContext,
+          reviewId,
+        });
+      } catch (err) {
+        // runRealReview already reconciled + wrote a failed row
+        // internally. The outer finally owns the activeReviewIds delete.
+        this.logger.warn(
+          `${jobLogPrefix} worker.review.failed ${formatBriefError(err)}`,
+        );
+        // Post a failed-walkthrough so the PR author sees the bot's
+        // status. On retryable failures the next attempt — if it
+        // succeeds — will PATCH the same comment back to the success
+        // body. On terminal failures the failed-walkthrough is the
+        // final state.
+        const isTurnCap =
+          err instanceof LlmRequestError &&
+          err.errorCode === 'turn_cap_exceeded';
+        const reason: FailureReason = isTurnCap
+          ? 'turn_cap_exceeded'
+          : isAnthropicErrorLike(err)
+            ? 'llm_error'
+            : 'internal_error';
+        await this.tryPostFailedWalkthrough({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          pr_number: data.pr_number,
+          pr_node_id: data.pr_node_id,
+          reason,
+          jobLogPrefix,
+        });
+        // PATCH the Step 7 in-progress check-run to a terminal skipped
+        // state so the merge-box status doesn't dangle "in progress"
+        // after the agent loop failed. No-op when no check-run was posted
+        // (checkRunId null — install lacks the Checks permission). If the
+        // PATCH itself fails (transient GitHub error, expired token,
+        // etc.), the row will be marked failed and the next sweep — which
+        // only targets `status = 'in_progress'` rows — would skip this
+        // leaked check-run forever. Fall back to a fresh terminal POST so
+        // the merge box at least gets a terminal signal even if the
+        // original in-progress check-run stays orphaned on GitHub.
+        const failureCopy = isTurnCap
+          ? 'the reviewer did not converge within the turn limit'
+          : isAnthropicErrorLike(err)
+            ? 'the language-model call was rejected'
+            : 'an internal error';
+        const patched = await this.patchCheckRunTerminal(
+          octokit,
+          data,
+          checkRunId,
+          { mode: 'failed', reasonCopy: failureCopy },
+        );
+        if (!patched) {
+          await this.postTerminalCheckRun(octokit, data, reviewId, {
+            mode: 'failed',
+            reasonCopy: failureCopy,
+          });
+        }
+        // Terminal Anthropic errors (credit_balance_too_low,
+        // invalid_request_error, etc.) must not retry — a retry of the
+        // same agent loop would produce the same failure AND burn
+        // another $X of Anthropic credit. Wrap in UnrecoverableError so
+        // BullMQ skips remaining attempts.
+        if (isTerminalAnthropicError(err)) {
+          throw new UnrecoverableError(formatBriefError(err));
+        }
+        // Retryable (429, 5xx, transport) — re-throw the original.
+        // BullMQ's backoffStrategy reads err.retryAfterMs and honours
+        // Anthropic's hint when present.
+        throw err;
+      }
+
       this.logger.log(
         `${jobLogPrefix} worker.review.findings_emitted count=${result.findings.length} review_id=${reviewId}`,
       );
@@ -409,6 +672,8 @@ export class ReviewsProcessor
         );
       }
 
+      // Step 10 — sanitize each finding's title/message into the working
+      // set used by the summarizer call and the body formatter below.
       const sanitizedFindings: FindingWithSeverity[] = result.findings.map(
         (f) => ({
           rule_id: f.rule_id,
@@ -420,23 +685,69 @@ export class ReviewsProcessor
         }),
       );
 
+      // Step 11 — summarizer (best-effort prose intro). Returns null on
+      // any failure and never throws; persisted on the row for the
+      // success body (wired in a later task) and the dashboard.
+      let summary: { intro: string } | null = null;
+      try {
+        summary = await this.summarizer.summarize({
+          diff,
+          findings: sanitizedFindings.map((f) => ({
+            rule_id: f.rule_id,
+            title: f.title,
+            severity: f.severity,
+          })),
+          retrievedRules: result.retrievedRules.map((r) => ({
+            rule_id: r.rule_id,
+            source: r.source,
+            title: r.title,
+          })),
+        });
+      } catch (err) {
+        // Best-effort: the summarizer is contractually no-throw, but guard the
+        // worker so a contract regression can never turn a completed review into
+        // a retried/duplicated job. A null intro just renders the mechanical body.
+        this.logger.warn(
+          `${jobLogPrefix} worker.summarizer.failed ${formatBriefError(err)}`,
+        );
+      }
+      // Step 12 — persist the intro (or null) on the reserved row.
+      this.reviewsRepo.setWalkthroughSummary(reviewId, summary?.intro ?? null);
+
       const diffHunks = parseDiffHunks(diff);
       const partition = anchorFindingsToDiff({
         findings: sanitizedFindings,
         diffHunks,
       });
       const counts = countBySeverity(sanitizedFindings);
-      const hasOutsideDiff = partition.outsideDiff.length > 0;
 
-      const walkthroughBody = formatWalkthroughBody({
+      // A Review is posted when there is anything to show inline OR an
+      // outside-diff callout. Drives both the body footer and the POST gate
+      // below (closes the "0 inline but N outside-diff" gap).
+      const shouldPostReview =
+        sanitizedFindings.length > 0 || partition.outsideDiff.length > 0;
+
+      const firingRules = computeFiringRules(
+        sanitizedFindings,
+        result.retrievedRules,
+      );
+      const walkthroughBody = formatWalkthroughSuccessBody({
         prNodeId: data.pr_node_id,
         reviewId,
-        counts,
-        outsideDiff: partition.outsideDiff,
+        retrievedRulesCount: result.retrievedRules.length,
+        firingRules,
+        intro: summary?.intro ?? null,
+        reviewPosted: shouldPostReview,
+        missingChecksPermission: !this.githubAuth.hasChecksPermission(
+          data.installation_id,
+        ),
       });
 
-      // Step 10a — Walkthrough upsert. Failure here is terminal.
-      let walkthroughPosted: 'created' | 'patched';
+      // Step 13a — Walkthrough upsert. Failure here is terminal. The
+      // terminal post omits createIfAbsent, so in practice this resolves
+      // to 'created' or 'patched' ('skipped' is a createIfAbsent-only
+      // outcome); the wider type just mirrors the method signature.
+      let walkthroughPosted: 'created' | 'patched' | 'skipped';
       try {
         walkthroughPosted = await this.upsertWalkthrough({
           octokit,
@@ -459,13 +770,16 @@ export class ReviewsProcessor
         throw new UnrecoverableError(formatBriefError(err));
       }
 
-      // Step 10b — inlined Review (skip on zero findings).
+      // Step 13b — inlined Review. Posted when there is anything to show
+      // inline OR an outside-diff callout (shouldPostReview); skipped on a
+      // fully clean review.
       let inlinePosted = false;
-      if (sanitizedFindings.length > 0) {
+      if (shouldPostReview) {
         const reviewBody = formatReviewBody({
           reviewId,
           counts,
-          hasOutsideDiff,
+          retrievedRulesCount: result.retrievedRules.length,
+          outsideDiff: partition.outsideDiff,
         });
 
         const inlineComments = partition.anchorable.map((a) => ({
@@ -542,6 +856,45 @@ export class ReviewsProcessor
         }
       }
 
+      // Step 13c — terminal check-run PATCH. Posting order is load-bearing:
+      // walkthrough (13a) then Review (13b) then check-run, so the check's
+      // summary can link the freshly-posted walkthrough. NOT tolerated: a
+      // failure here flips the row to failed (the surface set did not fully
+      // land) and throws Unrecoverable, consistent with 13a/13b. Skipped only
+      // when no in-progress check-run was posted (no Checks permission).
+      if (checkRunId !== null) {
+        const walkthroughCommentId = this.pullRequestsRepo.getWalkthroughCommentId(
+          data.pr_node_id,
+        );
+        const walkthroughUrl = walkthroughCommentId
+          ? `https://github.com/${data.owner}/${data.repo}/pull/${data.pr_number}#issuecomment-${walkthroughCommentId}`
+          : `https://github.com/${data.owner}/${data.repo}/pull/${data.pr_number}`;
+        const output = formatCheckRunOutput({
+          mode: 'success',
+          findingsCount: sanitizedFindings.length,
+          retrievedRulesCount: result.retrievedRules.length,
+          walkthroughCommentUrl: walkthroughUrl,
+          counts,
+        });
+        try {
+          await octokit.rest.checks.update({
+            owner: data.owner,
+            repo: data.repo,
+            check_run_id: checkRunId,
+            status: 'completed',
+            conclusion: 'success',
+            output,
+          });
+        } catch (err) {
+          this.reviewsRepo.markFailed(reviewId, {
+            completed_at: new Date(),
+            error_status: readStatus(err),
+            error_code: 'check_run_patch_failed',
+          });
+          throw new UnrecoverableError(formatBriefError(err));
+        }
+      }
+
       this.logger.log(
         `${jobLogPrefix} worker.review.post_summary ` +
           `walkthrough.posted=${walkthroughPosted} ` +
@@ -600,6 +953,14 @@ export class ReviewsProcessor
   // existing comment in-place so the PR thread isn't flooded.
   // PATCH 404 (comment manually deleted) clears the cache and falls
   // through to the scan/POST path below.
+  //
+  // createIfAbsent (Step 8's in-progress post): NEVER patch an
+  // existing comment — only create one when none exists. A cached id
+  // (or a marker found by scanning the thread on a cold cache) means
+  // a walkthrough already exists, so we return 'skipped' and leave the
+  // prior result up rather than flipping it back to "in progress". The
+  // scan-before-create is required so a cold cache after a process
+  // restart does not create a duplicate comment.
   private async upsertWalkthrough(args: {
     octokit: Octokit;
     owner: string;
@@ -607,10 +968,45 @@ export class ReviewsProcessor
     pr_number: number;
     pr_node_id: string;
     body: string;
-  }): Promise<'created' | 'patched'> {
-    const { octokit, owner, repo, pr_number, pr_node_id, body } = args;
+    createIfAbsent?: boolean;
+  }): Promise<'created' | 'patched' | 'skipped'> {
+    const { octokit, owner, repo, pr_number, pr_node_id, body, createIfAbsent } =
+      args;
 
     const cachedId = this.pullRequestsRepo.getWalkthroughCommentId(pr_node_id);
+    if (createIfAbsent) {
+      // A cached id means a walkthrough already exists — do not
+      // overwrite it. Leave the prior result up.
+      if (cachedId !== null) {
+        return 'skipped';
+      }
+      // Cold cache: scan the thread before creating so a process
+      // restart (warm thread, empty cache) doesn't create a duplicate.
+      const existing = await this.callWithOneRetry(() =>
+        findWalkthroughCommentId(octokit, {
+          owner,
+          repo,
+          pr_number,
+          pr_node_id,
+        }),
+      );
+      if (existing !== null) {
+        this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, existing);
+        return 'skipped';
+      }
+      const createdId = await this.callWithOneRetry(async () => {
+        const res = await octokit.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: pr_number,
+          body,
+        });
+        return (res.data as { id: number }).id;
+      });
+      this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, createdId);
+      return 'created';
+    }
+
     if (cachedId !== null) {
       try {
         await this.callWithOneRetry(() =>
@@ -669,6 +1065,154 @@ export class ReviewsProcessor
     });
     this.pullRequestsRepo.setWalkthroughCommentId(pr_node_id, newId);
     return 'created';
+  }
+
+  // Best-effort POST of the in-progress check run. Returns the
+  // check_run_id on success, null on failure (including 403 when
+  // the installation has not accepted the Checks permission).
+  // The 403 path marks the installation as missing-permission so
+  // subsequent C-PATCH calls are skipped without round-tripping.
+  private async tryPostInProgressCheckRun(args: {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    head_sha: string;
+    installation_id: number;
+  }): Promise<number | null> {
+    if (!this.githubAuth.hasChecksPermission(args.installation_id)) {
+      return null;
+    }
+    const output = formatCheckRunOutput({ mode: 'in-progress' });
+    try {
+      const res = await args.octokit.rest.checks.create({
+        owner: args.owner,
+        repo: args.repo,
+        name: 'AI PR Review Copilot',
+        head_sha: args.head_sha,
+        status: 'in_progress',
+        output,
+      });
+      return (res.data as { id: number }).id;
+    } catch (err) {
+      const status = readStatus(err);
+      if (status === 403) {
+        this.githubAuth.markChecksPermissionMissing(args.installation_id);
+        this.logger.warn(
+          `worker.check_run.permission_denied installation=${args.installation_id}`,
+        );
+      } else {
+        this.logger.warn(
+          `worker.check_run.post_failed status=${status} ${formatBriefError(err)}`,
+        );
+      }
+      return null;
+    }
+  }
+
+  // Create a check-run already in its terminal state (status:'completed',
+  // conclusion:'skipped') for paths that finish WITHOUT running a review
+  // (empty / too-large / size-cap). Best-effort: skips when the install
+  // lacks the Checks permission, swallows POST errors. Persists the id so
+  // the next job's sweep retires it.
+  private async postTerminalCheckRun(
+    octokit: Octokit,
+    data: ReviewJobData,
+    reviewId: string,
+    output: FormatCheckRunOutputInput,
+  ): Promise<void> {
+    if (!this.githubAuth.hasChecksPermission(data.installation_id)) return;
+    const formatted = formatCheckRunOutput(output);
+    try {
+      const res = await octokit.rest.checks.create({
+        owner: data.owner,
+        repo: data.repo,
+        name: 'AI PR Review Copilot',
+        head_sha: data.head_sha,
+        status: 'completed',
+        conclusion: 'skipped',
+        output: formatted,
+      });
+      const id = (res.data as { id: number }).id;
+      this.reviewsRepo.setCheckRunId(reviewId, id);
+    } catch (err) {
+      const status = readStatus(err);
+      if (status === 403) {
+        this.githubAuth.markChecksPermissionMissing(data.installation_id);
+        this.logger.warn(
+          `worker.check_run.permission_denied installation=${data.installation_id}`,
+        );
+      } else {
+        this.logger.warn(
+          `worker.check_run.terminal_post_failed status=${status} ${formatBriefError(err)}`,
+        );
+      }
+    }
+  }
+
+  // PATCH an existing (in-progress) check-run to a terminal skipped state.
+  // Used by the agent-loop failure path on the review branch, where Step 7
+  // already posted an in-progress check-run whose id is the in-scope local.
+  // Returns true when no PATCH was needed (no check-run posted) or the PATCH
+  // succeeded; false when the PATCH failed and the caller should fall back to
+  // a fresh terminal POST so the merge-box doesn't dangle "in progress".
+  private async patchCheckRunTerminal(
+    octokit: Octokit,
+    data: ReviewJobData,
+    checkRunId: number | null,
+    output: FormatCheckRunOutputInput,
+  ): Promise<boolean> {
+    if (checkRunId === null) return true;
+    const formatted = formatCheckRunOutput(output);
+    return this.tryPatchCheckRun({
+      octokit,
+      owner: data.owner,
+      repo: data.repo,
+      check_run_id: checkRunId,
+      conclusion: 'skipped',
+      title: formatted.title,
+      summary: formatted.summary,
+    });
+  }
+
+  // Best-effort PATCH of an existing check run. Used by both
+  // the terminal-state PATCH on completion AND the sweep step
+  // that retires leaked prior check runs at the start of a
+  // fresh job. Idempotent against already-terminal check runs.
+  // Returns true when the PATCH succeeded so callers (e.g. the
+  // failure-path terminal PATCH) can fall back to a fresh terminal
+  // POST instead of leaving the merge-box stuck "in progress".
+  private async tryPatchCheckRun(args: {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    check_run_id: number;
+    conclusion:
+      | 'success'
+      | 'neutral'
+      | 'skipped'
+      | 'failure'
+      | 'cancelled'
+      | 'timed_out'
+      | 'action_required';
+    title: string;
+    summary: string;
+  }): Promise<boolean> {
+    try {
+      await args.octokit.rest.checks.update({
+        owner: args.owner,
+        repo: args.repo,
+        check_run_id: args.check_run_id,
+        status: 'completed',
+        conclusion: args.conclusion,
+        output: { title: args.title, summary: args.summary },
+      });
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        `worker.check_run.patch_failed id=${args.check_run_id} ${formatBriefError(err)}`,
+      );
+      return false;
+    }
   }
 
   // One-retry wrapper for the walkthrough POST/PATCH calls. The
@@ -764,85 +1308,9 @@ export class ReviewsProcessor
     }
   }
 
-  // Standalone completion path — empty diff. Mirrors
-  // writeStandaloneFailure: inserts a one-shot completed row with
-  // zero findings (`top_k=0`, empty retrieved_chunk_ids) so the
-  // audit trail records the attempt. No Anthropic call ran; no POST.
-  // Eval can filter by `prompt_version='standalone-empty-diff'` to
-  // exclude these from quality metrics.
-  private writeStandaloneCompletion(data: ReviewJobData): void {
-    const id = randomUUID();
-    const now = new Date();
-    try {
-      this.reviewsRepo.insert({
-        id,
-        pr_node_id: data.pr_node_id,
-        created_by: null,
-        diff_length: 0,
-        model: this.config.activeModel(),
-        prompt_version: 'standalone-empty-diff',
-        top_k: 0,
-        retrieved_chunk_ids: '[]',
-        retrieved_chunk_ids_hash: '0'.repeat(64),
-        status: 'completed',
-        error_status: null,
-        error_code: null,
-        input_tokens: null,
-        output_tokens: null,
-        cache_creation_input_tokens: null,
-        cache_read_input_tokens: null,
-        created_at: now,
-        completed_at: now,
-      });
-    } catch (writeErr) {
-      this.logger.error(
-        `failed to persist standalone completion row for pr=${data.pr_node_id} — ${formatBriefError(writeErr)}`,
-      );
-    }
-  }
-
-  // Standalone skipped path — runs when the diff exceeds
-  // MAX_REVIEW_DIFF_LINES. Inserts a `completed` row with the
-  // dedicated `prompt_version='standalone-skipped-too-large'` so
-  // dashboards / eval can filter these out (or specifically count
-  // them) without misclassifying. No Anthropic call ran; the
-  // walkthrough comment was posted best-effort separately.
-  private writeStandaloneSkipped(
-    data: ReviewJobData,
-    diffLength: number,
-  ): void {
-    const id = randomUUID();
-    const now = new Date();
-    try {
-      this.reviewsRepo.insert({
-        id,
-        pr_node_id: data.pr_node_id,
-        created_by: null,
-        diff_length: diffLength,
-        model: this.config.activeModel(),
-        prompt_version: 'standalone-skipped-too-large',
-        top_k: 0,
-        retrieved_chunk_ids: '[]',
-        retrieved_chunk_ids_hash: '0'.repeat(64),
-        status: 'completed',
-        error_status: null,
-        error_code: null,
-        input_tokens: null,
-        output_tokens: null,
-        cache_creation_input_tokens: null,
-        cache_read_input_tokens: null,
-        created_at: now,
-        completed_at: now,
-      });
-    } catch (writeErr) {
-      this.logger.error(
-        `failed to persist standalone skipped row for pr=${data.pr_node_id} — ${formatBriefError(writeErr)}`,
-      );
-    }
-  }
-
   // Standalone failure path — runs when the worker fails BEFORE
-  // entering runRealReview (so no review row exists yet). We insert
+  // reserving the lifecycle row (so no reserved row exists yet): the
+  // two pulls.get exit paths (PR closed / pulls.get error). We insert
   // a one-shot failed row so the eval harness sees the attempt and
   // its error_code, rather than the operator wondering why a webhook
   // delivery vanished.
@@ -897,6 +1365,17 @@ function countBySeverity(findings: { severity: 'error' | 'warning' | 'info' }[])
     else info += 1;
   }
   return { error, warning, info, total: error + warning + info };
+}
+
+// The success body's "Rules cited" block lists only the retrieved rules
+// that actually produced a finding (a rule fires when at least one
+// finding carries its rule_id). Preserves the retrieval order/shape.
+function computeFiringRules(
+  findings: FindingWithSeverity[],
+  retrievedRules: Array<{ rule_id: string; source: string; title: string; severity: 'error' | 'warning' | 'info' }>,
+): Array<{ rule_id: string; source: string; title: string; severity: 'error' | 'warning' | 'info' }> {
+  const firingRuleIds = new Set(findings.map((f) => f.rule_id));
+  return retrievedRules.filter((r) => firingRuleIds.has(r.rule_id));
 }
 
 // Terminal Anthropic error codes — codes for which a retry would be

@@ -17,6 +17,8 @@ export {
   EMIT_FINDING_TOOL_NAME,
 } from './system-prompt';
 export { buildUserMessage } from './helpers/build-user-message';
+export { buildSummarizerUserMessage } from './helpers/build-summarizer-user-message';
+export { violatesFindingsGuard } from './helpers/summarizer-findings-guard';
 export { hashToolInput } from './helpers/hash-tool-input';
 export { parseEmitFindings } from './helpers/parse-emit-findings';
 export { filterHallucinatedFindings } from './helpers/filter-hallucinated-findings';

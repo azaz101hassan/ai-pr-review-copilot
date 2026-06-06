@@ -1,104 +1,91 @@
 {
   "status": "emitted",
   "fixtureId": "clean-extract-helper",
-  "findings": [
-    {
-      "rule_id": "no-magic-numbers",
-      "title": "Name your magic numbers",
-      "message": "The magic number 100 appears in the original code's discount calculation. While it has been correctly named as PERCENT_DIVISOR in the refactored helper, the original inline calculation used an unnamed literal. To fully comply with this rule, ensure all magic numbers in calculations are named constants. The refactored code correctly uses PERCENT_DIVISOR = 100, but verify this pattern is applied consistently.",
-      "location_hint": "src/billing/helpers/compute-line-total.ts:1-17",
-      "citation": "const PERCENT_DIVISOR = 100;",
-      "faithfulness": {
-        "score": 1,
-        "claims": [
-          {
-            "claim": "The magic number 100 appears in the original code's discount calculation.",
-            "kind": "",
-            "reason": "The original code in invoice.service.ts (line 16 in the diff) shows: `const discountAmount = basePrice * (item.discountPercent / 100);` This directly demonstrates the literal 100 in the discount calculation.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The magic number 100 has been correctly named as PERCENT_DIVISOR in the refactored helper.",
-            "kind": "",
-            "reason": "The new file compute-line-total.ts (line 3) defines `const PERCENT_DIVISOR = 100;` and uses it in line 6: `const discountFraction = item.discountPercent / PERCENT_DIVISOR;` This shows the literal has been extracted and named.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The original inline calculation used an unnamed literal.",
-            "kind": "",
-            "reason": "The original code in invoice.service.ts line 16 shows `item.discountPercent / 100` where 100 is a bare literal without a named constant. This confirms the original code used an unnamed literal.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "The refactored code correctly uses PERCENT_DIVISOR = 100.",
-            "kind": "",
-            "reason": "The new compute-line-total.ts file defines `const PERCENT_DIVISOR = 100;` at line 3 and uses it in the discount calculation at line 6. This demonstrates correct usage of the named constant.",
-            "verdict": "supported"
-          },
-          {
-            "claim": "All magic numbers in calculations are named constants in the refactored code.",
-            "kind": "",
-            "reason": "Examining the refactored computeLineTotal function in compute-line-total.ts, the only numeric literal used in calculations is the PERCENT_DIVISOR = 100 which is properly named. The other values (item.unitPrice, item.quantity, item.discountPercent, item.taxRate) are all variables from the input, not magic numbers. Therefore, all magic numbers in the refactored calculations are named constants.",
-            "verdict": "supported"
-          }
-        ]
-      }
-    }
-  ],
+  "findings": [],
   "ruleSet": [
     "arrow-body-style",
+    "await-or-catch-promises",
+    "bound-query-pagination",
     "complexity",
     "config-service-only",
+    "consistent-async-await",
     "consistent-return",
+    "controller-input-shape-immutable",
+    "currency-amounts-in-cents",
     "drizzle-schema-source-of-truth",
+    "dto-class-validator",
+    "epoch-ms-timestamps",
     "eqeqeq",
     "explicit-function-return-type",
+    "explicit-public-return-type",
     "guard-clauses",
+    "guard-status-transitions",
     "guards-live-in-guards-dir",
     "import-no-default-export",
     "import-order",
+    "inject-via-interface-token",
+    "log-or-rethrow-in-catch",
     "max-lines-per-function",
     "module-tier-dependencies",
+    "name-magic-numbers-as-const",
     "no-async-promise-executor",
     "no-await-in-loop",
+    "no-business-logic-in-controllers",
     "no-co-authored-by-claude",
     "no-console",
+    "no-console-in-app-code",
     "no-crud-on-database-service",
     "no-deeply-nested-callbacks",
+    "no-default-status-code-mismatch",
     "no-duplicate-imports",
     "no-else-return",
     "no-empty-catch",
     "no-explicit-any",
     "no-floating-promises",
+    "no-leak-internal-errors",
     "no-magic-numbers",
     "no-mocks-for-the-db",
     "no-nested-ternary",
     "no-non-null-assertion",
     "no-param-reassign",
+    "no-process-env-outside-config",
+    "no-redundant-async",
+    "no-secret-in-log",
     "no-shadow",
     "no-throw-literal",
+    "no-todo-without-issue",
+    "no-unsafe-shell-interpolation",
     "no-unused-vars",
     "no-var",
     "object-shorthand",
+    "parallelize-independent-awaits",
     "prefer-arrow-callback",
     "prefer-async-await",
     "prefer-const",
     "prefer-destructuring",
     "prefer-template",
+    "prefer-typed-guard-over-bang",
+    "prefer-unknown-over-any",
+    "prefer-uuid-over-incrementing-id",
     "react-hooks-rules",
+    "readonly-injected-deps",
     "repository-pattern",
+    "service-method-naming",
+    "snake-case-json-keys",
     "tests-mirror-src",
-    "thin-controllers"
+    "thin-controllers",
+    "throw-nest-http-exceptions",
+    "validate-input-at-system-boundary"
   ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5b4c6c64344a91b6bf282566cf4e742b8160ffa98972a271a9e285e773c44c13",
+    "llmProvider": "openrouter"
   }
 }

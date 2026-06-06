@@ -6,6 +6,7 @@ import type { IReviewRepository } from '@/modules/reviews/types/review.repositor
 import type { IReviewFindingRepository } from '@/modules/reviews/types/review-finding.repository';
 import type { IPullRequestRepository } from '@/modules/webhooks/types/pull-request.repository';
 import type { ReviewsService } from '@/modules/reviews/reviews.service';
+import type { IWalkthroughSummarizer } from '@/modules/reviews/types/walkthrough-summarizer';
 import type { Job } from 'bullmq';
 import type { Octokit } from 'octokit';
 
@@ -41,6 +42,8 @@ interface StubOctokitParts {
   createComment: jest.Mock;
   updateComment: jest.Mock;
   listComments: jest.Mock;
+  checksCreate: jest.Mock;
+  checksUpdate: jest.Mock;
 }
 
 function makeOctokit(parts: Partial<StubOctokitParts> = {}): {
@@ -66,6 +69,11 @@ function makeOctokit(parts: Partial<StubOctokitParts> = {}): {
       parts.updateComment ?? jest.fn().mockResolvedValue({ data: {} }),
     listComments:
       parts.listComments ?? jest.fn().mockResolvedValue({ data: [] }),
+    checksCreate:
+      parts.checksCreate ??
+      jest.fn().mockResolvedValue({ data: { id: 1 } }),
+    checksUpdate:
+      parts.checksUpdate ?? jest.fn().mockResolvedValue({ data: {} }),
   };
   return {
     octokit: {
@@ -78,6 +86,10 @@ function makeOctokit(parts: Partial<StubOctokitParts> = {}): {
           createComment: full.createComment,
           updateComment: full.updateComment,
           listComments: full.listComments,
+        },
+        checks: {
+          create: full.checksCreate,
+          update: full.checksUpdate,
         },
       },
       request: full.request,
@@ -114,6 +126,7 @@ function happyServiceResult(reviewId: string | undefined, findings: unknown[]) {
     prompt_version: 'v3',
     turn_count: 1,
     tool_calls: [],
+    retrievedRules: [],
   };
 }
 
@@ -129,6 +142,8 @@ function setup(opts: SetupOpts = {}) {
   const authProvider: IGithubAuthProvider = {
     forInstallation: jest.fn().mockReturnValue(octokit),
     invalidateInstallation: jest.fn(),
+    markChecksPermissionMissing: jest.fn(),
+    hasChecksPermission: jest.fn().mockReturnValue(true),
   };
 
   const runRealReview = jest.fn().mockImplementation(async (input: {
@@ -143,6 +158,8 @@ function setup(opts: SetupOpts = {}) {
 
   const reviewsRepo: IReviewRepository = {
     insert: jest.fn(),
+    insertInProgress: jest.fn(),
+    updateRetrievalMetadata: jest.fn(),
     findById: jest.fn(),
     findAll: jest.fn().mockReturnValue([]),
     markCompleted: jest.fn(),
@@ -150,6 +167,7 @@ function setup(opts: SetupOpts = {}) {
     markFailedIfInProgress: jest.fn().mockReturnValue(1),
     sweepStaleInProgress: jest.fn().mockReturnValue(0),
     findRecentInProgressForPr: jest.fn().mockReturnValue(undefined),
+    findMostRecentPriorCheckRun: jest.fn().mockReturnValue(undefined),
     findFiltered: jest.fn().mockReturnValue([]),
     countFiltered: jest.fn().mockReturnValue(0),
     findByIdWithFindings: jest.fn().mockReturnValue(null),
@@ -163,6 +181,8 @@ function setup(opts: SetupOpts = {}) {
     }),
     distinctRepos: jest.fn().mockReturnValue([]),
     distinctAuthors: jest.fn().mockReturnValue([]),
+    setCheckRunId: jest.fn(),
+    setWalkthroughSummary: jest.fn(),
   };
 
   const findingsRepo: IReviewFindingRepository = {
@@ -171,16 +191,32 @@ function setup(opts: SetupOpts = {}) {
     findByPrNodeIdForPriorReview: jest.fn().mockReturnValue([]),
   };
 
-  const getWalkthroughCommentId = jest
-    .fn()
-    .mockReturnValue(opts.walkthroughCachedId ?? null);
-  const setWalkthroughCommentId = jest.fn();
+  // Stateful walkthrough-comment-id cache (mirrors production): a
+  // setWalkthroughCommentId write is visible to the next
+  // getWalkthroughCommentId read. This is load-bearing for the
+  // first-review flow — Step 8's in-progress createComment warms the
+  // cache so the terminal upsert PATCHes the same comment instead of
+  // creating a duplicate. Seedable to model a re-review.
+  let walkthroughCommentId: number | null = opts.walkthroughCachedId ?? null;
+  const getWalkthroughCommentId = jest.fn(() => walkthroughCommentId);
+  const setWalkthroughCommentId = jest.fn(
+    (_prNodeId: string, id: number | null) => {
+      walkthroughCommentId = id;
+    },
+  );
   const pullRequestsRepo: IPullRequestRepository = {
     save: jest.fn(),
     findByNodeId: jest.fn(),
     findRecentMatching: jest.fn().mockReturnValue([]),
     getWalkthroughCommentId,
     setWalkthroughCommentId,
+  };
+
+  // Best-effort summarizer — returns null so these inline-anchoring
+  // tests don't depend on prose; the success path persists null and
+  // continues to post the Review.
+  const summarizer: IWalkthroughSummarizer = {
+    summarize: jest.fn().mockResolvedValue(null),
   };
 
   const config = new ConfigService();
@@ -191,6 +227,7 @@ function setup(opts: SetupOpts = {}) {
     findingsRepo,
     pullRequestsRepo,
     config,
+    summarizer,
   );
 
   return {
@@ -207,25 +244,37 @@ function setup(opts: SetupOpts = {}) {
 
 describe('ReviewsProcessor inline-comment flow', () => {
   describe('first run (no cached walkthrough)', () => {
-    it('posts the walkthrough, then the inlined review with comments[]', async () => {
+    it('posts the in-progress walkthrough, PATCHes it to the result, then posts the inlined review with comments[]', async () => {
       const s = setup({ walkthroughCachedId: null });
       await s.processor.process(makeJob());
 
-      // 1. Walkthrough scan happens first.
+      // 1. Step 8 scans the thread once (cold cache) before creating.
+      // The terminal upsert reuses the warmed cache, so no second scan.
       expect(s.parts.listComments).toHaveBeenCalledTimes(1);
-      // 2. Walkthrough POST fires (nothing matched the marker).
+      // 2. Step 8 creates the in-progress walkthrough (nothing matched
+      // the marker). The body carries the shared marker + in-progress mode.
       expect(s.parts.createComment).toHaveBeenCalledTimes(1);
-      const walkthroughArgs = s.parts.createComment.mock.calls[0][0];
-      expect(walkthroughArgs.issue_number).toBe(7);
-      expect(walkthroughArgs.body).toMatch(
+      const inProgressArgs = s.parts.createComment.mock.calls[0][0];
+      expect(inProgressArgs.issue_number).toBe(7);
+      expect(inProgressArgs.body).toMatch(
         /^<!-- ai-pr-review-copilot:walkthrough:v1:pr=PR_node_test -->/,
       );
-      // 3. The comment id is cached.
+      expect(inProgressArgs.body).toContain('mode=in-progress');
+      // 3. The comment id is cached (warms the cache for the terminal post).
       expect(s.setWalkthroughCommentId).toHaveBeenCalledWith(
         'PR_node_test',
         555,
       );
-      // 4. Inlined Review POST fires with comments[].
+      // 4. The terminal walkthrough PATCHes the same comment in place
+      // (warm cache → updateComment, NOT a second createComment).
+      expect(s.parts.updateComment).toHaveBeenCalledTimes(1);
+      const terminalArgs = s.parts.updateComment.mock.calls[0][0];
+      expect(terminalArgs.comment_id).toBe(555);
+      expect(terminalArgs.body).toContain(
+        '<!-- ai-pr-review-copilot:walkthrough:v1:pr=PR_node_test -->',
+      );
+      expect(terminalArgs.body).not.toContain('mode=in-progress');
+      // 5. Inlined Review POST fires with comments[].
       expect(s.parts.createReview).toHaveBeenCalledTimes(1);
       const reviewArgs = s.parts.createReview.mock.calls[0][0];
       expect(reviewArgs.event).toBe('COMMENT');
@@ -396,7 +445,14 @@ describe('ReviewsProcessor inline-comment flow', () => {
 
       await expect(s.processor.process(makeJob())).rejects.toBeDefined();
 
-      expect(create502).toHaveBeenCalledTimes(2);
+      // createComment fires across TWO upserts, each retrying once:
+      //   - Step 8 in-progress create (cold cache → scan → create,
+      //     502 + 1 retry = 2 calls; the failure is swallowed best-effort
+      //     and the cache stays cold), then
+      //   - Step 13a terminal create (still cold → scan → create, 502 +
+      //     1 retry = 2 calls), which throws → comment_post_failed.
+      // 2 + 2 = 4 createComment attempts.
+      expect(create502).toHaveBeenCalledTimes(4);
       // Inlined Review POST is NOT attempted when the Walkthrough
       // ultimately fails.
       expect(s.parts.createReview).not.toHaveBeenCalled();

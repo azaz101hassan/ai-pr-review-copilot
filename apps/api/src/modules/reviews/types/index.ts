@@ -50,3 +50,9 @@ export {
   EnqueueResult,
   EnqueueResultKind,
 } from './review-queue';
+export {
+  WALKTHROUGH_SUMMARIZER,
+  IWalkthroughSummarizer,
+  WalkthroughSummarizerInput,
+  WalkthroughSummarizerResult,
+} from './walkthrough-summarizer';

@@ -3,60 +3,105 @@
   "fixtureId": "real-pr-express-middleware",
   "findings": [
     {
-      "rule_id": "prefer-const",
-      "title": "Use const for variables that are never reassigned",
-      "message": "Replace `var` with `const` for variables that are never reassigned. Variables like `jwt`, `config`, `token`, `decoded`, `userId`, `role`, and `message` are not reassigned after initialization, so they should use `const` instead. `const` signals intent and prevents accidental reassignment.",
-      "location_hint": "src/middleware/auth.js:1-27",
-      "citation": "var jwt = require('jsonwebtoken');\nvar config = require('../config');\n...\nvar token = req.headers.authorization?.split(' ')[1];\n...\nvar decoded = jwt.verify(token, process.env.JWT_SECRET);\n...\nvar userId = decoded.id;\nvar role = decoded.role;\n...\nvar message = err.message;",
+      "rule_id": "no-console-in-app-code",
+      "title": "Use the Nest Logger instead of console methods",
+      "message": "Replace `console.warn` and `console.error` with the Nest Logger to maintain structured logging. Create a logger instance and use `logger.warn()` or `logger.error()`.",
+      "location_hint": "src/middleware/auth.js:15",
+      "citation": "console.warn('Token has no expiration');",
       "faithfulness": {
-        "score": null,
-        "claims": []
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The code at src/middleware/auth.js:15 uses console.warn instead of the Nest Logger.",
+            "kind": "",
+            "reason": "The diff shows the line `console.warn('Token has no expiration');` at the cited location, and the rule prohibits use of console methods in favor of the Nest Logger.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The code at src/middleware/auth.js:15 should replace console.warn with logger.warn to maintain structured logging.",
+            "kind": "",
+            "reason": "The rule document states that console methods bypass Nest's logger and break structured log output, and instructs to use the Nest Logger instead.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The code at src/middleware/auth.js:15 should create a logger instance to use logger.warn.",
+            "kind": "",
+            "reason": "The rule document specifies that a Logger should be constructed and used, implying that a logger instance is needed to call logger.warn.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The code at src/middleware/auth.js also uses console.error.",
+            "kind": "",
+            "reason": "The diff shows the line `console.error('Auth failed: ' + message);`, indicating another use of console.error.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The code at src/middleware/auth.js should replace console.error with logger.error to maintain structured logging.",
+            "kind": "",
+            "reason": "The rule document prohibits all console logging methods in favor of the Nest Logger to maintain structured logging.",
+            "verdict": "supported"
+          }
+        ]
       }
     },
     {
-      "rule_id": "no-console",
-      "title": "Do not leave console.log in production code",
-      "message": "Remove `console.warn` and `console.error` calls from production code. Use the project's logger instead to maintain consistent logging and avoid leaking sensitive information in production logs.",
-      "location_hint": "src/middleware/auth.js:19-20,25",
-      "citation": "console.warn('Token has no expiration');\n...\nconsole.error('Auth failed: ' + message);",
+      "rule_id": "no-console-in-app-code",
+      "title": "Use the Nest Logger instead of console methods",
+      "message": "Replace `console.warn` and `console.error` with the Nest Logger to maintain structured logging. Create a logger instance and use `logger.warn()` or `logger.error()`.",
+      "location_hint": "src/middleware/auth.js:19",
+      "citation": "console.error('Auth failed: ' + message);",
       "faithfulness": {
-        "score": null,
-        "claims": []
-      }
-    },
-    {
-      "rule_id": "config-service-only",
-      "title": "All env access goes through ConfigService",
-      "message": "Replace direct `process.env.JWT_SECRET` access with a typed property from ConfigService. ConfigService should be injected and validate the secret at construction time, not at runtime. Add a `jwtSecret` property to ConfigService and inject it into this middleware.",
-      "location_hint": "src/middleware/auth.js:11",
-      "citation": "const decoded = jwt.verify(token, process.env.JWT_SECRET);",
-      "faithfulness": {
-        "score": null,
-        "claims": []
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The code at src/middleware/auth.js:19 uses console.error",
+            "kind": "",
+            "reason": "The diff shows `console.error('Auth failed: ' + message);` at line 19 in the updated version of src/middleware/auth.js.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The Nest Logger should be used instead of console methods",
+            "kind": "",
+            "reason": "The rule document explicitly states that console.log (and by extension other console methods like console.error and console.warn) should not be used, and that the Nest Logger should be used instead.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Using console.warn and console.error breaks structured logging",
+            "kind": "",
+            "reason": "The rule document explains that using console.log bypasses Nest's logger and breaks structured log output. This applies analogously to console.warn and console.error.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "A logger instance should be created and used as logger.warn() or logger.error()",
+            "kind": "",
+            "reason": "The rule document instructs to construct a Logger with the class name and use it, implying usage such as logger.warn() or logger.error(). The finding's suggestion aligns with this guidance.",
+            "verdict": "supported"
+          }
+        ]
       }
     }
   ],
   "ruleSet": [
-    "config-service-only",
     "guard-clauses",
-    "guards-live-in-guards-dir",
+    "log-or-rethrow-in-catch",
     "no-console",
-    "no-deeply-nested-callbacks",
+    "no-console-in-app-code",
     "no-empty-catch",
+    "no-leak-internal-errors",
+    "no-secret-in-log",
     "no-throw-literal",
-    "object-shorthand",
-    "prefer-async-await",
-    "prefer-const"
+    "prefer-const",
+    "prefer-uuid-over-incrementing-id"
   ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "9b4928f03d80279e2c388424218217e53a3fd2bc0fe9029e33858d139390599e",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5b4c6c64344a91b6bf282566cf4e742b8160ffa98972a271a9e285e773c44c13",
+    "llmProvider": "openrouter"
   }
 }

@@ -19,7 +19,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
-import Anthropic from '@anthropic-ai/sdk';
 
 import { ConfigService } from '@/config';
 import { EmbeddingsService } from '@/modules/embeddings';
@@ -49,7 +48,10 @@ import type {
   RecordingProvenance,
   FaithfulnessResult,
 } from './recording';
-import { judgeFinding } from './faithfulness-judge';
+import {
+  FAITHFULNESS_JUDGE,
+  type IFaithfulnessJudge,
+} from './faithfulness-judge.contract';
 import { FAITHFULNESS_JUDGE_VERSION } from './faithfulness-judge.prompt';
 import { EvalCaptureModule } from './eval-capture.module';
 import {
@@ -59,7 +61,7 @@ import {
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/** Pinned seed corpus version. 43 chunks = 33 airbnb + 10 team-standards. */
+/** Pinned seed corpus version. 73 chunks = 33 airbnb + 30 api-conventions + 10 team-standards. */
 export const SEED_CORPUS_VERSION = 'v1';
 
 /**
@@ -72,13 +74,10 @@ export function resolveActiveModel(config: ConfigService): string {
   return config.activeModel();
 }
 
-export const EXPECTED_CHUNK_COUNT = 43;
+export const EXPECTED_CHUNK_COUNT = 73;
 
 /** Sentinel in manifest's injectedRules that means "use the full corpus". */
 export const FULL_CORPUS_MARKER = '__FULL_CORPUS__';
-
-/** Default judge model. */
-const DEFAULT_JUDGE_MODEL = 'claude-haiku-4-5-20251001';
 
 /** Delay between fixture captures to respect Voyage free-tier rate limits. */
 const INTER_FIXTURE_DELAY_MS = Number(process.env.CAPTURE_DELAY_MS) || 3_000;
@@ -524,11 +523,17 @@ async function main(): Promise<void> {
       budgetCap: 80, // corpus-wide budget
     });
 
-    // ── 5. Anthropic client for the judge ──────────────────────────
+    // ── 5. Faithfulness judge ──────────────────────────────────────
+    //
+    // The judge follows the active LLM provider — same pattern as the
+    // walkthrough summarizer — so an OpenRouter capture judges with
+    // OpenRouter and an Anthropic capture judges with Anthropic. The
+    // active provider's NestJS module binds FAITHFULNESS_JUDGE; capture
+    // reads the impl off the DI container here.
 
-    const anthropicClient = new Anthropic({
-      apiKey: config.anthropicApiKey,
-    });
+    const judge = app.get<IFaithfulnessJudge>(FAITHFULNESS_JUDGE);
+    // eslint-disable-next-line no-console
+    console.log(`[eval:capture] judge model: ${judge.model}`);
 
     // ── 6. Per-fixture loop ────────────────────────────────────────
 
@@ -550,7 +555,7 @@ async function main(): Promise<void> {
       const provenance: RecordingProvenance = {
         promptVersion: PROMPT_AND_TOOL_VERSION,
         model: resolveActiveModel(config),
-        judgeModel: DEFAULT_JUDGE_MODEL,
+        judgeModel: judge.model,
         judgePromptVersion: FAITHFULNESS_JUDGE_VERSION,
         seedCorpusVersion: SEED_CORPUS_VERSION,
         expectedSetHash: computeExpectedSetHash(entry.expected),
@@ -567,7 +572,7 @@ async function main(): Promise<void> {
           corpus.chunks,
           embeddings,
           llm,
-          anthropicClient,
+          judge,
           sessionGuard,
           provenance,
           evalFixturesDir,
@@ -581,7 +586,7 @@ async function main(): Promise<void> {
           corpus.chunks,
           embeddings,
           llm,
-          anthropicClient,
+          judge,
           sessionGuard,
           provenance,
           evalFixturesDir,
@@ -616,7 +621,7 @@ async function captureFixture(
   allChunks: NormalizedChunk[],
   embeddings: EmbeddingsService,
   llm: ILlmReviewer,
-  anthropicClient: Anthropic,
+  judge: IFaithfulnessJudge,
   sessionGuard: SessionRateLimitGuard,
   provenance: RecordingProvenance,
   evalFixturesDir: string,
@@ -662,7 +667,7 @@ async function captureFixture(
       result,
       rules,
       diff,
-      anthropicClient,
+      judge,
       sessionGuard,
     );
 
@@ -719,7 +724,7 @@ async function captureCleanFixture(
   allChunks: NormalizedChunk[],
   embeddings: EmbeddingsService,
   llm: ILlmReviewer,
-  anthropicClient: Anthropic,
+  judge: IFaithfulnessJudge,
   sessionGuard: SessionRateLimitGuard,
   provenance: RecordingProvenance,
   evalFixturesDir: string,
@@ -752,7 +757,7 @@ async function captureCleanFixture(
       resultA,
       fullCorpusRules,
       diff,
-      anthropicClient,
+      judge,
       sessionGuard,
     );
 
@@ -815,7 +820,7 @@ async function captureCleanFixture(
       resultB,
       retrievalRules,
       diff,
-      anthropicClient,
+      judge,
       sessionGuard,
     );
 
@@ -852,7 +857,7 @@ async function judgeFindings(
   result: AnalyzeDiffResult,
   rules: AnalyzeDiffRule[],
   diff: string,
-  client: Anthropic,
+  judge: IFaithfulnessJudge,
   sessionGuard: SessionRateLimitGuard,
 ): Promise<FaithfulnessResult[]> {
   const judgments: FaithfulnessResult[] = [];
@@ -864,7 +869,7 @@ async function judgeFindings(
 
     try {
       sessionGuard.acquire();
-      const verdict = await judgeFinding({
+      const verdict = await judge.judge({
         finding: {
           rule_id: finding.rule_id,
           title: finding.title,
@@ -874,8 +879,6 @@ async function judgeFindings(
         },
         ruleDocText,
         diff,
-        client: client as unknown as Parameters<typeof judgeFinding>[0]['client'],
-        model: DEFAULT_JUDGE_MODEL,
       });
       judgments.push(verdict);
     } catch (err) {

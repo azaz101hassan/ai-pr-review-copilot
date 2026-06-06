@@ -531,6 +531,7 @@ describe('ConfigService', () => {
       },
     );
   });
+
 });
 
 // Module-level parser helpers are exported so module-definition-time

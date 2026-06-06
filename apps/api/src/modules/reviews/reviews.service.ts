@@ -87,6 +87,15 @@ export interface RunDryRunResult {
   turn_count: number;
   tool_calls: ToolCallRecord[] | null;
   error_code?: string;
+  // Knowledge-base grounding surface — the rules retrieved for this
+  // review's diff. Used by the worker to render the walkthrough's
+  // "Rules cited" callout and to feed the walkthrough summarizer.
+  retrievedRules: Array<{
+    rule_id: string;
+    source: string;
+    title: string;
+    severity: SeverityLevel;
+  }>;
 }
 
 export class ReviewsServiceError extends Error {
@@ -211,11 +220,30 @@ export class ReviewsService implements OnModuleInit {
     // BEFORE the row insert), use the caller's id and validate it's
     // a UUID — otherwise generate one.
     const reviewId = validateOptionalReviewId(input.reviewId) ?? randomUUID();
-    const startedAt = new Date();
-    this.reviews.insert({
-      id: reviewId,
-      pr_node_id: prNodeId,
-      created_by: null,
+
+    // When the worker pre-reserved the row (it passes its reviewId AND
+    // inserted a placeholder via insertInProgress before any GitHub
+    // I/O), reconcile the placeholder retrieval columns with the real
+    // values rather than inserting a duplicate. CLI / HTTP callers
+    // don't pre-reserve, so the lookup returns undefined and we insert
+    // exactly as before. Only consult findById when the caller passed
+    // a reviewId — a generated id can never pre-exist.
+    const existingRow = input.reviewId
+      ? this.reviews.findById(reviewId)
+      : undefined;
+
+    // Reconcile is only safe against a row the worker just reserved
+    // (status='in_progress'). Reusing a UUID that points to an
+    // already-terminal row (completed / failed) would silently
+    // overwrite the historical retrieval metadata of a finished
+    // review — fail loudly instead.
+    if (existingRow && existingRow.status !== 'in_progress') {
+      throw new ReviewsServiceError(
+        `runDryRun.input.reviewId "${reviewId}" already exists with terminal status "${existingRow.status}"`,
+      );
+    }
+
+    const retrievalMetadata = {
       diff_length: diffLength,
       // Best-effort placeholder — overwritten with the real model id
       // from the SDK response in the markCompleted call below.
@@ -224,16 +252,28 @@ export class ReviewsService implements OnModuleInit {
       top_k: k,
       retrieved_chunk_ids: JSON.stringify(retrievedChunkIds),
       retrieved_chunk_ids_hash: retrievedChunkIdsHash,
-      status: 'in_progress',
-      error_status: null,
-      error_code: null,
-      input_tokens: null,
-      output_tokens: null,
-      cache_creation_input_tokens: null,
-      cache_read_input_tokens: null,
-      created_at: startedAt,
-      completed_at: null,
-    });
+    };
+
+    if (existingRow) {
+      this.reviews.updateRetrievalMetadata(reviewId, retrievalMetadata);
+    } else {
+      const startedAt = new Date();
+      this.reviews.insert({
+        id: reviewId,
+        pr_node_id: prNodeId,
+        created_by: null,
+        ...retrievalMetadata,
+        status: 'in_progress',
+        error_status: null,
+        error_code: null,
+        input_tokens: null,
+        output_tokens: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        created_at: startedAt,
+        completed_at: null,
+      });
+    }
 
     let result: Awaited<ReturnType<ILlmReviewer['analyzeDiff']>>;
     try {
@@ -422,6 +462,12 @@ export class ReviewsService implements OnModuleInit {
       prompt_version: result.promptVersion,
       turn_count: result.turnCount,
       tool_calls: result.toolCalls,
+      retrievedRules: searchHits.map((hit) => ({
+        rule_id: hit.rule_id,
+        source: hit.source,
+        title: hit.title,
+        severity: resolveSeverity(hit, this.logger),
+      })),
     };
   }
 

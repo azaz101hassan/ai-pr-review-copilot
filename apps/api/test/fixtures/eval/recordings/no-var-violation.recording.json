@@ -5,53 +5,137 @@
     {
       "rule_id": "no-var",
       "title": "Use let or const, never var",
-      "message": "Replace `var` with `let` or `const`. The diff introduces three `var` declarations (lines 2–4) where `let` or `const` should be used. `var` is function-scoped and hoisted, causing subtle bugs.",
-      "location_hint": "src/totals.js:2-4",
-      "citation": "var sum = 0;\nfor (var i = 0; i < items.length; i++) {\n    var item = items[i];",
+      "message": "Replace `var` with `let` or `const`. `var` is function-scoped and hoisted, which leads to subtle re-declaration and closure bugs.",
+      "location_hint": "src/totals.js:2",
+      "citation": "var sum = 0;",
+      "faithfulness": {
+        "score": 0.75,
+        "claims": [
+          {
+            "claim": "The keyword `var` is used in the modified code.",
+            "kind": "",
+            "reason": "The diff shows that `var sum = 0;`, `var i = 0`, and `var item = items[i];` were introduced in the updated code.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The rule states that `var` declarations are function-scoped and hoisted in confusing ways.",
+            "kind": "",
+            "reason": "The rule document explicitly says: \"var declarations are function-scoped and hoisted in confusing ways.\"",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The rule recommends preferring `const` by default and `let` only when reassignment is required.",
+            "kind": "",
+            "reason": "The rule document explicitly says: \"Prefer const by default and let only when reassignment is required.\"",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Using `var` leads to subtle re-declaration and closure bugs.",
+            "kind": "",
+            "reason": "The finding's message states this, and while the rule doesn't explicitly mention 're-declaration and closure bugs', it does say `var` behaves in 'confusing ways' due to being 'function-scoped and hoisted', which aligns with the general understanding of such issues. However, since the exact phrasing isn't in the rule, this claim is not directly verifiable from the provided documents.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "no-var",
+      "title": "Use let or const, never var",
+      "message": "Replace `var` with `let` or `const`. `var` is function-scoped and hoisted, which leads to subtle re-declaration and closure bugs.",
+      "location_hint": "src/totals.js:3",
+      "citation": "for (var i = 0; i < items.length; i++) {",
       "faithfulness": {
         "score": 1,
         "claims": [
           {
-            "claim": "The diff introduces three var declarations at lines 2–4 in src/totals.js.",
+            "claim": "The code at src/totals.js line 3 uses `var` instead of `let` or `const`",
             "kind": "",
-            "reason": "The diff shows three var declarations being added: 'var sum = 0;' on line 2, 'for (var i = 0; i < items.length; i++)' on line 3 (var i), and 'var item = items[i];' on line 4. These are clearly visible in the diff as new additions (marked with +).",
+            "reason": "The diff shows that the code declares variables using `var` in the modified lines, specifically `var sum = 0;`, `var i = 0`, and `var item = items[i];`",
             "verdict": "supported"
           },
           {
-            "claim": "var is function-scoped and hoisted, causing subtle bugs.",
+            "claim": "Using `var` is function-scoped and hoisted in confusing ways",
             "kind": "",
-            "reason": "The rule document explicitly states: 'var declarations are function-scoped and hoisted in confusing ways.' This is the foundational rationale provided in the rule for avoiding var.",
+            "reason": "The rule document states that 'var declarations are function-scoped and hoisted in confusing ways'",
             "verdict": "supported"
           },
           {
-            "claim": "let or const should be used instead of var.",
+            "claim": "Using `var` leads to subtle re-declaration and closure bugs",
             "kind": "",
-            "reason": "The rule document states 'Prefer const by default and let only when reassignment is required.' The finding's message recommends replacing var with let or const, which aligns with the rule's guidance.",
+            "reason": "The rule document states that `var` 'leads to subtle re-declaration and closure bugs'",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The code should replace `var` with `let` or `const`",
+            "kind": "",
+            "reason": "The rule document explicitly states 'Use let or const, never var' and the finding correctly identifies that the code uses `var` where `let` or `const` should be used",
             "verdict": "supported"
           }
         ]
       }
     },
     {
-      "rule_id": "prefer-template",
-      "title": "Use template literals instead of string concatenation",
-      "message": "The diff changes `sum += item.price` to `sum = sum + item.price` on line 5. Use the compound assignment operator `+=` instead of explicit concatenation/addition.",
-      "location_hint": "src/totals.js:5",
-      "citation": "sum = sum + item.price;",
+      "rule_id": "no-var",
+      "title": "Use let or const, never var",
+      "message": "Replace `var` with `let` or `const`. `var` is function-scoped and hoisted, which leads to subtle re-declaration and closure bugs.",
+      "location_hint": "src/totals.js:4",
+      "citation": "var item = items[i];",
       "faithfulness": {
-        "score": 0.5,
+        "score": 1,
         "claims": [
           {
-            "claim": "The diff changes `sum += item.price` to `sum = sum + item.price` on line 5.",
+            "claim": "The code at src/totals.js line 4 uses `var` instead of `let` or `const`",
             "kind": "",
-            "reason": "The diff shows that line 4 in the original code (`sum += item.price;`) is replaced with line 6 in the new code (`sum = sum + item.price;`). This is a direct change visible in the diff. The line number in the finding (line 5) is approximately correct given the context of the diff (the change occurs around that area).",
+            "reason": "The diff shows `var item = items[i];` at line 4 of src/totals.js, which uses `var` instead of `let` or `const`",
             "verdict": "supported"
           },
           {
-            "claim": "The compound assignment operator `+=` should be used instead of explicit addition `sum = sum + item.price`.",
+            "claim": "Using `var` is function-scoped and hoisted",
             "kind": "",
-            "reason": "The rule document discusses template literals for string concatenation, not the use of compound assignment operators like `+=`. The rule provides examples of string concatenation with the `+` operator and recommends using template literals instead. The rule does not address or recommend the use of `+=` over explicit addition. The finding's recommendation to use `+=` is not supported by the cited rule document.",
-            "verdict": "not_supported"
+            "reason": "The rule document states that `var` declarations are function-scoped and hoisted in confusing ways",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Using `var` leads to subtle re-declaration and closure bugs",
+            "kind": "",
+            "reason": "The rule document explains that `var` is function-scoped and hoisted in confusing ways, which implies it can lead to subtle bugs including re-declaration and closure issues",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "no-param-reassign",
+      "title": "Do not reassign function parameters",
+      "message": "Do not reassign the `sum` variable. Treat variables as immutable and assign to a new local if you need to transform.",
+      "location_hint": "src/totals.js:5",
+      "citation": "sum = sum + item.price;",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The `sum` variable is reassigned in the code.",
+            "kind": "",
+            "reason": "The diff shows the line `sum = sum + item.price;`, which is a reassignment of the `sum` variable.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Reassigning the `sum` variable violates the rule 'Do not reassign function parameters'.",
+            "kind": "",
+            "reason": "The rule prohibits reassigning function parameters, and `sum` is a function parameter in this context (declared implicitly via `var sum = 0;` inside the function). Reassigning it with `sum = sum + item.price;` violates the rule.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Variables should be treated as immutable according to the rule.",
+            "kind": "",
+            "reason": "The rule explicitly states: 'Treat parameters as immutable; assign to a new local if you need to transform.'",
+            "verdict": "supported"
+          },
+          {
+            "claim": "A new local variable should be used if transformation is needed.",
+            "kind": "",
+            "reason": "The rule advises: 'assign to a new local if you need to transform.', suggesting that mutation of parameters is discouraged.",
+            "verdict": "supported"
           }
         ]
       }
@@ -59,25 +143,25 @@
   ],
   "ruleSet": [
     "complexity",
+    "currency-amounts-in-cents",
     "guard-clauses",
-    "max-lines-per-function",
     "no-magic-numbers",
-    "no-nested-ternary",
     "no-param-reassign",
     "no-var",
     "object-shorthand",
+    "prefer-arrow-callback",
     "prefer-const",
     "prefer-template"
   ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "d0d5eb3b5dfe99e2c40d0780d65dfe11b3d37909462de54b5db2671dd9267db9",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5b4c6c64344a91b6bf282566cf4e742b8160ffa98972a271a9e285e773c44c13",
+    "llmProvider": "openrouter"
   }
 }

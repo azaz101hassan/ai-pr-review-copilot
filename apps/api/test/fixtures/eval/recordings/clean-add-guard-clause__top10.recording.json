@@ -3,26 +3,26 @@
   "fixtureId": "clean-add-guard-clause__top10",
   "findings": [],
   "ruleSet": [
+    "bound-query-pagination",
     "consistent-return",
     "eqeqeq",
     "explicit-function-return-type",
     "guard-clauses",
     "no-explicit-any",
+    "no-nested-ternary",
     "no-non-null-assertion",
     "no-param-reassign",
-    "no-throw-literal",
-    "prefer-template",
-    "thin-controllers"
+    "no-throw-literal"
   ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5b4c6c64344a91b6bf282566cf4e742b8160ffa98972a271a9e285e773c44c13",
+    "llmProvider": "openrouter"
   }
 }

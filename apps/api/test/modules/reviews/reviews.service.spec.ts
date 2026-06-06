@@ -95,6 +95,8 @@ function makeLlm(result: AnalyzeDiffResult | Error): ILlmReviewer {
 
 interface MockReviewRepo extends IReviewRepository {
   insert: jest.Mock;
+  insertInProgress: jest.Mock;
+  updateRetrievalMetadata: jest.Mock;
   findById: jest.Mock;
   findAll: jest.Mock;
   markCompleted: jest.Mock;
@@ -105,6 +107,8 @@ interface MockReviewRepo extends IReviewRepository {
 function makeMockReviewRepo(): MockReviewRepo {
   return {
     insert: jest.fn(),
+    insertInProgress: jest.fn(),
+    updateRetrievalMetadata: jest.fn(),
     findById: jest.fn(),
     findAll: jest.fn(),
     markCompleted: jest.fn(),
@@ -836,6 +840,163 @@ describe('ReviewsService (pure-mock cases)', () => {
       expect(idFromInsert).toBe(idFromMarkCompleted);
       expect(findingInserts.every((f) => f.review_id === idFromInsert)).toBe(true);
       expect(result.review_id).toBe(idFromInsert);
+    });
+  });
+
+  describe('runDryRun — pre-reserved row reconciliation', () => {
+    // A canonical UUID — the service validates input.reviewId and
+    // rejects non-UUID strings.
+    const RESERVED_ID = '11111111-2222-4333-8444-555555555555';
+
+    it('UPDATES placeholder retrieval metadata (not insert) when the row already exists', async () => {
+      const hits = [
+        makeSearchHit({ rule_id: 'no-var', source: 'team-standards' }),
+        makeSearchHit({ rule_id: 'eqeqeq', source: 'airbnb' }),
+      ];
+      const embeddings = makeEmbeddings(hits);
+      const llm = makeLlm(happyAnalyzeResult());
+      const reviews = makeMockReviewRepo();
+      const findings = makeMockFindingRepo();
+      // The worker pre-reserved the row via insertInProgress — findById
+      // returns the placeholder in_progress row for this id.
+      reviews.findById.mockReturnValue({
+        id: RESERVED_ID,
+        status: 'in_progress',
+        prompt_version: 'placeholder',
+      } as Partial<ReviewRecord> as ReviewRecord);
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        reviews,
+        findings,
+        makeDbStub(),
+        makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
+      );
+
+      const result = await service.runDryRun({
+        diff: REAL_DIFF,
+        reviewId: RESERVED_ID,
+        k: 7,
+      });
+
+      // The placeholder retrieval columns are reconciled with the real
+      // values rather than a duplicate insert.
+      expect(reviews.insert).not.toHaveBeenCalled();
+      expect(reviews.updateRetrievalMetadata).toHaveBeenCalledTimes(1);
+      const [idArg, patch] = reviews.updateRetrievalMetadata.mock.calls[0];
+      expect(idArg).toBe(RESERVED_ID);
+      expect(patch.top_k).toBe(7);
+      expect(patch.diff_length).toBe(REAL_DIFF.length);
+      expect(patch.prompt_version).toBe(PROMPT_AND_TOOL_VERSION);
+      // Sorted composites, JSON-stringified — same shape the insert path writes.
+      expect(JSON.parse(patch.retrieved_chunk_ids)).toEqual([
+        'airbnb:eqeqeq',
+        'team-standards:no-var',
+      ]);
+      expect(patch.retrieved_chunk_ids_hash).toMatch(/^[a-f0-9]{64}$/);
+      // The lifecycle still completes on the same id.
+      expect(reviews.markCompleted.mock.calls[0][0]).toBe(RESERVED_ID);
+      expect(result.review_id).toBe(RESERVED_ID);
+      expect(result.status).toBe('completed');
+    });
+
+    it('INSERTS (not update) when a reviewId is passed but no row pre-exists', async () => {
+      const embeddings = makeEmbeddings([makeSearchHit()]);
+      const llm = makeLlm(happyAnalyzeResult());
+      const reviews = makeMockReviewRepo();
+      // No pre-reserved row for this id.
+      reviews.findById.mockReturnValue(undefined);
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        reviews,
+        makeMockFindingRepo(),
+        makeDbStub(),
+        makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
+      );
+
+      await service.runDryRun({ diff: REAL_DIFF, reviewId: RESERVED_ID });
+
+      expect(reviews.updateRetrievalMetadata).not.toHaveBeenCalled();
+      expect(reviews.insert).toHaveBeenCalledTimes(1);
+      expect((reviews.insert.mock.calls[0][0] as ReviewInsert).id).toBe(RESERVED_ID);
+    });
+  });
+
+  describe('runDryRun — retrievedRules', () => {
+    it('returns retrievedRules in the result, sourced from search hits', async () => {
+      const hit = makeSearchHit({ metadata: { severity: 'error', language: 'ts' } });
+      const embeddings = makeEmbeddings([hit]);
+      const llm = makeLlm(happyAnalyzeResult());
+      const reviews = makeMockReviewRepo();
+      const findings = makeMockFindingRepo();
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        reviews,
+        findings,
+        makeDbStub(),
+        makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
+      );
+
+      const result = await service.runDryRun({ diff: REAL_DIFF });
+
+      expect(result.retrievedRules).toBeDefined();
+      expect(Array.isArray(result.retrievedRules)).toBe(true);
+      // Deterministic non-empty assertion: makeSearchHit returns a hit
+      // with rule_id='no-var', source='team-standards', title='No var',
+      // and metadata.severity='error' (overridden above).
+      expect(result.retrievedRules).toHaveLength(1);
+      expect(result.retrievedRules[0]).toEqual({
+        rule_id: 'no-var',
+        source: 'team-standards',
+        title: 'No var',
+        severity: 'error',
+      });
+    });
+
+    it('returns retrievedRules for all sorted hits, not just the ones that matched findings', async () => {
+      const hits = [
+        makeSearchHit({ rule_id: 'no-var', source: 'team-standards', title: 'No var', metadata: { severity: 'warning' } }),
+        makeSearchHit({ rule_id: 'eqeqeq', source: 'airbnb', title: 'Use ===', metadata: { severity: 'error' } }),
+      ];
+      const embeddings = makeEmbeddings(hits);
+      // LLM only emits a finding for 'no-var'; 'eqeqeq' is retrieved but not cited
+      const llm = makeLlm(happyAnalyzeResult());
+      const service = new ReviewsService(
+        embeddings,
+        llm,
+        makeMockReviewRepo(),
+        makeMockFindingRepo(),
+        makeDbStub(),
+        makeConfig(),
+        makeNoopEventsService(),
+        makeMockPrRepo(),
+      );
+
+      const result = await service.runDryRun({ diff: REAL_DIFF });
+
+      // retrievedRules should be ALL hits (sorted), not just the cited ones
+      expect(result.retrievedRules).toHaveLength(2);
+      // Sorted by `${source}:${rule_id}`: airbnb:eqeqeq < team-standards:no-var
+      expect(result.retrievedRules[0]).toEqual({
+        rule_id: 'eqeqeq',
+        source: 'airbnb',
+        title: 'Use ===',
+        severity: 'error',
+      });
+      expect(result.retrievedRules[1]).toEqual({
+        rule_id: 'no-var',
+        source: 'team-standards',
+        title: 'No var',
+        severity: 'warning',
+      });
     });
   });
 

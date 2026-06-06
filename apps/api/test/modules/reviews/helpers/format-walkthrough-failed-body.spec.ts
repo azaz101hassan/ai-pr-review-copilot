@@ -30,12 +30,12 @@ describe('formatWalkthroughFailedBody', () => {
     expect(body.toLowerCase()).toContain('no findings were generated');
   });
 
-  it('says "review failed" in the header so the user sees status at a glance', () => {
+  it('says "review could not complete" in the header so the user sees status at a glance', () => {
     const body = formatWalkthroughFailedBody({
       prNodeId: VALID_PR_NODE_ID,
       reason: 'anthropic_error',
     });
-    expect(body.toLowerCase()).toContain('review failed');
+    expect(body.toLowerCase()).toContain('review could not complete');
   });
 
   it.each([
@@ -45,6 +45,7 @@ describe('formatWalkthroughFailedBody', () => {
     ['anthropic_error', /language-model|model|account|configuration/i],
     ['comment_post_failed', /walkthrough|comment/i],
     ['inline_post_failed', /inline/i],
+    ['turn_cap_exceeded', /converge|turn limit/i],
     ['internal_error', /internal/i],
   ] as const)(
     'renders a reason-specific hint for %s',
@@ -94,5 +95,15 @@ describe('formatWalkthroughFailedBody', () => {
         reason: 'github_api_error',
       }),
     ).toThrow(/prNodeId/);
+  });
+
+  it('includes the KB-tone failure copy', () => {
+    const body = formatWalkthroughFailedBody({
+      prNodeId: 'PR_x',
+      reason: 'llm_error',
+    });
+    expect(body).toMatch(
+      /tried to check this PR against your knowledge base but did not finish/,
+    );
   });
 });

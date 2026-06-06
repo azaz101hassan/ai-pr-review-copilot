@@ -1,7 +1,8 @@
 /**
- * Claim-decomposition faithfulness judge.
+ * Claim-decomposition faithfulness judge — Anthropic call shape +
+ * cross-provider helpers.
  *
- * A single Haiku call per finding via structured tool-use. Decomposes
+ * A single LLM call per finding via structured tool-use. Decomposes
  * the finding's title/message into atomic self-contained claims, and
  * for each claim emits a { claim, reason, verdict } entry.
  *
@@ -9,26 +10,23 @@
  * (conservative — unverifiable = ungrounded). Zero claims → score
  * is null (not silently 0 or 1).
  *
- * The judge does not persist anything — it returns results for the
- * caller (capture) to record.
+ * This file keeps the Anthropic-specific `judgeFinding(client, ...)`
+ * for back-compat with the focused unit spec, plus the cross-provider
+ * pure helpers (`buildJudgeUserMessage`, `parseJudgeClaims`,
+ * `computeResult`, `FAITHFULNESS_TOOL_NAME`, `JUDGE_MAX_TOKENS`,
+ * `DEFAULT_JUDGE_MODEL`). The two provider adapters in
+ * `infrastructure/llm/{anthropic,openrouter}-faithfulness-judge.ts`
+ * implement the `IFaithfulnessJudge` contract on top of those helpers.
  */
 
 import type { FaithfulnessResult, FaithfulnessClaim, FaithfulnessVerdict } from './recording';
+import type { JudgeFindingInput } from './faithfulness-judge.contract';
 import {
   JUDGE_SYSTEM_PROMPT,
   FAITHFULNESS_VERDICT_TOOL,
 } from './faithfulness-judge.prompt';
 
 // ── Types ──────────────────────────────────────────────────────────────
-
-/** Minimal finding shape the judge needs. */
-export interface JudgeFindingInput {
-  rule_id: string;
-  title: string;
-  message: string;
-  location_hint?: string | null;
-  citation?: string | null;
-}
 
 /** Loose alias for the subset of the Anthropic client surface the judge uses. */
 type AnthropicClientLike = {
@@ -59,22 +57,29 @@ export interface JudgeCallArgs {
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const DEFAULT_JUDGE_MODEL = 'claude-haiku-4-5-20251001';
-const MAX_TOKENS = 4096;
+export const DEFAULT_JUDGE_MODEL = 'claude-haiku-4-5-20251001';
+export const JUDGE_MAX_TOKENS = 4096;
+export const FAITHFULNESS_TOOL_NAME = 'faithfulness_verdict';
 const VALID_VERDICTS = new Set<FaithfulnessVerdict>([
   'supported',
   'not_supported',
   'unclear',
 ]);
 
+// Re-export the canonical finding-input shape so consumers can import
+// either from the contract or from this file — both are stable.
+export type { JudgeFindingInput };
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 /**
  * Judge a single finding's faithfulness via claim decomposition.
  *
- * Makes one Haiku call with temperature 0. Returns the score and
- * per-claim verdicts. Throws on malformed/unparseable judge responses
- * — never returns a silent default score.
+ * Anthropic-shaped call; the OpenRouter adapter has its own implementation
+ * in `infrastructure/llm/openrouter-faithfulness-judge.ts`. Makes one
+ * Haiku call with temperature 0. Returns the score and per-claim
+ * verdicts. Throws on malformed/unparseable judge responses — never
+ * returns a silent default score.
  */
 export async function judgeFinding(args: JudgeCallArgs): Promise<FaithfulnessResult> {
   const { finding, ruleDocText, diff, client, model } = args;
@@ -85,32 +90,29 @@ export async function judgeFinding(args: JudgeCallArgs): Promise<FaithfulnessRes
   const response = await client.messages.create(
     {
       model: judgeModel,
-      max_tokens: MAX_TOKENS,
+      max_tokens: JUDGE_MAX_TOKENS,
       temperature: 0,
       system: JUDGE_SYSTEM_PROMPT,
       tools: [FAITHFULNESS_VERDICT_TOOL],
-      tool_choice: { type: 'tool', name: 'faithfulness_verdict' },
+      tool_choice: { type: 'tool', name: FAITHFULNESS_TOOL_NAME },
       messages: [{ role: 'user', content: userMessage }],
     },
   );
 
-  // Extract the tool_use block
-  const toolBlock = findToolUseBlock(response.content, 'faithfulness_verdict');
+  const toolBlock = findToolUseBlock(response.content, FAITHFULNESS_TOOL_NAME);
   if (!toolBlock) {
     throw new FaithfulnessJudgeError(
-      'Faithfulness judge response did not contain a faithfulness_verdict tool_use block',
+      `Faithfulness judge response did not contain a ${FAITHFULNESS_TOOL_NAME} tool_use block`,
     );
   }
 
-  // Parse and validate the claims
   const claims = parseJudgeClaims(toolBlock.input);
-
   return computeResult(claims);
 }
 
-// ── Internals ──────────────────────────────────────────────────────────
+// ── Cross-provider helpers (exported) ─────────────────────────────────
 
-function buildJudgeUserMessage(
+export function buildJudgeUserMessage(
   finding: JudgeFindingInput,
   ruleDocText: string,
   diff: string,
@@ -159,7 +161,7 @@ function findToolUseBlock(
   return undefined;
 }
 
-function parseJudgeClaims(input: unknown): FaithfulnessClaim[] {
+export function parseJudgeClaims(input: unknown): FaithfulnessClaim[] {
   if (typeof input !== 'object' || input === null) {
     throw new FaithfulnessJudgeError(
       'Faithfulness judge tool input is not an object',
@@ -216,7 +218,7 @@ function parseJudgeClaims(input: unknown): FaithfulnessClaim[] {
   return claims;
 }
 
-function computeResult(claims: FaithfulnessClaim[]): FaithfulnessResult {
+export function computeResult(claims: FaithfulnessClaim[]): FaithfulnessResult {
   if (claims.length === 0) {
     return { score: null, claims };
   }

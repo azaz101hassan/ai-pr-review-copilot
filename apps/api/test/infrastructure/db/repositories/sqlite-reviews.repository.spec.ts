@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '@/infrastructure/db';
 import { SqlitePullRequestsRepository } from '../../../../src/infrastructure/db/repositories/sqlite-pull-requests.repository';
 import { SqliteReviewFindingsRepository } from '../../../../src/infrastructure/db/repositories/sqlite-review-findings.repository';
@@ -100,6 +101,81 @@ describe('SqliteReviewsRepository', () => {
     it('rejects duplicate id (primary-key violation)', () => {
       repo.insert(makeReview({ id: 'r3' }));
       expect(() => repo.insert(makeReview({ id: 'r3' }))).toThrow();
+    });
+  });
+
+  describe('insertInProgress', () => {
+    it('reserves a row with placeholder retrieval/usage fields retrievable by findById', () => {
+      const createdAt = new Date('2026-05-27T11:00:00Z');
+      repo.insertInProgress({
+        id: 'ip-1',
+        pr_node_id: PR_NODE_ID,
+        model: 'claude-sonnet-4-6',
+        created_at: createdAt,
+      });
+
+      const row = repo.findById('ip-1')!;
+      expect(row).toBeDefined();
+      expect(row.status).toBe('in_progress');
+      expect(row.prompt_version).toBe('placeholder');
+      expect(row.diff_length).toBe(0);
+      expect(row.top_k).toBe(0);
+      expect(row.retrieved_chunk_ids).toBe('[]');
+      expect(row.retrieved_chunk_ids_hash).toBe('0'.repeat(64));
+      expect(row.model).toBe('claude-sonnet-4-6');
+      expect(row.pr_node_id).toBe(PR_NODE_ID);
+      expect(row.created_at.toISOString()).toBe(createdAt.toISOString());
+      expect(row.completed_at).toBeNull();
+      expect(row.created_by).toBeNull();
+      expect(row.input_tokens).toBeNull();
+      expect(row.output_tokens).toBeNull();
+      expect(row.cache_creation_input_tokens).toBeNull();
+      expect(row.cache_read_input_tokens).toBeNull();
+      expect(row.error_status).toBeNull();
+      expect(row.error_code).toBeNull();
+    });
+  });
+
+  describe('updateRetrievalMetadata', () => {
+    it('overwrites the six placeholder retrieval columns and touches nothing else', () => {
+      const createdAt = new Date('2026-05-27T11:30:00Z');
+      repo.insertInProgress({
+        id: 'urm-1',
+        pr_node_id: PR_NODE_ID,
+        model: 'placeholder-model',
+        created_at: createdAt,
+      });
+
+      repo.updateRetrievalMetadata('urm-1', {
+        diff_length: 4096,
+        model: 'claude-haiku-4-5',
+        prompt_version: 'v7',
+        top_k: 25,
+        retrieved_chunk_ids: JSON.stringify(['airbnb:no-var', 'team:eqeqeq']),
+        retrieved_chunk_ids_hash: 'f'.repeat(64),
+      });
+
+      const row = repo.findById('urm-1')!;
+      // The six columns are now the real values.
+      expect(row.diff_length).toBe(4096);
+      expect(row.model).toBe('claude-haiku-4-5');
+      expect(row.prompt_version).toBe('v7');
+      expect(row.top_k).toBe(25);
+      expect(JSON.parse(row.retrieved_chunk_ids)).toEqual([
+        'airbnb:no-var',
+        'team:eqeqeq',
+      ]);
+      expect(row.retrieved_chunk_ids_hash).toBe('f'.repeat(64));
+      // Everything else stays exactly as insertInProgress left it.
+      expect(row.status).toBe('in_progress');
+      expect(row.created_at.toISOString()).toBe(createdAt.toISOString());
+      expect(row.completed_at).toBeNull();
+      expect(row.input_tokens).toBeNull();
+      expect(row.output_tokens).toBeNull();
+      expect(row.cache_creation_input_tokens).toBeNull();
+      expect(row.cache_read_input_tokens).toBeNull();
+      expect(row.error_status).toBeNull();
+      expect(row.error_code).toBeNull();
     });
   });
 
@@ -1190,6 +1266,163 @@ describe('SqliteReviewsRepository', () => {
       repo.insert(makeReview({ id: 'da-only-null', pr_node_id: null }));
       const authors = repo.distinctAuthors({}, 100);
       expect(authors).toEqual([]);
+    });
+  });
+
+  describe('setCheckRunId', () => {
+    it('persists the check_run_id on an existing row', () => {
+      const id = randomUUID();
+      repo.insert(makeReview({ id, status: 'in_progress' }));
+      repo.setCheckRunId(id, 4242);
+      const row = repo.findById(id);
+      expect(row?.check_run_id).toBe(4242);
+    });
+
+    it('overwrites a prior check_run_id on the same row', () => {
+      const id = randomUUID();
+      repo.insert(makeReview({ id, status: 'in_progress' }));
+      repo.setCheckRunId(id, 1);
+      repo.setCheckRunId(id, 2);
+      expect(repo.findById(id)?.check_run_id).toBe(2);
+    });
+
+    it('throws when the row does not exist', () => {
+      expect(() => repo.setCheckRunId('nonexistent', 1)).toThrow(
+        /no review row/i,
+      );
+    });
+  });
+
+  describe('findMostRecentPriorCheckRun', () => {
+    it('returns the most recent prior row (created_at DESC) with a non-null check_run_id', () => {
+      const t0 = NOW.getTime();
+      repo.insert(makeReview({ id: 'pcr-old', created_at: new Date(t0) }));
+      repo.setCheckRunId('pcr-old', 100);
+      repo.insert(makeReview({ id: 'pcr-new', created_at: new Date(t0 + 5_000) }));
+      repo.setCheckRunId('pcr-new', 200);
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toEqual({ reviewId: 'pcr-new', checkRunId: 200 });
+    });
+
+    it('excludes the row whose id equals excludingReviewId (even if newest with a check_run_id)', () => {
+      const t0 = NOW.getTime();
+      repo.insert(makeReview({ id: 'pcr-prior', created_at: new Date(t0) }));
+      repo.setCheckRunId('pcr-prior', 300);
+      // The current reservation: newest AND has a check_run_id, but must be skipped.
+      repo.insert(makeReview({ id: 'pcr-current', created_at: new Date(t0 + 5_000) }));
+      repo.setCheckRunId('pcr-current', 400);
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'pcr-current',
+      });
+      expect(found).toEqual({ reviewId: 'pcr-prior', checkRunId: 300 });
+    });
+
+    it('ignores rows with a NULL check_run_id', () => {
+      const t0 = NOW.getTime();
+      // Newest row has NO check_run_id — must be skipped in favour of the older one.
+      repo.insert(makeReview({ id: 'pcr-with', created_at: new Date(t0) }));
+      repo.setCheckRunId('pcr-with', 500);
+      repo.insert(makeReview({ id: 'pcr-without', created_at: new Date(t0 + 5_000) }));
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toEqual({ reviewId: 'pcr-with', checkRunId: 500 });
+    });
+
+    it('ignores rows for a different pr_node_id', () => {
+      const otherPr = 'PR_other_pcr';
+      prs.save({
+        node_id: otherPr,
+        repo_full_name: 'owner/repo',
+        number: 77,
+        title: 'Other PR',
+        state: 'open',
+        head_sha: 'c'.repeat(40),
+        base_sha: 'd'.repeat(40),
+        author_login: 'someoneelse',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+        walkthrough_comment_id: null,
+      });
+      repo.insert(makeReview({ id: 'pcr-other-pr', pr_node_id: otherPr }));
+      repo.setCheckRunId('pcr-other-pr', 600);
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toBeUndefined();
+    });
+
+    it('returns undefined when no qualifying row exists', () => {
+      // A row exists for the PR but it has no check_run_id.
+      repo.insert(makeReview({ id: 'pcr-no-check' }));
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toBeUndefined();
+    });
+
+    it('ignores rows whose review is already terminal (completed / failed)', () => {
+      const t0 = NOW.getTime();
+      // A completed prior review with a check_run_id — must NOT be swept,
+      // its check-run is already terminal. Sweeping it would overwrite a
+      // green check-run with "Superseded by newer review".
+      repo.insert(
+        makeReview({
+          id: 'pcr-completed',
+          status: 'completed',
+          created_at: new Date(t0 + 10_000),
+          completed_at: new Date(t0 + 12_000),
+        }),
+      );
+      repo.setCheckRunId('pcr-completed', 700);
+      // A failed prior review with a check_run_id — same reasoning.
+      repo.insert(
+        makeReview({
+          id: 'pcr-failed',
+          status: 'failed',
+          created_at: new Date(t0 + 5_000),
+          completed_at: new Date(t0 + 6_000),
+        }),
+      );
+      repo.setCheckRunId('pcr-failed', 800);
+      // An older in_progress row — this is the one a sweep should target.
+      repo.insert(makeReview({ id: 'pcr-leaked', created_at: new Date(t0) }));
+      repo.setCheckRunId('pcr-leaked', 900);
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toEqual({ reviewId: 'pcr-leaked', checkRunId: 900 });
+    });
+  });
+
+  describe('setWalkthroughSummary', () => {
+    it('persists a non-null summary', () => {
+      const id = randomUUID();
+      repo.insert(makeReview({ id, status: 'in_progress' }));
+      repo.setWalkthroughSummary(id, 'This PR adds X.');
+      expect(repo.findById(id)?.walkthrough_summary).toBe('This PR adds X.');
+    });
+
+    it('persists null when the summarizer call failed', () => {
+      const id = randomUUID();
+      repo.insert(makeReview({ id, status: 'in_progress' }));
+      repo.setWalkthroughSummary(id, null);
+      expect(repo.findById(id)?.walkthrough_summary).toBeNull();
     });
   });
 });

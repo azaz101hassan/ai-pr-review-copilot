@@ -1,20 +1,10 @@
 import type { Finding } from '@/modules/reviews/types/llm-reviewer';
-import { sanitizeFindingMarkdown } from './sanitize-finding-markdown';
-import type { FindingCounts } from './finding-counts.types';
+import { sanitizeFindingMarkdown } from '@/modules/reviews/helpers/sanitize-finding-markdown';
+import type { FindingCounts } from '@/modules/reviews/helpers/finding-counts.types';
+import type { OutsideDiffFinding } from '@/modules/reviews/helpers/anchor-findings-to-diff';
 
 type SanitizeFn = (input: string) => string;
 
-// Pointer-only Review body. The counts table and any outside-diff
-// rendering live in the walkthrough issue comment; the review's body
-// exists only to carry the UUID marker (so duplicate-review detection
-// works) and to point readers at the walkthrough.
-//
-// History: an earlier "slim" iteration of this body still rendered the
-// counts table AND the same header as the walkthrough. That collided
-// visually in the PR timeline — the walkthrough issue comment and the
-// review event landed within seconds of each other and looked like
-// duplicate posts. The counts table is the walkthrough's job; this
-// file's job is the marker plus a one-line pointer.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Severity-rich Finding shape. The processor narrows the raw Finding
@@ -27,9 +17,8 @@ export interface FindingWithSeverity extends Finding {
 export interface FormatReviewBodyInput {
   reviewId: string;
   counts: FindingCounts;
-  hasOutsideDiff: boolean;
-  // Sanitizer kept for symmetry with the other formatters even though
-  // this body doesn't currently render user-controlled markdown.
+  retrievedRulesCount: number;
+  outsideDiff: OutsideDiffFinding[];
   sanitize?: SanitizeFn;
 }
 
@@ -39,27 +28,77 @@ export function formatReviewBody(input: FormatReviewBodyInput): string {
       `formatReviewBody: reviewId is not a canonical UUID (got "${input.reviewId}").`,
     );
   }
-  void (input.sanitize ?? sanitizeFindingMarkdown);
-
+  const sanitize = input.sanitize ?? sanitizeFindingMarkdown;
   const marker = `<!-- ai-pr-review-copilot:v1:review-id=${input.reviewId} -->`;
 
+  const lines: string[] = [marker, ''];
+
   if (input.counts.total === 0) {
-    return [marker, '_No findings — the diff matched no team rules._'].join('\n');
-  }
-
-  // With findings: a single pointer line. Header + counts live in the
-  // walkthrough comment. Mentioning the walkthrough by name keeps the
-  // reader oriented when both posts land in the same timeline.
-  const lines: string[] = [
-    marker,
-    '_Inline comments below. See the walkthrough comment for the full summary._',
-  ];
-
-  if (input.hasOutsideDiff) {
     lines.push(
-      '_Some findings sit outside this diff and are listed in the walkthrough._',
+      `**0 findings — your knowledge base was consulted (top ${input.retrievedRulesCount} rules retrieved).**`,
+      '',
+      '_The diff is within scope and matched no team rules._',
+      '',
+      'See the walkthrough comment above for the change summary.',
     );
+    return lines.join('\n');
   }
+
+  lines.push(
+    `**${input.counts.total} findings — your knowledge base was consulted (top ${input.retrievedRulesCount} rules retrieved).**`,
+    '',
+    '| 🛑 errors | ⚠️ warnings | 💡 info |',
+    '|---|---|---|',
+    `| ${input.counts.error} | ${input.counts.warning} | ${input.counts.info} |`,
+  );
+
+  if (input.outsideDiff.length > 0) {
+    lines.push(
+      '',
+      '> [!CAUTION]',
+      "> Some findings are outside the changed lines and can't be posted inline due to GitHub limitations.",
+      '>',
+      '> <details>',
+      `> <summary>⚠️ Outside diff range comments (${input.outsideDiff.length})</summary>`,
+      '>',
+    );
+    for (const od of input.outsideDiff) {
+      const block = renderOutsideDiffEntry(od, sanitize);
+      for (const blockLine of block.split('\n')) {
+        lines.push(`> ${blockLine}`);
+      }
+      lines.push('>');
+    }
+    lines.push('> </details>');
+  }
+
+  lines.push(
+    '',
+    'See the walkthrough comment above for the change summary. Inline comments are anchored below.',
+  );
 
   return lines.join('\n');
+}
+
+function renderOutsideDiffEntry(
+  entry: OutsideDiffFinding,
+  sanitize: SanitizeFn,
+): string {
+  const f = entry.finding;
+  const message = sanitize(f.message || '_(no message)_');
+  const where = entry.parsedAnchor
+    ? entry.parsedAnchor.startLine !== null
+      ? entry.parsedAnchor.endLine !== null &&
+        entry.parsedAnchor.startLine !== entry.parsedAnchor.endLine
+        ? `${entry.parsedAnchor.path}:${entry.parsedAnchor.startLine}-${entry.parsedAnchor.endLine}`
+        : `${entry.parsedAnchor.path}:${entry.parsedAnchor.startLine}`
+      : entry.parsedAnchor.path
+    : f.location_hint ?? '(no location)';
+  return [
+    `**\`${where}\`** — ${f.rule_id}`,
+    '',
+    message,
+    '',
+    `_Rule:_ \`${f.rule_id}\``,
+  ].join('\n');
 }

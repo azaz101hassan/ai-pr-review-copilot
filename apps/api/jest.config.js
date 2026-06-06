@@ -28,7 +28,6 @@ module.exports = {
   testEnvironment: 'node',
   moduleDirectories: ['node_modules', 'src'],
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
     // ESM stubs: The real `octokit` / `@octokit/auth-app`
     // packages are ESM-only and don't load under Jest's CJS runtime.
     // Tests never instantiate the real Octokit — they always
@@ -43,11 +42,14 @@ module.exports = {
     // sanitize fn; this stub satisfies the import boundary so the module loads.
     // Matches both relative ('./sanitize-finding-markdown') and
     // alias-resolved ('@/modules/reviews/helpers/sanitize-finding-markdown')
-    // forms.
+    // forms. Both specific mappers MUST sit above the generic `^@/(.*)$`
+    // alias mapper below, because jest matches keys in order — without
+    // this ordering the alias form falls through to the real ESM file.
     '^\\./sanitize-finding-markdown$':
       '<rootDir>/test/stubs/sanitize-finding-markdown.cjs',
     '^@/modules/reviews/helpers/sanitize-finding-markdown$':
       '<rootDir>/test/stubs/sanitize-finding-markdown.cjs',
+    '^@/(.*)$': '<rootDir>/src/$1',
   },
   setupFiles: ['<rootDir>/jest.setup.ts'],
 };
