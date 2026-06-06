@@ -1293,6 +1293,88 @@ describe('SqliteReviewsRepository', () => {
     });
   });
 
+  describe('findMostRecentPriorCheckRun', () => {
+    it('returns the most recent prior row (created_at DESC) with a non-null check_run_id', () => {
+      const t0 = NOW.getTime();
+      repo.insert(makeReview({ id: 'pcr-old', created_at: new Date(t0) }));
+      repo.setCheckRunId('pcr-old', 100);
+      repo.insert(makeReview({ id: 'pcr-new', created_at: new Date(t0 + 5_000) }));
+      repo.setCheckRunId('pcr-new', 200);
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toEqual({ reviewId: 'pcr-new', checkRunId: 200 });
+    });
+
+    it('excludes the row whose id equals excludingReviewId (even if newest with a check_run_id)', () => {
+      const t0 = NOW.getTime();
+      repo.insert(makeReview({ id: 'pcr-prior', created_at: new Date(t0) }));
+      repo.setCheckRunId('pcr-prior', 300);
+      // The current reservation: newest AND has a check_run_id, but must be skipped.
+      repo.insert(makeReview({ id: 'pcr-current', created_at: new Date(t0 + 5_000) }));
+      repo.setCheckRunId('pcr-current', 400);
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'pcr-current',
+      });
+      expect(found).toEqual({ reviewId: 'pcr-prior', checkRunId: 300 });
+    });
+
+    it('ignores rows with a NULL check_run_id', () => {
+      const t0 = NOW.getTime();
+      // Newest row has NO check_run_id — must be skipped in favour of the older one.
+      repo.insert(makeReview({ id: 'pcr-with', created_at: new Date(t0) }));
+      repo.setCheckRunId('pcr-with', 500);
+      repo.insert(makeReview({ id: 'pcr-without', created_at: new Date(t0 + 5_000) }));
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toEqual({ reviewId: 'pcr-with', checkRunId: 500 });
+    });
+
+    it('ignores rows for a different pr_node_id', () => {
+      const otherPr = 'PR_other_pcr';
+      prs.save({
+        node_id: otherPr,
+        repo_full_name: 'owner/repo',
+        number: 77,
+        title: 'Other PR',
+        state: 'open',
+        head_sha: 'c'.repeat(40),
+        base_sha: 'd'.repeat(40),
+        author_login: 'someoneelse',
+        created_at: NOW,
+        updated_at: NOW,
+        raw_payload: '{}',
+        walkthrough_comment_id: null,
+      });
+      repo.insert(makeReview({ id: 'pcr-other-pr', pr_node_id: otherPr }));
+      repo.setCheckRunId('pcr-other-pr', 600);
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toBeUndefined();
+    });
+
+    it('returns undefined when no qualifying row exists', () => {
+      // A row exists for the PR but it has no check_run_id.
+      repo.insert(makeReview({ id: 'pcr-no-check' }));
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toBeUndefined();
+    });
+  });
+
   describe('setWalkthroughSummary', () => {
     it('persists a non-null summary', () => {
       const id = randomUUID();

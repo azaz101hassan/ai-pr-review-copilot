@@ -242,6 +242,16 @@ export interface IReviewRepository {
     withinMs: number,
   ): ReviewRecord | undefined;
 
+  // For sweep at job entry — finds the most recent reviews row
+  // for the given pr_node_id (excluding the current reviewId)
+  // whose check_run_id is non-null. Used by the worker to PATCH
+  // a prior leaked in_progress check-run to a terminal state
+  // before posting the new in-progress check.
+  findMostRecentPriorCheckRun(opts: {
+    prNodeId: string;
+    excludingReviewId: string;
+  }): { reviewId: string; checkRunId: number } | undefined;
+
   // Dashboard read-side methods.
 
   // Returns reviews matching the filter spec, joined with pull_requests

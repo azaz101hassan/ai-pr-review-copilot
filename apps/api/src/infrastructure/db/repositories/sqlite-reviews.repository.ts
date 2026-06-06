@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, gte, gt, isNotNull, lt, lte, notInArray, sql, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, gt, isNotNull, lt, lte, ne, notInArray, sql, sum } from 'drizzle-orm';
 import { DatabaseService } from '../database.service';
 import { pullRequests, reviewFindings, reviews } from '../schema';
 import {
@@ -278,6 +278,30 @@ export class SqliteReviewsRepository implements IReviewRepository {
       .orderBy(desc(reviews.created_at))
       .limit(1)
       .get();
+  }
+
+  findMostRecentPriorCheckRun(opts: {
+    prNodeId: string;
+    excludingReviewId: string;
+  }): { reviewId: string; checkRunId: number } | undefined {
+    const row = this.db.drizzle
+      .select({
+        id: reviews.id,
+        check_run_id: reviews.check_run_id,
+      })
+      .from(reviews)
+      .where(
+        and(
+          eq(reviews.pr_node_id, opts.prNodeId),
+          ne(reviews.id, opts.excludingReviewId),
+          isNotNull(reviews.check_run_id),
+        ),
+      )
+      .orderBy(desc(reviews.created_at))
+      .limit(1)
+      .get();
+    if (!row || row.check_run_id == null) return undefined;
+    return { reviewId: row.id, checkRunId: row.check_run_id };
   }
 
   sweepStaleInProgress(opts: { olderThanMs: number; errorCode: string }): number {

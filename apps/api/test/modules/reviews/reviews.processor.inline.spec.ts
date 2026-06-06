@@ -155,6 +155,7 @@ function setup(opts: SetupOpts = {}) {
     markFailedIfInProgress: jest.fn().mockReturnValue(1),
     sweepStaleInProgress: jest.fn().mockReturnValue(0),
     findRecentInProgressForPr: jest.fn().mockReturnValue(undefined),
+    findMostRecentPriorCheckRun: jest.fn().mockReturnValue(undefined),
     findFiltered: jest.fn().mockReturnValue([]),
     countFiltered: jest.fn().mockReturnValue(0),
     findByIdWithFindings: jest.fn().mockReturnValue(null),

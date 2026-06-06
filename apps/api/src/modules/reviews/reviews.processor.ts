@@ -64,6 +64,9 @@ import {
 //      stalled-job replay racing the deterministic-jobId upsert.
 //   3. Mint installation-scoped Octokit from the cached provider.
 //   4. pulls.get → if state !== 'open' or 404, mark failed and exit.
+//   4b. Reserve the lifecycle row (insertInProgress) right after the
+//       open-state check, then sweep any prior leaked check-run on this
+//       PR to a terminal 'neutral' state before the new check is posted.
 //   5. Fetch unified diff via mediaType.format='diff'.
 //   6. Pre-check: empty diff → mark completed with zero findings,
 //      do not call Anthropic, do not POST. MAX_DIFF_BYTES overflow
@@ -234,6 +237,26 @@ export class ReviewsProcessor
     });
 
     try {
+      // Step 4b — sweep any prior leaked check-run on this PR. A prior
+      // attempt may have left an in_progress check-run; retire the most
+      // recent one to a terminal neutral state before the new review's
+      // check goes up, so the PR's Checks tab shows a single live run.
+      const prior = this.reviewsRepo.findMostRecentPriorCheckRun({
+        prNodeId: data.pr_node_id,
+        excludingReviewId: reviewId,
+      });
+      if (prior) {
+        await this.tryPatchCheckRun({
+          octokit,
+          owner: data.owner,
+          repo: data.repo,
+          check_run_id: prior.checkRunId,
+          conclusion: 'neutral',
+          title: 'Superseded by newer review on this PR.',
+          summary: 'A newer review has started on this pull request.',
+        });
+      }
+
       // Step 5 — unified diff via mediaType.
       let diff: string;
       try {

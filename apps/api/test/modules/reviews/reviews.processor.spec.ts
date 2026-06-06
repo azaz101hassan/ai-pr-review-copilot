@@ -36,6 +36,10 @@ function makeOctokit(opts: OctokitOpts = {}): Octokit {
         updateComment: jest.fn().mockResolvedValue({ data: {} }),
         listComments: jest.fn().mockResolvedValue({ data: [] }),
       },
+      checks: {
+        update: jest.fn().mockResolvedValue({ data: {} }),
+        create: jest.fn().mockResolvedValue({ data: { id: 1 } }),
+      },
     },
     request:
       opts.request ??
@@ -164,6 +168,7 @@ function makeProcessor(
     markFailedIfInProgress: jest.fn().mockReturnValue(1),
     sweepStaleInProgress: jest.fn().mockReturnValue(0),
     findRecentInProgressForPr,
+    findMostRecentPriorCheckRun: jest.fn().mockReturnValue(undefined),
     findFiltered: jest.fn().mockReturnValue([]),
     countFiltered: jest.fn().mockReturnValue(0),
     findByIdWithFindings: jest.fn().mockReturnValue(null),
@@ -248,6 +253,45 @@ describe('ReviewsProcessor.process — happy path', () => {
     expect(reviewArgs.body).toContain('ai-pr-review-copilot:v1:review-id=');
     // retries: 0 sent through the request options.
     expect(reviewArgs.request).toEqual({ retries: 0 });
+  });
+});
+
+describe('ReviewsProcessor.process — check-run sweep', () => {
+  it('retires the most-recent prior leaked check-run to neutral', async () => {
+    const parts = makeProcessor();
+    (parts.reviewsRepo.findMostRecentPriorCheckRun as jest.Mock).mockReturnValue({
+      reviewId: 'prior-review-id',
+      checkRunId: 4242,
+    });
+
+    await parts.processor.process(makeJob());
+
+    expect(parts.reviewsRepo.findMostRecentPriorCheckRun).toHaveBeenCalledWith({
+      prNodeId: baseData.pr_node_id,
+      excludingReviewId: expect.any(String),
+    });
+    const checksUpdate = parts.octokit.rest.checks.update as unknown as jest.Mock;
+    expect(checksUpdate).toHaveBeenCalledTimes(1);
+    expect(checksUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: baseData.owner,
+        repo: baseData.repo,
+        check_run_id: 4242,
+        status: 'completed',
+        conclusion: 'neutral',
+        output: {
+          title: 'Superseded by newer review on this PR.',
+          summary: 'A newer review has started on this pull request.',
+        },
+      }),
+    );
+  });
+
+  it('does not PATCH any check-run when there is no prior leaked run', async () => {
+    const parts = makeProcessor();
+    // findMostRecentPriorCheckRun defaults to mockReturnValue(undefined)
+    await parts.processor.process(makeJob());
+    expect(parts.octokit.rest.checks.update as unknown as jest.Mock).not.toHaveBeenCalled();
   });
 });
 
@@ -929,6 +973,7 @@ describe('ReviewsProcessor.drainGracefully', () => {
       markFailedIfInProgress: jest.fn().mockReturnValue(1),
       sweepStaleInProgress: jest.fn().mockReturnValue(0),
       findRecentInProgressForPr: jest.fn(),
+      findMostRecentPriorCheckRun: jest.fn().mockReturnValue(undefined),
       findFiltered: jest.fn().mockReturnValue([]),
       countFiltered: jest.fn().mockReturnValue(0),
       findByIdWithFindings: jest.fn().mockReturnValue(null),
