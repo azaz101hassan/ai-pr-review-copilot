@@ -1,20 +1,59 @@
 {
-  "status": "threw",
+  "status": "emitted",
   "fixtureId": "real-pr-utility-refactor",
-  "error": {
-    "errorCode": "credit_balance_too_low",
-    "turnCount": null,
-    "toolCalls": null
-  },
+  "findings": [
+    {
+      "rule_id": "prefer-const",
+      "title": "Use const for variables that are never reassigned",
+      "message": "Variables 'formatter', 'result', 'defaultOptions', 'mergedOptions', 'formatted', 'digits', 'area', 'prefix', 'line', 'truncated', and 'lastSpace' are never reassigned and should be declared with 'const' instead of 'let'. Using 'const' signals intent and prevents accidental reassignment.",
+      "location_hint": "src/utils/formatters.js:5-39",
+      "citation": null,
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "Variables 'formatter', 'result', 'defaultOptions', 'mergedOptions', 'formatted', 'digits', 'area', 'prefix', 'line', 'truncated', and 'lastSpace' are never reassigned",
+            "kind": "",
+            "reason": "The PR diff shows these variables are assigned once and never reassigned afterward. For example, 'formatter' is declared and assigned on one line and used later without any reassignment. The same pattern holds for all other listed variables.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Variables 'formatter', 'result', 'defaultOptions', 'mergedOptions', 'formatted', 'digits', 'area', 'prefix', 'line', 'truncated', and 'lastSpace' should be declared with 'const' instead of 'let'",
+            "kind": "",
+            "reason": "The rule document states that if a binding is never reassigned, it should be declared const. Since these variables are never reassigned (as shown in the diff), they should be declared with 'const'.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Using 'const' signals intent and prevents accidental reassignment",
+            "kind": "",
+            "reason": "This is explicitly stated in the rule document: 'const signals intent and prevents accidental reassignment that breaks the reader's mental model.'",
+            "verdict": "supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "arrow-body-style",
+    "import-no-default-export",
+    "max-lines-per-function",
+    "no-magic-numbers",
+    "no-param-reassign",
+    "no-unused-vars",
+    "object-shorthand",
+    "prefer-const",
+    "prefer-destructuring",
+    "prefer-template"
+  ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "088f935780616abd96aa6c1e0b52d3a404f72c64fd2461eb3a6e89248a39b67d",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5ddf0d49502beec825a0950ef08bcd479ce4bfe2bb2183f2dd97fad7e448738f",
+    "llmProvider": "openrouter"
   }
 }

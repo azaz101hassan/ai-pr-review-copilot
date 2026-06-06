@@ -1,20 +1,179 @@
 {
-  "status": "threw",
+  "status": "emitted",
   "fixtureId": "real-pr-react-form-handler",
-  "error": {
-    "errorCode": "credit_balance_too_low",
-    "turnCount": null,
-    "toolCalls": null
-  },
+  "findings": [
+    {
+      "rule_id": "max-lines-per-function",
+      "title": "Keep functions short — under ~50 lines",
+      "message": "The handleSubmit function has grown to over 40 lines and now handles validation, transformation, API calls, error handling, and state updates. Extract sub-helpers for validation and submission to improve readability.",
+      "location_hint": "src/components/ContactForm.jsx:9-50",
+      "citation": "function ContactForm({ onSubmit }) {\n  const [name, setName] = useState('');\n  const [email, setEmail] = useState('');\n  const [message, setMessage] = useState('');\n  const [errors, setErrors] = useState({});\n\n  const handleSubmit = async (e) => {\n    e.preventDefault();\n    // Validate fields inline — this handler is growing large.\n    // It now does validation, transformation, API call, error handling,\n    // success redirect, and analytics tracking all in one function.\n    let validationErrors = {};",
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The handleSubmit function has grown to over 40 lines.",
+            "kind": "",
+            "reason": "The diff shows the handleSubmit function spanning from line 9 to line 50, which is over 40 lines.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The handleSubmit function handles validation.",
+            "kind": "",
+            "reason": "The diff shows validation logic inside handleSubmit, including checks for name, email, and message fields.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The handleSubmit function handles transformation.",
+            "kind": "",
+            "reason": "The diff shows transformation logic such as trimming the name, lowercasing the email, and adding a timestamp.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The handleSubmit function handles API calls.",
+            "kind": "",
+            "reason": "The diff shows an API call using fetch to '/api/contact'.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The handleSubmit function handles error handling.",
+            "kind": "",
+            "reason": "The diff includes a try-catch block for handling errors during the API call.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The handleSubmit function handles state updates.",
+            "kind": "",
+            "reason": "The diff shows state updates such as clearing the form fields after successful submission.",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Extracting sub-helpers for validation and submission improves readability.",
+            "kind": "",
+            "reason": "The rule document advises extracting sub-helpers to improve readability for long functions.",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "no-deeply-nested-callbacks",
+      "title": "Flatten deeply nested callbacks",
+      "message": "The handleSubmit function contains deeply nested logic for validation and async operations. Extract validation and submission into separate named functions to reduce nesting.",
+      "location_hint": "src/components/ContactForm.jsx:9-50",
+      "citation": null,
+      "faithfulness": {
+        "score": 1,
+        "claims": [
+          {
+            "claim": "The handleSubmit function contains deeply nested logic for validation and async operations",
+            "kind": "",
+            "reason": "The PR diff shows the handleSubmit function with inline validation logic and async operations including fetch and error handling, all within the same function scope without extraction into separate named functions",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The handleSubmit function contains validation logic",
+            "kind": "",
+            "reason": "The PR diff shows validation checks for name, email, and message fields directly within the handleSubmit function",
+            "verdict": "supported"
+          },
+          {
+            "claim": "The handleSubmit function contains async operations",
+            "kind": "",
+            "reason": "The PR diff shows the handleSubmit function performing async operations using await for fetch and response.json()",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Validation should be extracted into separate named functions",
+            "kind": "",
+            "reason": "The rule document states 'Extract steps into named helpers' when there are 4+ levels of indentation and functions are doing too much, which applies to the handleSubmit function's multiple responsibilities",
+            "verdict": "supported"
+          },
+          {
+            "claim": "Submission should be extracted into separate named functions",
+            "kind": "",
+            "reason": "The rule document advocates for extracting steps into named helpers when functions become too complex, and the handleSubmit function handles multiple concerns including submission logic",
+            "verdict": "supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "no-param-reassign",
+      "title": "Do not reassign function parameters",
+      "message": "The catch block reassigns the error parameter to errorMsg which violates the no-param-reassign rule. Use a new variable instead.",
+      "location_hint": "src/components/ContactForm.jsx:47",
+      "citation": "var errorMsg = err.message;",
+      "faithfulness": {
+        "score": 0,
+        "claims": [
+          {
+            "claim": "The catch block reassigns the error parameter to errorMsg.",
+            "kind": "",
+            "reason": "In the diff, the catch block contains the line 'var errorMsg = err.message;', which assigns the message property of the error parameter (err) to a new variable named errorMsg. This does not reassign the error parameter itself, but rather accesses a property of it. However, the claim specifically says the error parameter is reassigned to errorMsg, which is not accurate based on the code shown.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "Reassigning the error parameter violates the no-param-reassign rule.",
+            "kind": "",
+            "reason": "The rule document states that reassigning parameters is discouraged because it mutates the caller's object or makes function behavior dependent on parameter usage. However, since the error parameter is not actually reassigned in the diff (only its property is accessed), this claim does not apply to the given code example.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "A new variable should be used instead of reassigning the error parameter.",
+            "kind": "",
+            "reason": "The suggestion to use a new variable is appropriate when reassigning parameters, according to the rule document. In the diff, a new variable (errorMsg) is indeed used to store the error message, which aligns with the recommended practice. However, since the error parameter itself was not reassigned, this claim is based on a premise that doesn't match the code.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "await-or-catch-promises",
+      "title": "Always await Promises or attach a catch handler",
+      "message": "The fetch call and JSON parsing should be properly handled with await or catch to avoid unhandled promise rejections.",
+      "location_hint": "src/components/ContactForm.jsx:34-40",
+      "citation": null,
+      "faithfulness": {
+        "score": 0,
+        "claims": [
+          {
+            "claim": "The fetch call in src/components/ContactForm.jsx should be properly handled with await or catch to avoid unhandled promise rejections.",
+            "kind": "",
+            "reason": "The PR diff shows that the fetch call is properly awaited within a try block, and errors are caught in a catch block. Therefore, the claim that it should be handled with await or catch is already satisfied in the code.",
+            "verdict": "not_supported"
+          },
+          {
+            "claim": "The JSON parsing in src/components/ContactForm.jsx should be properly handled with await or catch to avoid unhandled promise rejections.",
+            "kind": "",
+            "reason": "The PR diff shows that the JSON parsing (response.json()) is properly awaited within the same try block as the fetch call, and errors are caught in a catch block. Therefore, the claim that it should be handled with await or catch is already satisfied in the code.",
+            "verdict": "not_supported"
+          }
+        ]
+      }
+    }
+  ],
+  "ruleSet": [
+    "await-or-catch-promises",
+    "guard-clauses",
+    "guard-status-transitions",
+    "max-lines-per-function",
+    "no-deeply-nested-callbacks",
+    "no-floating-promises",
+    "no-param-reassign",
+    "prefer-destructuring",
+    "react-hooks-rules",
+    "validate-input-at-system-boundary"
+  ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "ab2b9b0b37a7e0c2bd9cae6ede573705b7c962f216214876519c71ae9346a300",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5ddf0d49502beec825a0950ef08bcd479ce4bfe2bb2183f2dd97fad7e448738f",
+    "llmProvider": "openrouter"
   }
 }

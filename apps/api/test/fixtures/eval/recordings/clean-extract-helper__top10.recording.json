@@ -4,25 +4,25 @@
   "findings": [],
   "ruleSet": [
     "complexity",
-    "explicit-function-return-type",
+    "currency-amounts-in-cents",
     "guard-clauses",
-    "import-order",
     "max-lines-per-function",
-    "no-await-in-loop",
-    "no-deeply-nested-callbacks",
-    "no-mocks-for-the-db",
-    "repository-pattern",
-    "thin-controllers"
+    "no-business-logic-in-controllers",
+    "no-console-in-app-code",
+    "no-magic-numbers",
+    "prefer-typed-guard-over-bang",
+    "thin-controllers",
+    "throw-nest-http-exceptions"
   ],
   "provenance": {
-    "promptVersion": "v3",
-    "model": "claude-haiku-4-5-20251001",
-    "judgeModel": "claude-haiku-4-5-20251001",
+    "promptVersion": "v4",
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "judgeModel": "qwen/qwen3-coder",
     "judgePromptVersion": "v1",
     "seedCorpusVersion": "v1",
     "expectedSetHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "gitSha": "91083e4a95bb4fe1880c481cbcb0423ffd4d9d4a",
-    "trackedPathsHash": "502e416c9b384e8a77407b95b9de7e2bfd904e42dc7ac5f86db3174d22482165",
-    "llmProvider": "anthropic"
+    "gitSha": "812e97418006e15ed45f99102b781d20bf8a91f3",
+    "trackedPathsHash": "5ddf0d49502beec825a0950ef08bcd479ce4bfe2bb2183f2dd97fad7e448738f",
+    "llmProvider": "openrouter"
   }
 }
