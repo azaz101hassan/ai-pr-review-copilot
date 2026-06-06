@@ -40,7 +40,6 @@ describe('ConfigService', () => {
     MAX_REVIEW_DIFF_LINES: process.env.MAX_REVIEW_DIFF_LINES,
     SKIP_GITHUB_APP_PROBE: process.env.SKIP_GITHUB_APP_PROBE,
     SKIP_REDIS_PROBE: process.env.SKIP_REDIS_PROBE,
-    WALKTHROUGH_SUMMARIZER_MODEL: process.env.WALKTHROUGH_SUMMARIZER_MODEL,
   };
 
   const VALID_WEBHOOK_SECRET = 'webhook-test-secret-0123456789abcdef';
@@ -533,19 +532,6 @@ describe('ConfigService', () => {
     );
   });
 
-  describe('walkthroughSummarizerModel', () => {
-    it('defaults to claude-haiku-4-5-20251001 when env unset', () => {
-      setEnv({ ...HAPPY_ENV, WALKTHROUGH_SUMMARIZER_MODEL: undefined });
-      const config = new ConfigService();
-      expect(config.walkthroughSummarizerModel).toBe('claude-haiku-4-5-20251001');
-    });
-
-    it('honours WALKTHROUGH_SUMMARIZER_MODEL when set', () => {
-      setEnv({ ...HAPPY_ENV, WALKTHROUGH_SUMMARIZER_MODEL: 'custom-model' });
-      const config = new ConfigService();
-      expect(config.walkthroughSummarizerModel).toBe('custom-model');
-    });
-  });
 });
 
 // Module-level parser helpers are exported so module-definition-time
