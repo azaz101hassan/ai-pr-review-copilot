@@ -104,6 +104,81 @@ describe('SqliteReviewsRepository', () => {
     });
   });
 
+  describe('insertInProgress', () => {
+    it('reserves a row with placeholder retrieval/usage fields retrievable by findById', () => {
+      const createdAt = new Date('2026-05-27T11:00:00Z');
+      repo.insertInProgress({
+        id: 'ip-1',
+        pr_node_id: PR_NODE_ID,
+        model: 'claude-sonnet-4-6',
+        created_at: createdAt,
+      });
+
+      const row = repo.findById('ip-1')!;
+      expect(row).toBeDefined();
+      expect(row.status).toBe('in_progress');
+      expect(row.prompt_version).toBe('placeholder');
+      expect(row.diff_length).toBe(0);
+      expect(row.top_k).toBe(0);
+      expect(row.retrieved_chunk_ids).toBe('[]');
+      expect(row.retrieved_chunk_ids_hash).toBe('0'.repeat(64));
+      expect(row.model).toBe('claude-sonnet-4-6');
+      expect(row.pr_node_id).toBe(PR_NODE_ID);
+      expect(row.created_at.toISOString()).toBe(createdAt.toISOString());
+      expect(row.completed_at).toBeNull();
+      expect(row.created_by).toBeNull();
+      expect(row.input_tokens).toBeNull();
+      expect(row.output_tokens).toBeNull();
+      expect(row.cache_creation_input_tokens).toBeNull();
+      expect(row.cache_read_input_tokens).toBeNull();
+      expect(row.error_status).toBeNull();
+      expect(row.error_code).toBeNull();
+    });
+  });
+
+  describe('updateRetrievalMetadata', () => {
+    it('overwrites the six placeholder retrieval columns and touches nothing else', () => {
+      const createdAt = new Date('2026-05-27T11:30:00Z');
+      repo.insertInProgress({
+        id: 'urm-1',
+        pr_node_id: PR_NODE_ID,
+        model: 'placeholder-model',
+        created_at: createdAt,
+      });
+
+      repo.updateRetrievalMetadata('urm-1', {
+        diff_length: 4096,
+        model: 'claude-haiku-4-5',
+        prompt_version: 'v7',
+        top_k: 25,
+        retrieved_chunk_ids: JSON.stringify(['airbnb:no-var', 'team:eqeqeq']),
+        retrieved_chunk_ids_hash: 'f'.repeat(64),
+      });
+
+      const row = repo.findById('urm-1')!;
+      // The six columns are now the real values.
+      expect(row.diff_length).toBe(4096);
+      expect(row.model).toBe('claude-haiku-4-5');
+      expect(row.prompt_version).toBe('v7');
+      expect(row.top_k).toBe(25);
+      expect(JSON.parse(row.retrieved_chunk_ids)).toEqual([
+        'airbnb:no-var',
+        'team:eqeqeq',
+      ]);
+      expect(row.retrieved_chunk_ids_hash).toBe('f'.repeat(64));
+      // Everything else stays exactly as insertInProgress left it.
+      expect(row.status).toBe('in_progress');
+      expect(row.created_at.toISOString()).toBe(createdAt.toISOString());
+      expect(row.completed_at).toBeNull();
+      expect(row.input_tokens).toBeNull();
+      expect(row.output_tokens).toBeNull();
+      expect(row.cache_creation_input_tokens).toBeNull();
+      expect(row.cache_read_input_tokens).toBeNull();
+      expect(row.error_status).toBeNull();
+      expect(row.error_code).toBeNull();
+    });
+  });
+
   describe('markCompleted', () => {
     it('flips in_progress to completed and populates token columns', () => {
       repo.insert(makeReview({ id: 'rc' }));

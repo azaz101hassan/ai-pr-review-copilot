@@ -149,6 +149,8 @@ function makeProcessor(
   const insert = jest.fn();
   const reviewsRepo: IReviewRepository = {
     insert,
+    insertInProgress: jest.fn(),
+    updateRetrievalMetadata: jest.fn(),
     findById: jest.fn(),
     findAll: jest.fn().mockReturnValue([]),
     markCompleted: jest.fn(),
@@ -746,6 +748,8 @@ describe('ReviewsProcessor.drainGracefully', () => {
 
     const reviewsRepo: IReviewRepository = {
       insert: jest.fn(),
+      insertInProgress: jest.fn(),
+      updateRetrievalMetadata: jest.fn(),
       findById: jest.fn(),
       findAll: jest.fn().mockReturnValue([]),
       markCompleted: jest.fn(),

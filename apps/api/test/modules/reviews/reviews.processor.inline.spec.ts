@@ -146,6 +146,8 @@ function setup(opts: SetupOpts = {}) {
 
   const reviewsRepo: IReviewRepository = {
     insert: jest.fn(),
+    insertInProgress: jest.fn(),
+    updateRetrievalMetadata: jest.fn(),
     findById: jest.fn(),
     findAll: jest.fn().mockReturnValue([]),
     markCompleted: jest.fn(),

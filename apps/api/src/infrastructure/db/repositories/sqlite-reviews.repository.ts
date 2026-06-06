@@ -62,6 +62,39 @@ export class SqliteReviewsRepository implements IReviewRepository {
     this.db.drizzle.insert(reviews).values(record).run();
   }
 
+  // Reserve a row up front with zeroed/empty retrieval metadata and
+  // null usage. The 'placeholder' prompt_version flags the row as
+  // not-yet-reconciled; updateRetrievalMetadata overwrites these six
+  // columns once retrieval has run (or a skip/empty/failure path sets
+  // a standalone marker).
+  insertInProgress(args: {
+    id: string;
+    pr_node_id: string;
+    model: string;
+    created_at: Date;
+  }): void {
+    this.insert({
+      id: args.id,
+      pr_node_id: args.pr_node_id,
+      created_by: null,
+      diff_length: 0,
+      model: args.model,
+      prompt_version: 'placeholder',
+      top_k: 0,
+      retrieved_chunk_ids: '[]',
+      retrieved_chunk_ids_hash: '0'.repeat(64),
+      status: 'in_progress',
+      error_status: null,
+      error_code: null,
+      input_tokens: null,
+      output_tokens: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      created_at: args.created_at,
+      completed_at: null,
+    });
+  }
+
   findById(id: string): ReviewRecord | undefined {
     return this.db.drizzle.select().from(reviews).where(eq(reviews.id, id)).get();
   }
@@ -187,6 +220,36 @@ export class SqliteReviewsRepository implements IReviewRepository {
     if (Number(result.changes) === 0) {
       throw new Error(`no review row with id="${reviewId}"`);
     }
+  }
+
+  // Reconcile the six placeholder retrieval columns written by
+  // insertInProgress with their real values. Scoped to those columns
+  // only — status, tokens, error fields, created_at, and completed_at
+  // are left untouched so the lifecycle row keeps its in_progress
+  // reservation and any later markCompleted/markFailed semantics.
+  updateRetrievalMetadata(
+    reviewId: string,
+    patch: {
+      diff_length: number;
+      model: string;
+      prompt_version: string;
+      top_k: number;
+      retrieved_chunk_ids: string;
+      retrieved_chunk_ids_hash: string;
+    },
+  ): void {
+    this.db.drizzle
+      .update(reviews)
+      .set({
+        diff_length: patch.diff_length,
+        model: patch.model,
+        prompt_version: patch.prompt_version,
+        top_k: patch.top_k,
+        retrieved_chunk_ids: patch.retrieved_chunk_ids,
+        retrieved_chunk_ids_hash: patch.retrieved_chunk_ids_hash,
+      })
+      .where(eq(reviews.id, reviewId))
+      .run();
   }
 
   findRecentInProgressForPr(
