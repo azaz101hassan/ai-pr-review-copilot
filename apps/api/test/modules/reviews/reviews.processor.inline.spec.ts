@@ -6,6 +6,7 @@ import type { IReviewRepository } from '@/modules/reviews/types/review.repositor
 import type { IReviewFindingRepository } from '@/modules/reviews/types/review-finding.repository';
 import type { IPullRequestRepository } from '@/modules/webhooks/types/pull-request.repository';
 import type { ReviewsService } from '@/modules/reviews/reviews.service';
+import type { IWalkthroughSummarizer } from '@/modules/reviews/types/walkthrough-summarizer';
 import type { Job } from 'bullmq';
 import type { Octokit } from 'octokit';
 
@@ -211,6 +212,13 @@ function setup(opts: SetupOpts = {}) {
     setWalkthroughCommentId,
   };
 
+  // Best-effort summarizer — returns null so these inline-anchoring
+  // tests don't depend on prose; the success path persists null and
+  // continues to post the Review.
+  const summarizer: IWalkthroughSummarizer = {
+    summarize: jest.fn().mockResolvedValue(null),
+  };
+
   const config = new ConfigService();
   const processor = new ReviewsProcessor(
     authProvider,
@@ -219,6 +227,7 @@ function setup(opts: SetupOpts = {}) {
     findingsRepo,
     pullRequestsRepo,
     config,
+    summarizer,
   );
 
   return {
@@ -440,7 +449,7 @@ describe('ReviewsProcessor inline-comment flow', () => {
       //   - Step 8 in-progress create (cold cache → scan → create,
       //     502 + 1 retry = 2 calls; the failure is swallowed best-effort
       //     and the cache stays cold), then
-      //   - Step 10a terminal create (still cold → scan → create, 502 +
+      //   - Step 13a terminal create (still cold → scan → create, 502 +
       //     1 retry = 2 calls), which throws → comment_post_failed.
       // 2 + 2 = 4 createComment attempts.
       expect(create502).toHaveBeenCalledTimes(4);

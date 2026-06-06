@@ -54,6 +54,10 @@ import {
   REVIEW_QUEUE_NAME,
   ReviewJobData,
 } from './types/review-queue';
+import {
+  WALKTHROUGH_SUMMARIZER,
+  type IWalkthroughSummarizer,
+} from './types/walkthrough-summarizer';
 
 // BullMQ worker. One Processor instance per app boot — consumes jobs
 // off the `reviews` queue. The class extends WorkerHost (the modern
@@ -90,11 +94,18 @@ import {
 //       the row and findings. On failure: post a failed walkthrough AND
 //       PATCH the Step 7 in-progress check-run to skipped, then re-throw
 //       (Unrecoverable on terminal Anthropic).
-//   10. Sanitize each finding's title/message; format the body with the
-//       self-identifying header + UUID-validated marker; then POST in two
-//       steps that match the inline `Step 10a`/`Step 10b` markers:
-//        10a. upsert the walkthrough comment (terminal body).
-//        10b. POST the inlined Review (event=COMMENT, commit_id OMITTED
+//   10. Sanitize each finding's title/message into the working set used
+//       by the summarizer call and the body formatter below.
+//   11. Call the walkthrough summarizer (best-effort prose intro). It
+//       returns null on any failure and never throws into the worker.
+//   12. Persist the intro (or null) on the reserved row via
+//       setWalkthroughSummary — for the success body (wired in a later
+//       task) and the dashboard.
+//   13. Format the body with the self-identifying header + UUID-validated
+//       marker; then POST in two steps that match the inline
+//       `Step 13a`/`Step 13b` markers:
+//        13a. upsert the walkthrough comment (terminal body).
+//        13b. POST the inlined Review (event=COMMENT, commit_id OMITTED
 //             so GitHub defaults to the PR's current branch tip);
 //             skipped on zero findings.
 
@@ -147,6 +158,8 @@ export class ReviewsProcessor
     @Inject(PULL_REQUEST_REPOSITORY)
     private readonly pullRequestsRepo: IPullRequestRepository,
     private readonly config: ConfigService,
+    @Inject(WALKTHROUGH_SUMMARIZER)
+    private readonly summarizer: IWalkthroughSummarizer,
   ) {
     super();
   }
@@ -618,6 +631,8 @@ export class ReviewsProcessor
         );
       }
 
+      // Step 10 — sanitize each finding's title/message into the working
+      // set used by the summarizer call and the body formatter below.
       const sanitizedFindings: FindingWithSeverity[] = result.findings.map(
         (f) => ({
           rule_id: f.rule_id,
@@ -628,6 +643,35 @@ export class ReviewsProcessor
           severity: f.severity,
         }),
       );
+
+      // Step 11 — summarizer (best-effort prose intro). Returns null on
+      // any failure and never throws; persisted on the row for the
+      // success body (wired in a later task) and the dashboard.
+      let summary: { intro: string } | null = null;
+      try {
+        summary = await this.summarizer.summarize({
+          diff,
+          findings: sanitizedFindings.map((f) => ({
+            rule_id: f.rule_id,
+            title: f.title,
+            severity: f.severity,
+          })),
+          retrievedRules: result.retrievedRules.map((r) => ({
+            rule_id: r.rule_id,
+            source: r.source,
+            title: r.title,
+          })),
+        });
+      } catch (err) {
+        // Best-effort: the summarizer is contractually no-throw, but guard the
+        // worker so a contract regression can never turn a completed review into
+        // a retried/duplicated job. A null intro just renders the mechanical body.
+        this.logger.warn(
+          `${jobLogPrefix} worker.summarizer.failed ${formatBriefError(err)}`,
+        );
+      }
+      // Step 12 — persist the intro (or null) on the reserved row.
+      this.reviewsRepo.setWalkthroughSummary(reviewId, summary?.intro ?? null);
 
       const diffHunks = parseDiffHunks(diff);
       const partition = anchorFindingsToDiff({
@@ -643,7 +687,7 @@ export class ReviewsProcessor
         outsideDiff: partition.outsideDiff,
       });
 
-      // Step 10a — Walkthrough upsert. Failure here is terminal. The
+      // Step 13a — Walkthrough upsert. Failure here is terminal. The
       // terminal post omits createIfAbsent, so in practice this resolves
       // to 'created' or 'patched' ('skipped' is a createIfAbsent-only
       // outcome); the wider type just mirrors the method signature.
@@ -670,7 +714,7 @@ export class ReviewsProcessor
         throw new UnrecoverableError(formatBriefError(err));
       }
 
-      // Step 10b — inlined Review (skip on zero findings).
+      // Step 13b — inlined Review (skip on zero findings).
       let inlinePosted = false;
       if (sanitizedFindings.length > 0) {
         const reviewBody = formatReviewBody({

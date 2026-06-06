@@ -6,6 +6,7 @@ import type { IReviewRepository } from '@/modules/reviews/types/review.repositor
 import type { IReviewFindingRepository } from '@/modules/reviews/types/review-finding.repository';
 import type { IPullRequestRepository } from '@/modules/webhooks/types/pull-request.repository';
 import type { ReviewsService } from '@/modules/reviews/reviews.service';
+import type { IWalkthroughSummarizer } from '@/modules/reviews/types/walkthrough-summarizer';
 import type { Job } from 'bullmq';
 import type { Octokit } from 'octokit';
 
@@ -112,6 +113,9 @@ interface ProcessorParts {
   updateRetrievalMetadata: jest.Mock;
   getWalkthroughCommentId: jest.Mock;
   setWalkthroughCommentId: jest.Mock;
+  setWalkthroughSummary: jest.Mock;
+  summarizer: IWalkthroughSummarizer;
+  summarize: jest.Mock;
 }
 
 function makeProcessor(
@@ -126,6 +130,9 @@ function makeProcessor(
     // value models a re-review (a walkthrough already exists), which
     // makes Step 8's createIfAbsent short-circuit to 'skipped'.
     walkthroughCachedId: number | null;
+    // Override the summarizer mock — e.g. a null-returning summarize to
+    // exercise the failure-persists-null branch.
+    summarizer: IWalkthroughSummarizer;
   }> = {},
 ): { processor: ReviewsProcessor } & ProcessorParts {
   const octokit = overrides.octokit ?? makeOctokit();
@@ -163,6 +170,7 @@ function makeProcessor(
   const insert = jest.fn();
   const insertInProgress = jest.fn();
   const updateRetrievalMetadata = jest.fn();
+  const setWalkthroughSummary = jest.fn();
   const reviewsRepo: IReviewRepository = {
     insert,
     insertInProgress,
@@ -189,7 +197,7 @@ function makeProcessor(
     distinctRepos: jest.fn().mockReturnValue([]),
     distinctAuthors: jest.fn().mockReturnValue([]),
     setCheckRunId: jest.fn(),
-    setWalkthroughSummary: jest.fn(),
+    setWalkthroughSummary,
   };
 
   const findingsRepo: IReviewFindingRepository = {
@@ -197,6 +205,14 @@ function makeProcessor(
     findByReviewId: jest.fn().mockReturnValue([]),
     findByPrNodeIdForPriorReview: jest.fn().mockReturnValue([]),
   };
+
+  // Default happy-path summarizer: returns a non-null intro so the
+  // success path exercises a real prose summary. Tests asserting the
+  // failure branch pass an override whose summarize resolves null.
+  const summarizer: IWalkthroughSummarizer = overrides.summarizer ?? {
+    summarize: jest.fn().mockResolvedValue({ intro: 'A concise summary.' }),
+  };
+  const summarize = summarizer.summarize as jest.Mock;
 
   // Stateful walkthrough-comment-id cache. setWalkthroughCommentId
   // writes the closed-over slot and getWalkthroughCommentId reads it,
@@ -226,6 +242,7 @@ function makeProcessor(
     findingsRepo,
     pullRequestsRepo,
     config,
+    summarizer,
   );
 
   return {
@@ -244,6 +261,9 @@ function makeProcessor(
     updateRetrievalMetadata,
     getWalkthroughCommentId,
     setWalkthroughCommentId,
+    setWalkthroughSummary,
+    summarizer,
+    summarize,
   };
 }
 
@@ -273,6 +293,84 @@ describe('ReviewsProcessor.process — happy path', () => {
     expect(reviewArgs.body).toContain('ai-pr-review-copilot:v1:review-id=');
     // retries: 0 sent through the request options.
     expect(reviewArgs.request).toEqual({ retries: 0 });
+  });
+});
+
+describe('ReviewsProcessor.process — walkthrough summarizer (Step 11/12)', () => {
+  it('calls the summarizer with the diff, findings, and retrieved rules on success, and persists the intro', async () => {
+    const parts = makeProcessor();
+    // Forward the worker-allocated id (so the UUID-match check passes)
+    // while injecting a populated retrievedRules so the summarizer call
+    // shape can be asserted end-to-end.
+    parts.runRealReview.mockImplementation(
+      async (input: { reviewId?: string }) => ({
+        ...happyServiceResult(input.reviewId),
+        retrievedRules: [
+          {
+            rule_id: 'rule.test',
+            source: 'team-handbook',
+            title: 'A retrieved rule',
+          },
+        ],
+      }),
+    );
+
+    await parts.processor.process(makeJob());
+
+    // Capture the worker-allocated review id from the insertInProgress call.
+    const reservedId = parts.insertInProgress.mock.calls[0][0].id as string;
+
+    expect(parts.summarize).toHaveBeenCalledTimes(1);
+    const summarizeArg = parts.summarize.mock.calls[0][0];
+    expect(typeof summarizeArg.diff).toBe('string');
+    expect(summarizeArg.diff.length).toBeGreaterThan(0);
+    expect(summarizeArg.findings).toEqual([
+      { rule_id: 'rule.test', title: 'A finding', severity: 'warning' },
+    ]);
+    expect(summarizeArg.retrievedRules).toEqual([
+      { rule_id: 'rule.test', source: 'team-handbook', title: 'A retrieved rule' },
+    ]);
+
+    expect(parts.setWalkthroughSummary).toHaveBeenCalledTimes(1);
+    expect(parts.setWalkthroughSummary).toHaveBeenCalledWith(
+      reservedId,
+      'A concise summary.',
+    );
+  });
+
+  it('persists null when the summarizer returns null (failure), without throwing', async () => {
+    const summarize = jest.fn().mockResolvedValue(null);
+    const parts = makeProcessor({ summarizer: { summarize } });
+
+    await expect(parts.processor.process(makeJob())).resolves.toBeUndefined();
+
+    const reservedId = parts.insertInProgress.mock.calls[0][0].id as string;
+
+    expect(summarize).toHaveBeenCalledTimes(1);
+    expect(parts.setWalkthroughSummary).toHaveBeenCalledTimes(1);
+    expect(parts.setWalkthroughSummary).toHaveBeenCalledWith(reservedId, null);
+    // The review still posts — the summarizer is best-effort and its
+    // null result does not abort the terminal Review.
+    expect(parts.octokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists null and still posts the review when the summarizer throws', async () => {
+    const parts = makeProcessor();
+    // Override the summarize mock to reject — simulates a contract regression
+    // where the summarizer throws instead of returning null.
+    (parts.summarize as jest.Mock).mockRejectedValueOnce(
+      new Error('summarizer exploded'),
+    );
+
+    await expect(parts.processor.process(makeJob())).resolves.toBeUndefined();
+
+    const reservedId = parts.insertInProgress.mock.calls[0][0].id as string;
+
+    // The try/catch swallowed the throw and fell through to the persist step.
+    expect(parts.setWalkthroughSummary).toHaveBeenCalledTimes(1);
+    expect(parts.setWalkthroughSummary).toHaveBeenCalledWith(reservedId, null);
+    // The review still posts — a throwing summarizer must not abort the job.
+    expect(parts.octokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1263,6 +1361,9 @@ describe('ReviewsProcessor.drainGracefully', () => {
       getWalkthroughCommentId: jest.fn().mockReturnValue(null),
       setWalkthroughCommentId: jest.fn(),
     };
+    const summarizer: IWalkthroughSummarizer = {
+      summarize: jest.fn().mockResolvedValue(null),
+    };
     const config = new ConfigService();
     const processor = new TestProcessor(
       authProvider,
@@ -1271,6 +1372,7 @@ describe('ReviewsProcessor.drainGracefully', () => {
       findingsRepo,
       pullRequestsRepo,
       config,
+      summarizer,
     );
     return { processor, markRowsFailedByIdSet };
   }
