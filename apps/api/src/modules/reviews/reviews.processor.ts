@@ -426,7 +426,6 @@ export class ReviewsProcessor
         diffHunks,
       });
       const counts = countBySeverity(sanitizedFindings);
-      const hasOutsideDiff = partition.outsideDiff.length > 0;
 
       const walkthroughBody = formatWalkthroughBody({
         prNodeId: data.pr_node_id,
@@ -465,7 +464,8 @@ export class ReviewsProcessor
         const reviewBody = formatReviewBody({
           reviewId,
           counts,
-          hasOutsideDiff,
+          retrievedRulesCount: result.retrievedRules.length,
+          outsideDiff: partition.outsideDiff,
         });
 
         const inlineComments = partition.anchorable.map((a) => ({

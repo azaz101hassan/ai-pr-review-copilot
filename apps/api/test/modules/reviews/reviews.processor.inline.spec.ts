@@ -114,6 +114,7 @@ function happyServiceResult(reviewId: string | undefined, findings: unknown[]) {
     prompt_version: 'v3',
     turn_count: 1,
     tool_calls: [],
+    retrievedRules: [],
   };
 }
 
