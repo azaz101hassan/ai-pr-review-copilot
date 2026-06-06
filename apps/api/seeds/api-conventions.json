@@ -42,7 +42,7 @@
       }
     },
     {
-      "id": "no-floating-promises",
+      "id": "await-or-catch-promises",
       "severity": "error",
       "language": "typescript",
       "category": "async",
@@ -54,7 +54,7 @@
       }
     },
     {
-      "id": "no-await-in-loop",
+      "id": "parallelize-independent-awaits",
       "severity": "warning",
       "language": "typescript",
       "category": "performance",
@@ -78,7 +78,7 @@
       }
     },
     {
-      "id": "no-non-null-assertion",
+      "id": "prefer-typed-guard-over-bang",
       "severity": "warning",
       "language": "typescript",
       "category": "type-safety",
@@ -90,7 +90,7 @@
       }
     },
     {
-      "id": "no-explicit-any",
+      "id": "prefer-unknown-over-any",
       "severity": "warning",
       "language": "typescript",
       "category": "type-safety",
@@ -114,7 +114,7 @@
       }
     },
     {
-      "id": "no-magic-numbers",
+      "id": "name-magic-numbers-as-const",
       "severity": "warning",
       "language": "typescript",
       "category": "readability",
@@ -186,7 +186,7 @@
       }
     },
     {
-      "id": "no-empty-catch",
+      "id": "log-or-rethrow-in-catch",
       "severity": "error",
       "language": "typescript",
       "category": "error-handling",
