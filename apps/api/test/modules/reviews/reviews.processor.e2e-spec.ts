@@ -2,6 +2,7 @@ import { DynamicModule, INestApplication, ValidationPipe } from '@nestjs/common'
 import { APP_GUARD } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -436,5 +437,104 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     // The echo-first-only stub LLM emits exactly one finding for the no-var
     // fixture; runRealReview persists it via the REAL findingsRepo.insertMany.
     expect(findingsRepo.findByReviewId(reservedId)).toHaveLength(1);
+  });
+
+  it('sweep: PATCHes a prior completed review\'s check-run to neutral before posting the new check-run (real findMostRecentPriorCheckRun query)', async () => {
+    const { prNodeId, headSha, prNumber } = seedPr();
+
+    // Seed TWO prior completed reviews sharing this prNodeId, each with a
+    // distinct check-run id and created_at. markCompleted flips them out of
+    // 'in_progress' so the per-PR guard (which filters on status='in_progress')
+    // does not block the new job. findMostRecentPriorCheckRun orders by
+    // created_at DESC limit 1, so only the NEWER prior (999) may be retired;
+    // the OLDER prior (888) must be left untouched. Seeding both makes the
+    // real query's recency ordering + single-row selection load-bearing here
+    // (a single prior row could not catch an asc/desc ordering regression).
+    const olderPriorId = randomUUID();
+    reviewsRepo.insertInProgress({
+      id: olderPriorId,
+      pr_node_id: prNodeId,
+      model: 'stub-model',
+      created_at: new Date(Date.now() - 120_000),
+    });
+    reviewsRepo.markCompleted(olderPriorId, {
+      completed_at: new Date(Date.now() - 115_000),
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+    });
+    reviewsRepo.setCheckRunId(olderPriorId, 888);
+
+    const priorId = randomUUID();
+    reviewsRepo.insertInProgress({
+      id: priorId,
+      pr_node_id: prNodeId,
+      model: 'stub-model',
+      created_at: new Date(Date.now() - 60_000),
+    });
+    reviewsRepo.markCompleted(priorId, {
+      completed_at: new Date(Date.now() - 55_000),
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+    });
+    // Tag the newer prior row with a distinct check-run id (999) so we can
+    // assert the sweep PATCH targets it specifically, not TEST_CHECK_RUN_ID
+    // and not the older prior's 888.
+    reviewsRepo.setCheckRunId(priorId, 999);
+
+    // Confirm the prior row was written correctly before running the job.
+    const priorRow = reviewsRepo.findById(priorId);
+    expect(priorRow?.status).toBe('completed');
+    expect(priorRow?.check_run_id).toBe(999);
+
+    const octokit = authProvider.octokit;
+    const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
+    const checksCreate = octokit.rest.checks.create as unknown as jest.Mock;
+
+    await processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }));
+
+    // The sweep fires ONCE (for the prior check-run id=999). The new
+    // review's success PATCH fires ONCE (for TEST_CHECK_RUN_ID). Total: 2
+    // calls to checks.update.
+    expect(checksUpdate).toHaveBeenCalledTimes(2);
+
+    // Locate the sweep PATCH by check_run_id=999 among all update calls.
+    const sweepCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number }]) => args[0].check_run_id === 999,
+    ) as [{ check_run_id: number; status: string; conclusion: string; output: { title: string; summary: string } }] | undefined;
+    expect(sweepCall).toBeDefined();
+    const sweepArg = sweepCall![0];
+    expect(sweepArg.status).toBe('completed');
+    expect(sweepArg.conclusion).toBe('neutral');
+    expect(sweepArg.output.title).toBe('Superseded by newer review on this PR.');
+
+    // The OLDER prior (888) must NOT be swept — only the most recent prior
+    // check-run is retired (orderBy created_at DESC limit 1). Its absence
+    // among the update calls (combined with the called-twice assertion above)
+    // proves the real query selected the newer row, not the older.
+    const olderSweepCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number }]) => args[0].check_run_id === 888,
+    );
+    expect(olderSweepCall).toBeUndefined();
+
+    // Locate the success PATCH by check_run_id=TEST_CHECK_RUN_ID.
+    const successCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number }]) => args[0].check_run_id === TEST_CHECK_RUN_ID,
+    ) as [{ check_run_id: number; status: string; conclusion: string }] | undefined;
+    expect(successCall).toBeDefined();
+    const successArg = successCall![0];
+    expect(successArg.status).toBe('completed');
+    expect(successArg.conclusion).toBe('success');
+
+    // The sweep PATCH (Step 4b) must fire BEFORE the new check-run POST
+    // (Step 7's checks.create). Verified via the global monotonic
+    // invocation-call-order counter.
+    const sweepCallIdx = checksUpdate.mock.calls.indexOf(sweepCall!);
+    const sweepOrder = checksUpdate.mock.invocationCallOrder[sweepCallIdx];
+    const createOrder = checksCreate.mock.invocationCallOrder[0];
+    expect(sweepOrder).toBeLessThan(createOrder);
   });
 });
