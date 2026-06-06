@@ -308,7 +308,13 @@ export class ReviewsProcessor
         // Finalize the reserved row in place as a standalone failure —
         // overwrite the placeholder retrieval marker, then markFailed
         // with the GitHub status so eval/dashboard see the attempt.
+        // Mirror the pulls.get branch above: 404/410 → pr_closed_during_review,
+        // other statuses → generic github_api_error.
         const status = readStatus(err);
+        const errorCode =
+          status === 404 || status === 410
+            ? 'pr_closed_during_review'
+            : 'github_api_error';
         this.reviewsRepo.updateRetrievalMetadata(reviewId, {
           diff_length: 0,
           model: this.config.activeModel(),
@@ -320,10 +326,17 @@ export class ReviewsProcessor
         this.reviewsRepo.markFailed(reviewId, {
           completed_at: new Date(),
           error_status: status,
-          error_code: 'github_api_error',
+          error_code: errorCode,
         });
+        // 401 means the cached Octokit's installation token is now
+        // invalid — drop the cache entry so the next forInstallation
+        // call mints fresh. 404/410 are gone-resource conditions;
+        // the auth is fine, no invalidate.
         if (status === 401) {
           this.githubAuth.invalidateInstallation(data.installation_id);
+        }
+        // 401 / 404 / 410 are terminal — no retry would help.
+        if (status === 401 || status === 404 || status === 410) {
           throw new UnrecoverableError(formatBriefError(err));
         }
         // Retryable GitHub failure on the diff fetch — same rationale as
@@ -603,15 +616,30 @@ export class ReviewsProcessor
         // PATCH the Step 7 in-progress check-run to a terminal skipped
         // state so the merge-box status doesn't dangle "in progress"
         // after the agent loop failed. No-op when no check-run was posted
-        // (checkRunId null — install lacks the Checks permission).
-        await this.patchCheckRunTerminal(octokit, data, checkRunId, {
-          mode: 'failed',
-          reasonCopy: isTurnCap
-            ? 'the reviewer did not converge within the turn limit'
-            : isAnthropicErrorLike(err)
-              ? 'the language-model call was rejected'
-              : 'an internal error',
-        });
+        // (checkRunId null — install lacks the Checks permission). If the
+        // PATCH itself fails (transient GitHub error, expired token,
+        // etc.), the row will be marked failed and the next sweep — which
+        // only targets `status = 'in_progress'` rows — would skip this
+        // leaked check-run forever. Fall back to a fresh terminal POST so
+        // the merge box at least gets a terminal signal even if the
+        // original in-progress check-run stays orphaned on GitHub.
+        const failureCopy = isTurnCap
+          ? 'the reviewer did not converge within the turn limit'
+          : isAnthropicErrorLike(err)
+            ? 'the language-model call was rejected'
+            : 'an internal error';
+        const patched = await this.patchCheckRunTerminal(
+          octokit,
+          data,
+          checkRunId,
+          { mode: 'failed', reasonCopy: failureCopy },
+        );
+        if (!patched) {
+          await this.postTerminalCheckRun(octokit, data, reviewId, {
+            mode: 'failed',
+            reasonCopy: failureCopy,
+          });
+        }
         // Terminal Anthropic errors (credit_balance_too_low,
         // invalid_request_error, etc.) must not retry — a retry of the
         // same agent loop would produce the same failure AND burn
@@ -1124,16 +1152,18 @@ export class ReviewsProcessor
   // PATCH an existing (in-progress) check-run to a terminal skipped state.
   // Used by the agent-loop failure path on the review branch, where Step 7
   // already posted an in-progress check-run whose id is the in-scope local.
-  // No-op when no check-run was posted (checkRunId null).
+  // Returns true when no PATCH was needed (no check-run posted) or the PATCH
+  // succeeded; false when the PATCH failed and the caller should fall back to
+  // a fresh terminal POST so the merge-box doesn't dangle "in progress".
   private async patchCheckRunTerminal(
     octokit: Octokit,
     data: ReviewJobData,
     checkRunId: number | null,
     output: FormatCheckRunOutputInput,
-  ): Promise<void> {
-    if (checkRunId === null) return;
+  ): Promise<boolean> {
+    if (checkRunId === null) return true;
     const formatted = formatCheckRunOutput(output);
-    await this.tryPatchCheckRun({
+    return this.tryPatchCheckRun({
       octokit,
       owner: data.owner,
       repo: data.repo,
@@ -1148,6 +1178,9 @@ export class ReviewsProcessor
   // the terminal-state PATCH on completion AND the sweep step
   // that retires leaked prior check runs at the start of a
   // fresh job. Idempotent against already-terminal check runs.
+  // Returns true when the PATCH succeeded so callers (e.g. the
+  // failure-path terminal PATCH) can fall back to a fresh terminal
+  // POST instead of leaving the merge-box stuck "in progress".
   private async tryPatchCheckRun(args: {
     octokit: Octokit;
     owner: string;
@@ -1163,7 +1196,7 @@ export class ReviewsProcessor
       | 'action_required';
     title: string;
     summary: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     try {
       await args.octokit.rest.checks.update({
         owner: args.owner,
@@ -1173,10 +1206,12 @@ export class ReviewsProcessor
         conclusion: args.conclusion,
         output: { title: args.title, summary: args.summary },
       });
+      return true;
     } catch (err) {
       this.logger.warn(
         `worker.check_run.patch_failed id=${args.check_run_id} ${formatBriefError(err)}`,
       );
+      return false;
     }
   }
 

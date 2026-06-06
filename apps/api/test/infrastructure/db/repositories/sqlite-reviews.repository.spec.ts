@@ -1373,6 +1373,41 @@ describe('SqliteReviewsRepository', () => {
       });
       expect(found).toBeUndefined();
     });
+
+    it('ignores rows whose review is already terminal (completed / failed)', () => {
+      const t0 = NOW.getTime();
+      // A completed prior review with a check_run_id — must NOT be swept,
+      // its check-run is already terminal. Sweeping it would overwrite a
+      // green check-run with "Superseded by newer review".
+      repo.insert(
+        makeReview({
+          id: 'pcr-completed',
+          status: 'completed',
+          created_at: new Date(t0 + 10_000),
+          completed_at: new Date(t0 + 12_000),
+        }),
+      );
+      repo.setCheckRunId('pcr-completed', 700);
+      // A failed prior review with a check_run_id — same reasoning.
+      repo.insert(
+        makeReview({
+          id: 'pcr-failed',
+          status: 'failed',
+          created_at: new Date(t0 + 5_000),
+          completed_at: new Date(t0 + 6_000),
+        }),
+      );
+      repo.setCheckRunId('pcr-failed', 800);
+      // An older in_progress row — this is the one a sweep should target.
+      repo.insert(makeReview({ id: 'pcr-leaked', created_at: new Date(t0) }));
+      repo.setCheckRunId('pcr-leaked', 900);
+
+      const found = repo.findMostRecentPriorCheckRun({
+        prNodeId: PR_NODE_ID,
+        excludingReviewId: 'some-current-id',
+      });
+      expect(found).toEqual({ reviewId: 'pcr-leaked', checkRunId: 900 });
+    });
   });
 
   describe('setWalkthroughSummary', () => {

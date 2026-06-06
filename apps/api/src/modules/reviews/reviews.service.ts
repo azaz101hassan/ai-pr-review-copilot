@@ -232,6 +232,17 @@ export class ReviewsService implements OnModuleInit {
       ? this.reviews.findById(reviewId)
       : undefined;
 
+    // Reconcile is only safe against a row the worker just reserved
+    // (status='in_progress'). Reusing a UUID that points to an
+    // already-terminal row (completed / failed) would silently
+    // overwrite the historical retrieval metadata of a finished
+    // review — fail loudly instead.
+    if (existingRow && existingRow.status !== 'in_progress') {
+      throw new ReviewsServiceError(
+        `runDryRun.input.reviewId "${reviewId}" already exists with terminal status "${existingRow.status}"`,
+      );
+    }
+
     const retrievalMetadata = {
       diff_length: diffLength,
       // Best-effort placeholder — overwritten with the real model id

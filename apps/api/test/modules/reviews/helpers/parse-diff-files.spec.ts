@@ -48,4 +48,23 @@ Binary files a/img.png and b/img.png differ
   it('returns an empty array for an empty diff', () => {
     expect(parseDiffFiles('')).toEqual([]);
   });
+
+  it('does not misread content lines that begin with `++` or `--` as file headers', () => {
+    // An added line whose own content is `++foo` shows up as `+++foo` in the
+    // diff stream; a removed line whose own content is `--bar` shows up as
+    // `---bar`. Neither is a file-header marker (those are `+++ b/path` or
+    // `--- a/path` with a space + `a/`/`b/` / `/dev/null` prefix) and both
+    // must count toward added/removed.
+    const diff = `diff --git a/notes.md b/notes.md
+index 1111..2222 100644
+--- a/notes.md
++++ b/notes.md
+@@ -1,2 +1,2 @@
+-- bar
+++ foo
+`;
+    expect(parseDiffFiles(diff)).toEqual([
+      { path: 'notes.md', added: 1, removed: 1 },
+    ]);
+  });
 });

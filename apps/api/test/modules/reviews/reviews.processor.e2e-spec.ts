@@ -459,30 +459,33 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     expect(findingsRepo.findByReviewId(reservedId)).toHaveLength(1);
   });
 
-  it('sweep: PATCHes a prior completed review\'s check-run to neutral before posting the new check-run (real findMostRecentPriorCheckRun query)', async () => {
+  it('sweep: PATCHes a prior leaked in_progress check-run to neutral, leaves the older in_progress and any terminal priors untouched (real findMostRecentPriorCheckRun query)', async () => {
     const { prNodeId, headSha, prNumber } = seedPr();
 
-    // Seed TWO prior completed reviews sharing this prNodeId, each with a
-    // distinct check-run id and created_at. markCompleted flips them out of
-    // 'in_progress' so the per-PR guard (which filters on status='in_progress')
-    // does not block the new job. findMostRecentPriorCheckRun orders by
-    // created_at DESC limit 1, so only the NEWER prior (999) may be retired;
-    // the OLDER prior (888) must be left untouched. Seeding both makes the
-    // real query's recency ordering + single-row selection load-bearing here
-    // (a single prior row could not catch an asc/desc ordering regression).
+    // Seed three prior rows for this prNodeId, all OLDER than
+    // GUARD_LOOKBACK_MS (10 min) so the per-PR in-flight guard does
+    // not skip the new job. findMostRecentPriorCheckRun targets
+    // `status = 'in_progress'` rows with a non-null check_run_id,
+    // orders by created_at DESC, and returns one row.
+    //
+    //   1. An OLD leaked in_progress (check_run_id=888) — eligible
+    //      by status but not by recency, must be left alone.
+    //   2. A NEWER leaked in_progress (check_run_id=999) — eligible
+    //      by both status and recency, must be the swept target.
+    //   3. A still-newer COMPLETED row (check_run_id=777) — even
+    //      though it is the most recent prior, the status filter
+    //      added to the sweep query must skip it. PATCHing it
+    //      would overwrite a green check-run with "Superseded by
+    //      newer review", which is exactly the bug T1 prevents.
+    //
+    // Seeding all three makes both the recency ordering AND the
+    // status filter load-bearing in one assertion.
     const olderPriorId = randomUUID();
     reviewsRepo.insertInProgress({
       id: olderPriorId,
       pr_node_id: prNodeId,
       model: 'stub-model',
-      created_at: new Date(Date.now() - 120_000),
-    });
-    reviewsRepo.markCompleted(olderPriorId, {
-      completed_at: new Date(Date.now() - 115_000),
-      input_tokens: 10,
-      output_tokens: 5,
-      cache_creation_input_tokens: null,
-      cache_read_input_tokens: null,
+      created_at: new Date(Date.now() - 900_000),
     });
     reviewsRepo.setCheckRunId(olderPriorId, 888);
 
@@ -491,24 +494,30 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
       id: priorId,
       pr_node_id: prNodeId,
       model: 'stub-model',
-      created_at: new Date(Date.now() - 60_000),
+      created_at: new Date(Date.now() - 800_000),
     });
-    reviewsRepo.markCompleted(priorId, {
-      completed_at: new Date(Date.now() - 55_000),
+    reviewsRepo.setCheckRunId(priorId, 999);
+
+    const completedPriorId = randomUUID();
+    reviewsRepo.insertInProgress({
+      id: completedPriorId,
+      pr_node_id: prNodeId,
+      model: 'stub-model',
+      created_at: new Date(Date.now() - 700_000),
+    });
+    reviewsRepo.markCompleted(completedPriorId, {
+      completed_at: new Date(Date.now() - 695_000),
       input_tokens: 10,
       output_tokens: 5,
       cache_creation_input_tokens: null,
       cache_read_input_tokens: null,
     });
-    // Tag the newer prior row with a distinct check-run id (999) so we can
-    // assert the sweep PATCH targets it specifically, not TEST_CHECK_RUN_ID
-    // and not the older prior's 888.
-    reviewsRepo.setCheckRunId(priorId, 999);
+    reviewsRepo.setCheckRunId(completedPriorId, 777);
 
-    // Confirm the prior row was written correctly before running the job.
-    const priorRow = reviewsRepo.findById(priorId);
-    expect(priorRow?.status).toBe('completed');
-    expect(priorRow?.check_run_id).toBe(999);
+    // Confirm the leaked prior rows were written correctly before running the job.
+    expect(reviewsRepo.findById(priorId)?.status).toBe('in_progress');
+    expect(reviewsRepo.findById(priorId)?.check_run_id).toBe(999);
+    expect(reviewsRepo.findById(completedPriorId)?.status).toBe('completed');
 
     const octokit = authProvider.octokit;
     const checksUpdate = octokit.rest.checks.update as unknown as jest.Mock;
@@ -516,9 +525,9 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
 
     await processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber }));
 
-    // The sweep fires ONCE (for the prior check-run id=999). The new
-    // review's success PATCH fires ONCE (for TEST_CHECK_RUN_ID). Total: 2
-    // calls to checks.update.
+    // The sweep fires ONCE (for the leaked prior check-run id=999). The
+    // new review's success PATCH fires ONCE (for TEST_CHECK_RUN_ID).
+    // Total: 2 calls to checks.update.
     expect(checksUpdate).toHaveBeenCalledTimes(2);
 
     // Locate the sweep PATCH by check_run_id=999 among all update calls.
@@ -531,14 +540,19 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     expect(sweepArg.conclusion).toBe('neutral');
     expect(sweepArg.output.title).toBe('Superseded by newer review on this PR.');
 
-    // The OLDER prior (888) must NOT be swept — only the most recent prior
-    // check-run is retired (orderBy created_at DESC limit 1). Its absence
-    // among the update calls (combined with the called-twice assertion above)
-    // proves the real query selected the newer row, not the older.
+    // The OLDER in_progress prior (888) must NOT be swept — recency
+    // ordering keeps it out. The COMPLETED prior (777) — even though
+    // it is the MOST RECENT prior — must also be left alone because
+    // its check-run is already terminal. PATCHing it would overwrite
+    // a green check-run with "Superseded by newer review".
     const olderSweepCall = checksUpdate.mock.calls.find(
       (args: [{ check_run_id: number }]) => args[0].check_run_id === 888,
     );
     expect(olderSweepCall).toBeUndefined();
+    const completedSweepCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number }]) => args[0].check_run_id === 777,
+    );
+    expect(completedSweepCall).toBeUndefined();
 
     // Locate the success PATCH by check_run_id=TEST_CHECK_RUN_ID.
     const successCall = checksUpdate.mock.calls.find(
@@ -989,7 +1003,7 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     expect(row?.check_run_id).toBe(TEST_CHECK_RUN_ID);
   });
 
-  it('BullMQ retry: the second attempt sweeps the prior failed attempt\'s check-run and posts a fresh one', async () => {
+  it('BullMQ retry: attempt 1 terminalizes its own check-run on failure, attempt 2 posts a fresh one and finds nothing to sweep', async () => {
     // ONE PR identity shared by both attempts.
     const { prNodeId, headSha, prNumber } = seedPr();
 
@@ -1014,6 +1028,9 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
       processor.process(makeJob({ pr_node_id: prNodeId, head_sha: headSha, pr_number: prNumber })),
     ).rejects.toThrow();
     // Attempt 1 row is now: status='failed', check_run_id=4242.
+    // The failure-path PATCH already terminalized 4242 to 'skipped' inline,
+    // so the row's status='failed' AND the check-run is terminal on GitHub —
+    // there is nothing left for the next sweep to clean.
 
     // --- Attempt 2 (succeeds) ---
     stubLlm.mode = 'echo-first-only';
@@ -1024,21 +1041,29 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     // reuse attempt 1's id — it POSTs a brand-new check-run at Step 7.
     expect(checksCreate).toHaveBeenCalledTimes(2);
 
-    // --- Assertion 2: attempt 2's Step 4b swept attempt 1's check-run to neutral ---
-    // findMostRecentPriorCheckRun found check_run_id=4242 (the attempt 1 failed
-    // row) and called tryPatchCheckRun with conclusion='neutral'. Locate the
-    // call by check_run_id + conclusion to distinguish it from the skipped
-    // patch attempt 1 posted (also targeting 4242 but with conclusion='skipped').
-    const sweepCall = checksUpdate.mock.calls.find(
+    // --- Assertion 2: NO sweep PATCH on attempt 2 ---
+    // The sweep query (findMostRecentPriorCheckRun) only targets rows with
+    // status='in_progress'. Attempt 1's failure-path already PATCHed 4242 to
+    // 'skipped' and marked its row 'failed', so the sweep finds nothing.
+    // Targeting a terminal check-run would overwrite the "skipped" conclusion
+    // with "Superseded by newer review", erasing the original failure signal —
+    // exactly the regression T1 prevents.
+    const sweepNeutralCall = checksUpdate.mock.calls.find(
       (args: [{ check_run_id: number; conclusion: string }]) =>
         args[0].check_run_id === 4242 && args[0].conclusion === 'neutral',
-    ) as
-      | [{ check_run_id: number; conclusion: string; output: { title: string } }]
-      | undefined;
-    expect(sweepCall).toBeDefined();
-    expect(sweepCall![0].output.title).toBe('Superseded by newer review on this PR.');
+    );
+    expect(sweepNeutralCall).toBeUndefined();
 
-    // --- Assertion 3: attempt 2's terminal success PATCH targets 5151 ---
+    // --- Assertion 3: attempt 1's own terminal PATCH targets 4242 (skipped) ---
+    // The failure-path PATCH attempt 1 performed itself is observable in the
+    // call log — exactly one update on 4242, conclusion='skipped'.
+    const attempt1FailedCall = checksUpdate.mock.calls.find(
+      (args: [{ check_run_id: number; conclusion: string }]) =>
+        args[0].check_run_id === 4242 && args[0].conclusion === 'skipped',
+    ) as [{ check_run_id: number; conclusion: string }] | undefined;
+    expect(attempt1FailedCall).toBeDefined();
+
+    // --- Assertion 4: attempt 2's terminal success PATCH targets 5151 ---
     const successCall = checksUpdate.mock.calls.find(
       (args: [{ check_run_id: number; conclusion: string }]) =>
         args[0].check_run_id === 5151 && args[0].conclusion === 'success',
@@ -1046,7 +1071,7 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     expect(successCall).toBeDefined();
     expect(successCall![0].status).toBe('completed');
 
-    // --- Assertion 4: real-DB — TWO reviews rows for this prNodeId ---
+    // --- Assertion 5: real-DB — TWO reviews rows for this prNodeId ---
     // insertSpy captured both insertInProgress calls in order.
     expect(insertSpy).toHaveBeenCalledTimes(2);
     const attempt1Id = insertSpy.mock.calls[0][0].id;
@@ -1062,7 +1087,7 @@ describe('ReviewsProcessor (e2e — real SQLite repositories)', () => {
     expect(attempt2Row?.status).toBe('completed');
     expect(attempt2Row?.check_run_id).toBe(5151);
 
-    // --- Assertion 5: pulls.createReview called exactly once (attempt 2 only) ---
+    // --- Assertion 6: pulls.createReview called exactly once (attempt 2 only) ---
     // Attempt 1 threw before reaching Step 13b; attempt 2 completed and emitted
     // one finding for the no-var fixture, so shouldPostReview is true.
     expect(pullsCreateReview).toHaveBeenCalledTimes(1);

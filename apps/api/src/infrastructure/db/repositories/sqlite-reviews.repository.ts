@@ -294,6 +294,7 @@ export class SqliteReviewsRepository implements IReviewRepository {
         and(
           eq(reviews.pr_node_id, opts.prNodeId),
           ne(reviews.id, opts.excludingReviewId),
+          eq(reviews.status, 'in_progress'),
           isNotNull(reviews.check_run_id),
         ),
       )

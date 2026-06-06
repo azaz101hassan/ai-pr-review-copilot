@@ -36,11 +36,13 @@ export function parseDiffFiles(diff: string): DiffFileEntry[] {
       current.binary = true;
       continue;
     }
-    // Skip non-content header lines
+    // Skip non-content header lines. The `+++ ... / --- ...` check uses a
+    // strict pattern so content lines whose own content begins with `++` or
+    // `--` (e.g., an added `++foo` line shows up as `+++foo` in the diff
+    // stream) are not misread as file headers and dropped from the count.
     if (
       line.startsWith('index ') ||
-      line.startsWith('+++') ||
-      line.startsWith('---') ||
+      /^(\+\+\+|---) (a\/|b\/|\/dev\/null)/.test(line) ||
       line.startsWith('@@') ||
       line.startsWith('new file mode') ||
       line.startsWith('deleted file mode') ||
