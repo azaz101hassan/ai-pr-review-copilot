@@ -1,5 +1,6 @@
-// apps/api/src/infrastructure/llm/anthropic-walkthrough-summarizer.ts
-import type Anthropic from '@anthropic-ai/sdk';
+// apps/api/src/infrastructure/llm/openrouter-walkthrough-summarizer.ts
+import type OpenAI from 'openai';
+import type { ChatCompletion } from 'openai/resources/chat/completions';
 import { Logger } from '@nestjs/common';
 import {
   IWalkthroughSummarizer,
@@ -11,23 +12,23 @@ import { SUMMARIZER_MAX_TOKENS, SUMMARIZER_DEFAULT_TIMEOUT_MS } from './llm.cons
 import { buildSummarizerUserMessage } from './helpers/build-summarizer-user-message';
 import { violatesFindingsGuard } from './helpers/summarizer-findings-guard';
 
-export interface AnthropicWalkthroughSummarizerOptions {
+export interface OpenRouterWalkthroughSummarizerOptions {
   model: string;
   timeoutMs?: number;
 }
 
-export class AnthropicWalkthroughSummarizer implements IWalkthroughSummarizer {
-  private readonly logger = new Logger(AnthropicWalkthroughSummarizer.name);
+export class OpenRouterWalkthroughSummarizer implements IWalkthroughSummarizer {
+  private readonly logger = new Logger(OpenRouterWalkthroughSummarizer.name);
 
   constructor(
-    private readonly client: Anthropic,
-    private readonly options: AnthropicWalkthroughSummarizerOptions,
+    private readonly client: OpenAI,
+    private readonly options: OpenRouterWalkthroughSummarizerOptions,
   ) {}
 
   async summarize(
     input: WalkthroughSummarizerInput,
   ): Promise<WalkthroughSummarizerResult | null> {
-    // Orchestration mirrors its sibling summarizer (openrouter); keep the timeout + never-throws handling in sync.
+    // Orchestration mirrors its sibling summarizer (anthropic); keep the timeout + never-throws handling in sync.
     const userMessage = buildSummarizerUserMessage(input);
     const timeoutMs = this.options.timeoutMs ?? SUMMARIZER_DEFAULT_TIMEOUT_MS;
 
@@ -37,17 +38,19 @@ export class AnthropicWalkthroughSummarizer implements IWalkthroughSummarizer {
     // the event loop alive ~timeoutMs and trips Jest open-handle warnings.
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
-    let response: Anthropic.Messages.Message;
+    let response: ChatCompletion;
     try {
       // NOTE: the timeout fires via Promise.race and returns null promptly,
       // but it does NOT abort the in-flight HTTP request — an accepted,
       // bounded tradeoff for this best-effort once-per-review seam.
       response = (await Promise.race([
-        this.client.messages.create({
+        this.client.chat.completions.create({
           model: this.options.model,
           max_tokens: SUMMARIZER_MAX_TOKENS,
-          system: WALKTHROUGH_SUMMARIZER_SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: userMessage }],
+          messages: [
+            { role: 'system', content: WALKTHROUGH_SUMMARIZER_SYSTEM_PROMPT },
+            { role: 'user', content: userMessage },
+          ],
         }),
         new Promise<never>((_, reject) => {
           timeoutHandle = setTimeout(
@@ -55,7 +58,7 @@ export class AnthropicWalkthroughSummarizer implements IWalkthroughSummarizer {
             timeoutMs,
           );
         }),
-      ])) as Anthropic.Messages.Message;
+      ])) as ChatCompletion;
     } catch (err) {
       this.logger.warn(
         `summarizer.failed ${err instanceof Error ? err.message : String(err)}`,
@@ -83,12 +86,15 @@ export class AnthropicWalkthroughSummarizer implements IWalkthroughSummarizer {
   }
 }
 
-function extractText(response: Anthropic.Messages.Message): string | null {
-  if (!response || !Array.isArray(response.content)) return null;
-  const block = response.content.find(
-    (b): b is Anthropic.Messages.TextBlock => b?.type === 'text',
-  );
-  if (!block || typeof block.text !== 'string') return null;
-  const trimmed = block.text.trim();
+function extractText(response: unknown): string | null {
+  if (!response || !Array.isArray((response as ChatCompletion).choices)) {
+    return null;
+  }
+  const message = (response as ChatCompletion).choices[0]?.message;
+  // OpenAI's message.content is `string | null` (null for tool/function
+  // responses); the typeof guard rejects null and any off-spec shape.
+  const content = message?.content;
+  if (typeof content !== 'string') return null;
+  const trimmed = content.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
