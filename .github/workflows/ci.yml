@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Node 22 LTS — broad prebuilt coverage for better-sqlite3. Local
           # dev uses Node 24; bump here once Node 24 prebuilds settle.
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
